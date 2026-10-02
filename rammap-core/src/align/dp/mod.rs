@@ -153,6 +153,15 @@ pub use single::{extend_single_affine, extend_single_affine_scalar};
 // Re-export public API from dual-affine
 pub use dual::{extend_dual_affine, extend_dual_affine_scalar};
 
+/// Whether the current read is a speculative dry run (GPU path; always false otherwise).
+#[inline]
+pub fn speculating() -> bool {
+    #[cfg(feature = "gpu")]
+    { gpu::speculating() }
+    #[cfg(not(feature = "gpu"))]
+    { false }
+}
+
 /// `extend_dual_affine`, or the GPU when built with `--features gpu`, enabled by `RAMMAP_GPU`,
 /// and the call is eligible (see `gpu.rs`). Results are identical either way.
 #[inline]
@@ -161,9 +170,15 @@ pub fn extend_dual_affine_dispatch(qseq: &[u8], tseq: &[u8], alphabet_size: i8, 
                                    gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8, bandwidth: i32,
                                    z_drop: i32, end_bonus: i32, flags: i32, result: &mut DpResult) {
     #[cfg(feature = "gpu")]
-    if gpu::try_offload(qseq, tseq, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop,
-                        end_bonus, flags, result) {
-        return;
+    {
+        if gpu::try_offload(qseq, tseq, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop,
+                            end_bonus, flags, result) {
+            return;
+        }
+        if gpu::speculating() {   // dry run: this read's output will be discarded
+            gpu::placeholder(qseq.len(), tseq.len(), flags, result);
+            return;
+        }
     }
     extend_dual_affine(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2,
                        bandwidth, z_drop, end_bonus, flags, result);

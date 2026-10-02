@@ -1485,29 +1485,110 @@ fn map_one_part(
                     Ok(acc)
                 });
 
-                while let Ok(chunk_data) = rx.recv() {
-                    if chunk_data.is_empty() { break; }
+                // Each iteration aligns one new chunk *plus* the re-runs of earlier chunks' pending
+                // reads, so with the GPU path on (`--features gpu`, RAMMAP_GPU=1) the GPU works on
+                // one round's requests while the CPU works on the next round. A read that needs an
+                // uncached GPU DP result finishes as a speculative dry run that queues its GPU
+                // requests; its output is discarded and it is re-run in the next iteration, after
+                // `wait_pending` has cached those results. Chunks are written strictly in order,
+                // once all their reads are done. Without the GPU path every read completes in its
+                // chunk's first iteration, which is the original one-chunk-at-a-time behaviour.
+                #[cfg(feature = "gpu")]
+                let gpu_on = rammap::align::dp::gpu::enabled();
+                #[cfg(not(feature = "gpu"))]
+                #[allow(unused_variables)]
+                let gpu_on = false;
+                let verbose = gpu_on && std::env::var_os("RAMMAP_GPU_VERBOSE").is_some();
+                // A read still pending after this many speculative attempts (chains of z-drop
+                // mispredictions, typically one ultra-long read) finishes on the CPU instead.
+                const MAX_GPU_ATTEMPTS: u8 = 3;
+                let align_one = |ctx: &mut rammap::align::extend::AlignmentContext,
+                                 map_ctx: &mut rammap::align::map::MapContext,
+                                 (qname, qseq, qual, comment): &SeData, use_gpu: bool| {
+                    let ri = ReadInfo { qname, qseq, qual: qual.as_deref(), comment: comment.as_deref(), n_seg: 1, seg_idx: 0 };
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        #[allow(unused_mut)]
+                        let mut run = || rammap::align::pipeline::align_and_format_query(
+                            opt, mi, &ri, ctx, map_ctx, junc_db.as_ref(),
+                            jump_db.as_ref(), out_cfg,
+                        );
+                        #[cfg(feature = "gpu")]
+                        if use_gpu { return rammap::align::dp::gpu::retry_scope(run); }
+                        let _ = use_gpu;
+                        run()
+                    }))
+                };
+                struct OpenChunk {
+                    data: Vec<SeData>,
+                    done: Vec<Option<(String, AlignmentStats)>>,
+                    pending: Vec<usize>,
+                    attempts: Vec<u8>,
+                }
+                let mut open: std::collections::VecDeque<OpenChunk> = std::collections::VecDeque::new();
+                let mut input_done = false;
+                for iter in 0usize.. {
+                    if !input_done {
+                        match rx.recv() {
+                            Ok(chunk_data) if !chunk_data.is_empty() => {
+                                let n = chunk_data.len();
+                                open.push_back(OpenChunk { data: chunk_data, done: (0..n).map(|_| None).collect(),
+                                                           pending: (0..n).collect(), attempts: vec![0; n] });
+                            }
+                            _ => input_done = true,
+                        }
+                    }
+                    if open.is_empty() { break; }
+                    assert!(iter < 1_000_000, "GPU retry did not converge");
 
-                    let results: Vec<(String, AlignmentStats)> = chunk_data.par_iter().map_init(
+                    // Results for every GPU request queued in the previous iteration.
+                    let t_wait = std::time::Instant::now();
+                    #[cfg(feature = "gpu")]
+                    if gpu_on { rammap::align::dp::gpu::wait_pending(); }
+                    let wait_s = t_wait.elapsed().as_secs_f64();
+
+                    let work: Vec<(usize, usize)> = open.iter().enumerate()
+                        .flat_map(|(ci, o)| o.pending.iter().map(move |&ri| (ci, ri)))
+                        .collect();
+                    for o in open.iter_mut() { o.pending.clear(); }
+                    let t_cpu = std::time::Instant::now();
+                    let attempted: Vec<(usize, usize, Option<(String, AlignmentStats)>)> = work.par_iter().map_init(
                         || (rammap::align::extend::AlignmentContext::new(), rammap::align::map::MapContext::new()),
-                        |(ctx, map_ctx), (qname, qseq, qual, comment)| {
-                            let ri = ReadInfo { qname, qseq, qual: qual.as_deref(), comment: comment.as_deref(), n_seg: 1, seg_idx: 0 };
-                            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                rammap::align::pipeline::align_and_format_query(
-                                    opt, mi, &ri, ctx, map_ctx, junc_db.as_ref(),
-                                    jump_db.as_ref(), out_cfg,
-                                )
-                            })) {
-                                Ok(result) => result,
+                        |(ctx, map_ctx), &(ci, ri)| {
+                            let read = &open[ci].data[ri];
+                            let use_gpu = gpu_on && open[ci].attempts[ri] < MAX_GPU_ATTEMPTS;
+                            let attempt = align_one(ctx, map_ctx, read, use_gpu);
+                            #[cfg(feature = "gpu")]
+                            if use_gpu && rammap::align::dp::gpu::was_speculative() { return (ci, ri, None); }
+                            match attempt {
+                                Ok(result) => (ci, ri, Some(result)),
                                 Err(_) => {
-                                    eprintln!("[WARNING] alignment panicked for read: {}", qname);
-                                    (String::new(), AlignmentStats::default())
+                                    eprintln!("[WARNING] alignment panicked for read: {}", read.0);
+                                    (ci, ri, Some((String::new(), AlignmentStats::default())))
                                 }
                             }
                         }
                     ).collect();
-
-                    if tx_out.send(results).is_err() { break; }
+                    let cpu_s = t_cpu.elapsed().as_secs_f64();
+                    for (ci, ri, r) in attempted {
+                        match r {
+                            Some(x) => open[ci].done[ri] = Some(x),
+                            None => { open[ci].pending.push(ri); open[ci].attempts[ri] += 1; }
+                        }
+                    }
+                    if verbose {
+                        let n_pend: usize = open.iter().map(|o| o.pending.len()).sum();
+                        eprintln!("[gpu] iter {iter}: gpu wait {wait_s:.2}s, cpu {cpu_s:.2}s on {} reads, {} still pending, {} open chunks",
+                                  work.len(), n_pend, open.len());
+                    }
+                    let mut send_failed = false;
+                    while open.front().is_some_and(|o| o.pending.is_empty()) {
+                        let o = open.pop_front().unwrap();
+                        let results: Vec<(String, AlignmentStats)> = o.done.into_iter().map(|r| r.expect("every read aligned")).collect();
+                        if tx_out.send(results).is_err() { send_failed = true; break; }
+                    }
+                    if send_failed { break; }
+                    #[cfg(feature = "gpu")]
+                    if gpu_on && open.is_empty() { rammap::align::dp::gpu::clear_cache(); }
                 }
                 drop(tx_out);
                 writer_handle.join().expect("writer thread panicked")
