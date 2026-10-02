@@ -53,7 +53,7 @@ __device__ __forceinline__ int8_t w8(int v) { return (int8_t)v; }  // wrap to in
 
 constexpr int BLOCK = 256;
 
-__global__ void __launch_bounds__(BLOCK)
+__global__ void __launch_bounds__(BLOCK, 4)
 dp_fwd(const SegIn* __restrict__ segs, SegOut* __restrict__ outs,
        const uint8_t* __restrict__ qbuf, const uint8_t* __restrict__ tbuf,
        uint8_t* __restrict__ tb_pool, Scoring sc, int with_tb) {

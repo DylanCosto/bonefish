@@ -10,8 +10,10 @@
 //!      anchors, so one speculative pass predicts nearly all of the read's GPU requests.
 //!      The read's output is discarded ([`was_speculative`]) and it is re-run next round.
 //!   3. Background GPU workers drain the queue in large batches *while the round runs*.
-//!   4. [`wait_pending`] waits for the queue to empty; pending reads are re-run exactly, now
-//!      hitting the cache; repeat until none are pending. [`clear_cache`] frees the chunk.
+//!   4. [`wait_pending`] waits for the queue to empty, with the otherwise idle CPU threads
+//!      taking queued jobs too (computed by the CPU DP, so the cached results are identical);
+//!      pending reads are re-run exactly, now hitting the cache, until none are pending.
+//!      [`clear_cache`] frees the results.
 //! Results are bit-identical to the AVX2 path (`cuda/gpu_dp.cu`), so output is unchanged.
 //!
 //! Offload only happens inside [`retry_scope`], which callers that implement the retry loop
@@ -178,6 +180,7 @@ struct Service {
     done_cv: Condvar,
     ctxs: Vec<Mutex<Ctx>>,
     jobs: AtomicU64,
+    cpu_jobs: AtomicU64,
     rounds: AtomicU64,
     hits: AtomicU64,
     cells: AtomicU64,
@@ -204,6 +207,7 @@ fn service() -> Option<&'static Service> {
             done_cv: Condvar::new(),
             ctxs: (0..n_workers).map(|_| Mutex::new(Ctx(std::ptr::null_mut()))).collect(),
             jobs: AtomicU64::new(0),
+            cpu_jobs: AtomicU64::new(0),
             rounds: AtomicU64::new(0),
             hits: AtomicU64::new(0),
             cells: AtomicU64::new(0),
@@ -284,9 +288,10 @@ pub fn try_offload(qseq: &[u8], tseq: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e
 }
 
 /// Jobs a worker waits to accumulate before launching mid-round (bigger batches fill the GPU).
-const BATCH_TARGET: usize = 1024;
-/// Most jobs per launch, so several workers share a large backlog.
-const BATCH_MAX: usize = 4096;
+const BATCH_TARGET: usize = 256;
+/// Most jobs per launch: enough for several waves of blocks, small enough that a backlog stays
+/// in the queue where idle CPU threads can steal it.
+const BATCH_MAX: usize = 384;
 
 fn worker(svc: &'static Service, w: usize) {
     loop {
@@ -319,22 +324,55 @@ fn worker(svc: &'static Service, w: usize) {
     }
 }
 
+/// CPU threads steal this many queued jobs per thread at a time while waiting.
+const STEAL_PER_THREAD: usize = 4;
+
 /// End of a round: run everything still queued and wait until all requests are cached.
-/// Returns the number of GPU jobs completed since the previous call.
+/// While the GPU works through a backlog, the CPU threads (idle at this point) take queued
+/// jobs from the back of the queue (GPU workers take from the front) and compute them with
+/// the CPU DP. Returns the number of jobs completed since the previous call.
 pub fn wait_pending() -> usize {
     let Some(svc) = service() else { return 0 };
     static LAST: AtomicU64 = AtomicU64::new(0);
+    let threads = rayon::current_num_threads().max(1);
     let mut p = svc.pending.lock().unwrap();
     p.flush = true;
     svc.work_cv.notify_all();
     while !p.jobs.is_empty() || p.in_flight > 0 {
-        p = svc.done_cv.wait(p).unwrap();
+        if p.jobs.is_empty() {
+            p = svc.done_cv.wait(p).unwrap();
+            continue;
+        }
+        let take = p.jobs.len().min(threads * STEAL_PER_THREAD);
+        let at = p.jobs.len() - take;
+        let stolen: Vec<Job> = p.jobs.drain(at..).collect();
+        p.in_flight += stolen.len();
+        drop(p);
+        run_on_cpu(svc, &stolen);
+        p = svc.pending.lock().unwrap();
+        p.in_flight -= stolen.len();
+        for j in &stolen { p.keys.remove(&j.key); }
+        svc.done_cv.notify_all();
     }
     p.flush = false;
     drop(p);
     svc.rounds.fetch_add(1, Ordering::Relaxed);
     let now = svc.jobs.load(Ordering::Relaxed);
     (now - LAST.swap(now, Ordering::Relaxed)) as usize
+}
+
+/// Compute jobs with the CPU dual-affine DP (the reference the GPU kernel matches bit for bit)
+/// in parallel on the rayon pool, and cache the results.
+fn run_on_cpu(svc: &Service, jobs: &[Job]) {
+    use rayon::prelude::*;
+    let sc = svc.scoring.get().expect("scoring set before first job");
+    jobs.par_iter().for_each(|j| {
+        let mut ez = DpResult::default();
+        super::extend_dual_affine(&j.q, &j.t, 5, &sc.mat, sc.q, sc.e, sc.q2, sc.e2, j.bw, j.zdrop, j.end_bonus, j.flags, &mut ez);
+        svc.cache[(j.key as usize) % SHARDS].lock().unwrap().insert(j.key, ez);
+    });
+    svc.cpu_jobs.fetch_add(jobs.len() as u64, Ordering::Relaxed);
+    svc.jobs.fetch_add(jobs.len() as u64, Ordering::Relaxed);
 }
 
 fn run_share(svc: &Service, w: usize, jobs: Vec<Job>) {
@@ -403,7 +441,7 @@ pub fn clear_cache() {
 /// One-line summary of GPU offload activity (None when the GPU path is off).
 pub fn report() -> Option<String> {
     let svc = (*SERVICE.get()?)?;
-    Some(format!("GPU DP offload ({} workers): {} segments over {} rounds, {} cache hits, {:.1} G cells, {:.1} s GPU worker time", svc.n_workers,
-                 svc.jobs.load(Ordering::Relaxed), svc.rounds.load(Ordering::Relaxed), svc.hits.load(Ordering::Relaxed),
+    Some(format!("GPU DP offload ({} workers): {} segments ({} stolen by CPU while waiting) over {} rounds, {} cache hits, {:.1} G cells on GPU, {:.1} s GPU worker time", svc.n_workers,
+                 svc.jobs.load(Ordering::Relaxed), svc.cpu_jobs.load(Ordering::Relaxed), svc.rounds.load(Ordering::Relaxed), svc.hits.load(Ordering::Relaxed),
                  svc.cells.load(Ordering::Relaxed) as f64 / 1e9, svc.gpu_us.load(Ordering::Relaxed) as f64 / 1e6))
 }
