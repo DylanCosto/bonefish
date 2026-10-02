@@ -1124,6 +1124,8 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
         eprintln!("[*] Done in {:.3}s ({} index part{}). No query file provided; skipping mapping.",
             total_time, n_parts, if n_parts != 1 { "s" } else { "" });
     } else {
+        #[cfg(feature = "census")]
+        rammap::align::dp::census::flush();
         let total_time = t_start.elapsed().as_secs_f64();
         eprintln!("[*] Mapping done in {:.3}s ({} index part{})", total_time, n_parts, if n_parts != 1 { "s" } else { "" });
 

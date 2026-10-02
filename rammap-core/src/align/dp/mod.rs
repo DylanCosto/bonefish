@@ -17,6 +17,8 @@ mod single;
 mod dual;
 mod splice;
 mod lw;
+#[cfg(feature = "census")]
+pub mod census;
 
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 

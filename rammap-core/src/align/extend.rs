@@ -1699,6 +1699,8 @@ pub fn align_anchors(
         let left_zdrop = if split_inv { zdrop_inv } else { zdrop };
 
         let mut ez = DpResult::default();
+        #[cfg(feature = "census")]
+        let census_t0 = dp::census::start();
         // max_sw_mat check: skip alignment if matrix too large
         let sw_mat_size = q_rev.len() as i64 * t_rev.len() as i64;
         if max_sw_mat > 0 && sw_mat_size > max_sw_mat {
@@ -1713,6 +1715,9 @@ pub fn align_anchors(
         } else {
             dp::extend_dual_affine(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
         }
+        #[cfg(feature = "census")]
+        dp::census::finish(census_t0, dp::census::Kind::LeftExt, &q_rev, &t_rev,
+            &dp::census::Params { mat: &mat, q: q as i8, e: e as i8, q2: q2 as i8, e2: e2 as i8, bandwidth: bw, zdrop: left_zdrop, end_bonus, flags: flag }, &ez);
 
         if !ez.cigar.is_empty() {
             append_cigar(&mut raw_cigar, &ez.cigar);
@@ -1853,6 +1858,8 @@ pub fn align_anchors(
                     }
                     // First pass: APPROX_MAX
                     if !skip_full {
+                        #[cfg(feature = "census")]
+                        let census_t0 = dp::census::start();
                         if is_splice {
                             dp::extend_splice(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, noncan as i8, zdrop, gap_end_bonus, junc_bonus as i8, junc_pen as i8, splice_dp_flag | APPROX_MAX | generic_sc_flag, junc_gap.as_deref(), &mut ez);
                         } else if q == q2 && e == e2 {
@@ -1860,6 +1867,9 @@ pub fn align_anchors(
                         } else {
                             dp::extend_dual_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
+                        #[cfg(feature = "census")]
+                        dp::census::finish(census_t0, dp::census::Kind::Gap, q_sub, t_sub,
+                            &dp::census::Params { mat: &mat, q: q as i8, e: e as i8, q2: q2 as i8, e2: e2 as i8, bandwidth: bw1, zdrop, end_bonus: gap_end_bonus, flags: APPROX_MAX | generic_sc_flag }, &ez);
                     }
 
                     // Z-drop test
@@ -1869,6 +1879,8 @@ pub fn align_anchors(
                     if zdrop_code != 0 {
                         ez = DpResult::default();
                         let zdrop2 = if zdrop_code == 2 { zdrop_inv } else { zdrop };
+                        #[cfg(feature = "census")]
+                        let census_t0 = dp::census::start();
                         if is_splice {
                             dp::extend_splice(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, noncan as i8, zdrop2, gap_end_bonus, junc_bonus as i8, junc_pen as i8, splice_dp_flag | generic_sc_flag, junc_gap.as_deref(), &mut ez);
                         } else if q == q2 && e == e2 {
@@ -1876,6 +1888,9 @@ pub fn align_anchors(
                         } else {
                             dp::extend_dual_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop2, gap_end_bonus, generic_sc_flag, &mut ez);
                         }
+                        #[cfg(feature = "census")]
+                        dp::census::finish(census_t0, dp::census::Kind::GapRerun, q_sub, t_sub,
+                            &dp::census::Params { mat: &mat, q: q as i8, e: e as i8, q2: q2 as i8, e2: e2 as i8, bandwidth: bw1, zdrop: zdrop2, end_bonus: gap_end_bonus, flags: generic_sc_flag }, &ez);
                     }
                 }
 
@@ -1989,6 +2004,8 @@ pub fn align_anchors(
             // Right extension flags: EXTZ_ONLY
             let flag = EXTENSION_ONLY | generic_sc_flag;
             let mut ez = DpResult::default();
+            #[cfg(feature = "census")]
+            let census_t0 = dp::census::start();
             // max_sw_mat check: skip alignment if matrix too large
             let sw_mat_size = q_sub.len() as i64 * t_sub.len() as i64;
             if max_sw_mat > 0 && sw_mat_size > max_sw_mat {
@@ -2003,6 +2020,9 @@ pub fn align_anchors(
             } else {
                 dp::extend_dual_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, zdrop, end_bonus, flag, &mut ez);
             }
+            #[cfg(feature = "census")]
+            dp::census::finish(census_t0, dp::census::Kind::RightExt, q_sub, t_sub,
+                &dp::census::Params { mat: &mat, q: q as i8, e: e as i8, q2: q2 as i8, e2: e2 as i8, bandwidth: bw, zdrop, end_bonus, flags: flag }, &ez);
 
             if !ez.cigar.is_empty() {
                 append_cigar(&mut raw_cigar, &ez.cigar);

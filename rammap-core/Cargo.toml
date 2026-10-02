@@ -16,6 +16,8 @@ crate-type = ["cdylib", "rlib"]
 default = ["parallel"]
 parallel = ["rayon"]
 wasm-threads = ["rayon", "wasm-bindgen-rayon"]
+# Gate B DP census: record every extension/gap-fill DP call (see align/dp/census.rs).
+census = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
