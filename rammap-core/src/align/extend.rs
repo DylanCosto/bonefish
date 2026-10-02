@@ -1713,7 +1713,7 @@ pub fn align_anchors(
         } else if q == q2 && e == e2 {
             dp::extend_single_affine(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
         } else {
-            dp::extend_dual_affine(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
+            dp::extend_dual_affine_dispatch(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
         }
         #[cfg(feature = "census")]
         dp::census::finish(census_t0, dp::census::Kind::LeftExt, &q_rev, &t_rev,
@@ -1832,7 +1832,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            dp::extend_dual_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                     }
                     // Z-drop test applies to both paths
@@ -1847,7 +1847,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop2, gap_end_bonus, generic_sc_flag, &mut ez);
                         } else {
-                            dp::extend_dual_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop2, gap_end_bonus, generic_sc_flag, &mut ez);
+                            dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop2, gap_end_bonus, generic_sc_flag, &mut ez);
                         }
                     }
                 } else {
@@ -1865,7 +1865,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            dp::extend_dual_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                         #[cfg(feature = "census")]
                         dp::census::finish(census_t0, dp::census::Kind::Gap, q_sub, t_sub,
@@ -1886,7 +1886,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop2, gap_end_bonus, generic_sc_flag, &mut ez);
                         } else {
-                            dp::extend_dual_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop2, gap_end_bonus, generic_sc_flag, &mut ez);
+                            dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop2, gap_end_bonus, generic_sc_flag, &mut ez);
                         }
                         #[cfg(feature = "census")]
                         dp::census::finish(census_t0, dp::census::Kind::GapRerun, q_sub, t_sub,
@@ -2018,7 +2018,7 @@ pub fn align_anchors(
             } else if q == q2 && e == e2 {
                 dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw, zdrop, end_bonus, flag, &mut ez);
             } else {
-                dp::extend_dual_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, zdrop, end_bonus, flag, &mut ez);
+                dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, zdrop, end_bonus, flag, &mut ez);
             }
             #[cfg(feature = "census")]
             dp::census::finish(census_t0, dp::census::Kind::RightExt, q_sub, t_sub,

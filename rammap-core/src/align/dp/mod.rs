@@ -19,6 +19,8 @@ mod splice;
 mod lw;
 #[cfg(feature = "census")]
 pub mod census;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
@@ -150,6 +152,22 @@ pub use single::{extend_single_affine, extend_single_affine_scalar};
 
 // Re-export public API from dual-affine
 pub use dual::{extend_dual_affine, extend_dual_affine_scalar};
+
+/// `extend_dual_affine`, or the GPU when built with `--features gpu`, enabled by `RAMMAP_GPU`,
+/// and the call is eligible (see `gpu.rs`). Results are identical either way.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub fn extend_dual_affine_dispatch(qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
+                                   gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8, bandwidth: i32,
+                                   z_drop: i32, end_bonus: i32, flags: i32, result: &mut DpResult) {
+    #[cfg(feature = "gpu")]
+    if gpu::try_offload(qseq, tseq, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop,
+                        end_bonus, flags, result) {
+        return;
+    }
+    extend_dual_affine(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2,
+                       bandwidth, z_drop, end_bonus, flags, result);
+}
 
 // Re-export public API from splice
 pub use splice::{extend_splice, extend_splice_scalar};

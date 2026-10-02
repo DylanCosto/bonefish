@@ -1126,6 +1126,8 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     } else {
         #[cfg(feature = "census")]
         rammap::align::dp::census::flush();
+        #[cfg(feature = "gpu")]
+        if let Some(line) = rammap::align::dp::gpu::report() { eprintln!("[*] {line}"); }
         let total_time = t_start.elapsed().as_secs_f64();
         eprintln!("[*] Mapping done in {:.3}s ({} index part{})", total_time, n_parts, if n_parts != 1 { "s" } else { "" });
 
