@@ -3,7 +3,8 @@
 //! Compiled only with `--features census`; enabled at run time by `RAMMAP_CENSUS=<prefix>`.
 //! Writes `<prefix>.calls.bin` (one fixed 68-byte record per DP call) and
 //! `<prefix>.seqs.bin` (full inputs for every `RAMMAP_CENSUS_SEQ_EVERY`-th call, default
-//! 200, so kernels can be replayed exactly in the Gate C bake-off).
+//! 200, plus every call with max(qlen, tlen) >= `RAMMAP_CENSUS_SEQ_MIN` if set, so kernels
+//! can be replayed exactly).
 //!
 //! Records are buffered per thread and appended to a shared registry; `flush()` must be
 //! called once at the end of the run (rayon pool threads never run TLS destructors).
@@ -43,6 +44,7 @@ const FLUSH_BYTES: usize = 4 << 20;
 
 struct Config {
     seq_every: u64,
+    seq_min: usize,
     calls: Mutex<File>,
     seqs: Mutex<File>,
 }
@@ -71,9 +73,10 @@ fn config() -> Option<&'static Config> {
         .get_or_init(|| {
             let prefix = std::env::var("RAMMAP_CENSUS").ok()?;
             let seq_every = std::env::var("RAMMAP_CENSUS_SEQ_EVERY").ok().and_then(|s| s.parse().ok()).unwrap_or(200);
+            let seq_min = std::env::var("RAMMAP_CENSUS_SEQ_MIN").ok().and_then(|s| s.parse().ok()).unwrap_or(usize::MAX);
             let open = |ext: &str| File::create(format!("{prefix}.{ext}")).unwrap_or_else(|e| panic!("census: {prefix}.{ext}: {e}"));
             log::info!("DP census enabled: {prefix}.calls.bin / .seqs.bin (seq every {seq_every})");
-            Some(Config { seq_every, calls: Mutex::new(open("calls.bin")), seqs: Mutex::new(open("seqs.bin")) })
+            Some(Config { seq_every, seq_min, calls: Mutex::new(open("calls.bin")), seqs: Mutex::new(open("seqs.bin")) })
         })
         .as_ref()
 }
@@ -103,7 +106,8 @@ pub fn finish(t0: Option<Instant>, kind: Kind, qseq: &[u8], tseq: &[u8], p: &Par
     let ns = t0.elapsed().as_nanos().min(u32::MAX as u128) as u32;
 
     let (q_used, t_used, mism, ni, bi, nd, bd) = cigar_stats(&ez.cigar, qseq, tseq);
-    let dump = SEQ_COUNTER.fetch_add(1, Ordering::Relaxed) % cfg.seq_every == 0;
+    let dump = SEQ_COUNTER.fetch_add(1, Ordering::Relaxed) % cfg.seq_every == 0
+        || qseq.len().max(tseq.len()) >= cfg.seq_min;
     let dual = p.q != p.q2 || p.e != p.e2;
     // skipped: the max_sw_mat guard fired and no DP ran.
     let skipped = ez.cigar.is_empty() && ez.zdropped != 0 && ez.max_score_query_pos == -1;
