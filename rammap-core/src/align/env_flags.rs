@@ -35,3 +35,6 @@ pub static EXP_EXT_ZDROP: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMM
 pub static EXP_EXT_BW: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMMAP_EXP_EXT_BW"));
 /// RAMMAP_EXP_GAP_BW: cap on the long-gap-fill DP bandwidth (default: 1.5*w_long + 1).
 pub static EXP_GAP_BW: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMMAP_EXP_GAP_BW"));
+/// RAMMAP_EXP_GAP_BW_ADAPT=margin: gap-fill bandwidth = min(default, |qlen - tlen| + margin),
+/// so gaps holding a real large indel keep a band wide enough to cross it.
+pub static EXP_GAP_BW_ADAPT: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMMAP_EXP_GAP_BW_ADAPT"));

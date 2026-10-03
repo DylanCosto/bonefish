@@ -1774,6 +1774,10 @@ pub fn align_anchors(
             if is_long_join {
                 bw1 = cmp::max(anchor_qe - gap_qs, anchor_re - gap_rs);
             }
+            if let Some(margin) = *crate::align::env_flags::EXP_GAP_BW_ADAPT {
+                let diff = ((anchor_qe - gap_qs) - (anchor_re - gap_rs)).abs();
+                bw1 = cmp::max(bw, cmp::min(bw1, diff + margin));
+            }
 
             let q_start = cmp::max(0, gap_qs) as usize;
             let q_end = cmp::min(qlen, anchor_qe) as usize;
