@@ -58,7 +58,7 @@ struct AlignArgs {
     ///   map-iclr-prerender — ICLR pre-render variant
     ///   lr:hq            — accurate long reads (<1% error) vs reference
     ///   lr:hq-balanced   — lr:hq with near-output-preserving DP savings (--gap-bw-margin 500 --ungapped-fill)
-    ///   lr:hq-fast       — lr:hq with cheaper DP (--ext-bw 200 --gap-bw-margin 500 --ungapped-fill)
+    ///   lr:hq-fast       — lr:hq with cheaper DP (--ext-bw 200 --ext-rescue --gap-bw-margin 500 --ungapped-fill)
     ///   lr:hqae          — HQ long-read assembly eval (k=25 w=51, RMQ)
     ///   asm5 / asm10 / asm20 — asm-to-ref ~0.1/1/5% divergence
     ///   ava-ont / ava-pb — all-vs-all Nanopore / PacBio read overlap
@@ -276,6 +276,11 @@ struct AlignArgs {
     /// Try an ungapped fill first for equal-length gaps (long reads; short reads always do)
     #[arg(long)]
     pub ungapped_fill: bool,
+
+    /// With --ext-bw: re-run a z-dropped extension with the default band when its unaligned tail
+    /// shows an indel wider than the narrow band
+    #[arg(long)]
+    pub ext_rescue: bool,
 
     /// Score for ambiguous bases
     #[arg(long = "score-N")]
@@ -635,6 +640,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if let Some(v) = cli.ext_bw { opt.alignment.ext_bw = Some(v); }
     if let Some(v) = cli.gap_bw_margin { opt.alignment.gap_bw_margin = Some(v); }
     if cli.ungapped_fill { opt.alignment.ungapped_fill = true; }
+    if cli.ext_rescue { opt.alignment.ext_rescue = true; }
     if let Some(v) = cli.max_clip_ratio { opt.alignment.max_clip_ratio = v; }
     if let Some(v) = cli.mask_level { opt.filtering.mask_level = v; }
     if let Some(v) = cli.mask_len { opt.filtering.mask_len = v; }

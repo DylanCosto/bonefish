@@ -1373,6 +1373,58 @@ fn trim_and_prepare_anchors(
     }
 }
 
+/// Does the unaligned tail of a z-dropped extension still match the target at one consistent
+/// diagonal shift wider than `min_shift` (up to `max_shift`)? That is the signature of an indel
+/// too wide for a narrowed extension band, as opposed to divergent or junk sequence. Compares
+/// 15-mers of the first `TAIL` query bases past (qs, ts) against the target window and looks
+/// for >= 4 hits in one 8-wide diagonal bucket. Sequences are nt4 (0-3; 4 = N).
+fn tail_indel_shift(q: &[u8], t: &[u8], qs: usize, ts: usize, min_shift: i32, max_shift: i32) -> bool {
+    const K: usize = 15;
+    const TAIL: usize = 400;
+    const MAX_OCC: usize = 8;
+    if qs >= q.len() || ts >= t.len() {
+        return false;
+    }
+    let span = TAIL + max_shift as usize;
+    let qw = &q[qs..q.len().min(qs + span)];
+    let tw = &t[ts..t.len().min(ts + span)];
+    if qw.len() < K + 20 || tw.len() < K + 20 {
+        return false;
+    }
+    let mask: u32 = (1u32 << (2 * K)) - 1;
+    let kmers = |s: &[u8]| -> Vec<(usize, u32)> {
+        let mut out = Vec::with_capacity(s.len());
+        let (mut h, mut l) = (0u32, 0usize);
+        for (i, &c) in s.iter().enumerate() {
+            if c > 3 { l = 0; h = 0; continue; }
+            h = ((h << 2) | c as u32) & mask;
+            l += 1;
+            if l >= K { out.push((i + 1 - K, h)); }
+        }
+        out
+    };
+    let mut index: std::collections::HashMap<u32, Vec<i32>> = std::collections::HashMap::new();
+    for (j, h) in kmers(tw) {
+        index.entry(h).or_default().push(j as i32);
+    }
+    let nb = (2 * max_shift as usize) / 8 + 2;
+    let mut buckets = vec![0u16; nb];
+    for (i, h) in kmers(qw).into_iter().take_while(|&(i, _)| i < TAIL) {
+        if let Some(js) = index.get(&h) {
+            if js.len() > MAX_OCC { continue; }   // repeat k-mer: no positional information
+            for &j in js {
+                let d = j - i as i32;
+                if d.abs() <= max_shift {
+                    buckets[((d + max_shift) / 8) as usize] += 1;
+                }
+            }
+        }
+    }
+    let (best, cnt) = buckets.iter().enumerate().max_by_key(|&(_, &c)| c).map(|(b, &c)| (b, c)).unwrap();
+    let d = (best as i32) * 8 + 4 - max_shift;
+    cnt >= 4 && d.abs() > min_shift
+}
+
 /// Compute left extension boundary (rs0, qs0) for non-SR mode.
 /// `orig_anchor_rpos`/`orig_anchor_qpos`: raw coordinates of original chain start anchor.
 /// `seed_r_bound`/`seed_q_bound`: rs1/qs1 from nearby-seed inspection.
@@ -1564,6 +1616,7 @@ pub fn align_anchors(
     if let Some(cap) = *crate::align::env_flags::EXP_GAP_BW { bw_long = bw_long.min(cap); }
     if bw_long < bw { bw_long = bw; }
     let ext_bw = opt.alignment.ext_bw.or(*crate::align::env_flags::EXP_EXT_BW).unwrap_or(bw);
+    let ext_rescue = opt.alignment.ext_rescue || *crate::align::env_flags::EXP_EXT_RESCUE;
 
     let qlen = qseq.len() as i32;
     let tlen = tseq.len() as i32;
@@ -1717,6 +1770,12 @@ pub fn align_anchors(
             dp::extend_single_affine(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
         } else {
             dp::extend_dual_affine_dispatch(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, left_zdrop, end_bonus, flag, &mut ez);
+            if ext_rescue && ext_bw < bw && ez.zdropped != 0
+                && tail_indel_shift(&q_rev, &t_rev, (ez.max_score_query_pos + 1).max(0) as usize,
+                                    (ez.max_score_target_pos + 1).max(0) as usize, ext_bw * 3 / 4, bw) {
+                ez = DpResult::default();
+                dp::extend_dual_affine_dispatch(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
+            }
         }
         #[cfg(feature = "census")]
         dp::census::finish(census_t0, dp::census::Kind::LeftExt, &q_rev, &t_rev,
@@ -2028,6 +2087,12 @@ pub fn align_anchors(
             } else {
                 let ext_zdrop = crate::align::env_flags::EXP_EXT_ZDROP.unwrap_or(zdrop);
                 dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, ext_zdrop, end_bonus, flag, &mut ez);
+                if ext_rescue && ext_bw < bw && ez.zdropped != 0
+                    && tail_indel_shift(q_sub, t_sub, (ez.max_score_query_pos + 1).max(0) as usize,
+                                        (ez.max_score_target_pos + 1).max(0) as usize, ext_bw * 3 / 4, bw) {
+                    ez = DpResult::default();
+                    dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, ext_zdrop, end_bonus, flag, &mut ez);
+                }
             }
             #[cfg(feature = "census")]
             dp::census::finish(census_t0, dp::census::Kind::RightExt, q_sub, t_sub,

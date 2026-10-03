@@ -766,9 +766,6 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.chaining.max_gap = 10000;
             opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
         },
-        // lr:hq with cheaper DP (ont-aligner Phase 3): narrower extension band, adaptive
-        // gap-fill band, ungapped-first gap fill. ~2x faster than lr:hq on HG002 R10.4.1 sup
-        // with unchanged chr20 small-variant/SV accuracy; output differs from minimap2.
         // lr:hq with only the near-output-preserving DP savings (adaptive gap-fill band and
         // ungapped-first gap fill; extension band unchanged): 0.03% of chr22 primaries move,
         // SV accuracy unchanged. Use lr:hq-fast for the larger speedup.
@@ -779,11 +776,16 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.alignment.gap_bw_margin = Some(500);
             opt.alignment.ungapped_fill = true;
         },
+        // lr:hq with cheaper DP (ont-aligner Phase 3): narrower extension band (with a wide-band
+        // retry when an extension's tail shows a wider indel), adaptive gap-fill band,
+        // ungapped-first gap fill. ~1.9x faster than lr:hq on HG002 R10.4.1 sup with SNP, indel
+        // and SV accuracy at baseline level on chr20 and chr22; output differs from minimap2.
         "lr:hq-fast" => {
             *k = 19; *w = 19;
             opt.chaining.max_gap = 10000;
             opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
             opt.alignment.ext_bw = Some(200);
+            opt.alignment.ext_rescue = true;
             opt.alignment.gap_bw_margin = Some(500);
             opt.alignment.ungapped_fill = true;
         },

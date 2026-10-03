@@ -45,3 +45,6 @@ pub static EXP_RESCUE_COVER: LazyLock<Option<f32>> =
 /// RAMMAP_EXP_UNGAPPED: also use the short-read "ungapped first" gap fill for long reads
 /// (equal-length gaps whose ungapped score beats any gapped alternative skip DP).
 pub static EXP_UNGAPPED: LazyLock<bool> = LazyLock::new(|| flag("RAMMAP_EXP_UNGAPPED"));
+/// RAMMAP_EXP_EXT_RESCUE: re-run a z-dropped narrow-band extension with the default band when
+/// the unaligned tail still matches the reference at a diagonal shift wider than the band.
+pub static EXP_EXT_RESCUE: LazyLock<bool> = LazyLock::new(|| flag("RAMMAP_EXP_EXT_RESCUE"));

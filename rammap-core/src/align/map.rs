@@ -151,6 +151,9 @@ pub struct AlignmentParams {
     pub gap_bw_margin: Option<i32>,
     /// Ungapped-first gap fill for long reads (as minimap2 does for short reads).
     pub ungapped_fill: bool,
+    /// With a narrowed extension band: re-run z-dropped extensions with the default band when
+    /// the unaligned tail shows an indel wider than the narrow band.
+    pub ext_rescue: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -243,6 +246,7 @@ impl Default for MapOptions {
                 ext_bw: None,
                 gap_bw_margin: None,
                 ungapped_fill: false,
+                ext_rescue: false,
             },
             filtering: FilteringParams {
                 best_n: 5,
