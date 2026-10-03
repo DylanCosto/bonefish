@@ -1383,7 +1383,7 @@ fn compute_left_boundary(
     seed_r_bound: i32, seed_q_bound: i32,
     opt: &MapOptions,
 ) -> (i32, i32) {
-    let max_gap = opt.chaining.max_gap;
+    let max_gap = crate::align::env_flags::EXP_MAX_EXT.map_or(opt.chaining.max_gap, |m| m.min(opt.chaining.max_gap));
     let a = opt.scoring.match_score;
     let q = opt.scoring.gap_open;
     let e = opt.scoring.gap_extend;
@@ -1425,7 +1425,7 @@ fn compute_right_boundary(
     qlen: i32, tlen: i32,
     _seed_bounds: (i32, i32, i32, i32),
 ) -> (i32, i32) {
-    let max_gap = opt.chaining.max_gap;
+    let max_gap = crate::align::env_flags::EXP_MAX_EXT.map_or(opt.chaining.max_gap, |m| m.min(opt.chaining.max_gap));
     let a = opt.scoring.match_score;
     let q = opt.scoring.gap_open;
     let e = opt.scoring.gap_extend;
@@ -1696,7 +1696,8 @@ pub fn align_anchors(
         let flag = EXTENSION_ONLY | RIGHT_ALIGN | REV_CIGAR | generic_sc_flag;
 
         // Left extension zdrop: use zdrop_inv for split_inv chains
-        let left_zdrop = if split_inv { zdrop_inv } else { zdrop };
+        let ext_zdrop = crate::align::env_flags::EXP_EXT_ZDROP.unwrap_or(zdrop);
+        let left_zdrop = if split_inv { zdrop_inv } else { ext_zdrop };
 
         let mut ez = DpResult::default();
         #[cfg(feature = "census")]
@@ -2018,7 +2019,8 @@ pub fn align_anchors(
             } else if q == q2 && e == e2 {
                 dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw, zdrop, end_bonus, flag, &mut ez);
             } else {
-                dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, zdrop, end_bonus, flag, &mut ez);
+                let ext_zdrop = crate::align::env_flags::EXP_EXT_ZDROP.unwrap_or(zdrop);
+                dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, ext_zdrop, end_bonus, flag, &mut ez);
             }
             #[cfg(feature = "census")]
             dp::census::finish(census_t0, dp::census::Kind::RightExt, q_sub, t_sub,

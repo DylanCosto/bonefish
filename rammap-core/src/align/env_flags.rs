@@ -22,3 +22,12 @@ pub static FORCE_AVX512: LazyLock<bool> = LazyLock::new(|| flag("RAMMAP_FORCE_AV
 #[cfg(not(target_arch = "wasm32"))]
 pub static FORCE_SCALAR_CHAIN: LazyLock<bool> = LazyLock::new(|| flag("RAMMAP_FORCE_SCALAR_CHAIN"));
 pub static COMPARE_SCALAR: LazyLock<bool> = LazyLock::new(|| flag("RAMMAP_COMPARE_SCALAR"));
+
+// Phase 3 experiment knobs (extension work only; unset = minimap2 behaviour).
+fn int_env(name: &'static str) -> Option<i32> {
+    std::env::var(name).ok().and_then(|v| v.parse().ok())
+}
+/// RAMMAP_EXP_MAX_EXT: cap on the left/right extension window (default: max_gap).
+pub static EXP_MAX_EXT: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMMAP_EXP_MAX_EXT"));
+/// RAMMAP_EXP_EXT_ZDROP: z-drop for left/right extensions only (default: opt.alignment.zdrop).
+pub static EXP_EXT_ZDROP: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMMAP_EXP_EXT_ZDROP"));
