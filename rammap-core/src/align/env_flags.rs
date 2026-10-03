@@ -31,3 +31,7 @@ fn int_env(name: &'static str) -> Option<i32> {
 pub static EXP_MAX_EXT: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMMAP_EXP_MAX_EXT"));
 /// RAMMAP_EXP_EXT_ZDROP: z-drop for left/right extensions only (default: opt.alignment.zdrop).
 pub static EXP_EXT_ZDROP: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMMAP_EXP_EXT_ZDROP"));
+/// RAMMAP_EXP_EXT_BW: DP bandwidth for left/right extensions only (default: 1.5*w + 1).
+pub static EXP_EXT_BW: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMMAP_EXP_EXT_BW"));
+/// RAMMAP_EXP_GAP_BW: cap on the long-gap-fill DP bandwidth (default: 1.5*w_long + 1).
+pub static EXP_GAP_BW: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMMAP_EXP_GAP_BW"));

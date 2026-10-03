@@ -1561,7 +1561,9 @@ pub fn align_anchors(
     // Bandwidth scaling
     let bw = (w as f64 * 1.5 + 1.0) as i32;
     let mut bw_long = (w_long as f64 * 1.5 + 1.0) as i32;
+    if let Some(cap) = *crate::align::env_flags::EXP_GAP_BW { bw_long = bw_long.min(cap); }
     if bw_long < bw { bw_long = bw; }
+    let ext_bw = crate::align::env_flags::EXP_EXT_BW.unwrap_or(bw);
 
     let qlen = qseq.len() as i32;
     let tlen = tseq.len() as i32;
@@ -1714,7 +1716,7 @@ pub fn align_anchors(
         } else if q == q2 && e == e2 {
             dp::extend_single_affine(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
         } else {
-            dp::extend_dual_affine_dispatch(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
+            dp::extend_dual_affine_dispatch(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, left_zdrop, end_bonus, flag, &mut ez);
         }
         #[cfg(feature = "census")]
         dp::census::finish(census_t0, dp::census::Kind::LeftExt, &q_rev, &t_rev,
@@ -2020,7 +2022,7 @@ pub fn align_anchors(
                 dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw, zdrop, end_bonus, flag, &mut ez);
             } else {
                 let ext_zdrop = crate::align::env_flags::EXP_EXT_ZDROP.unwrap_or(zdrop);
-                dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, ext_zdrop, end_bonus, flag, &mut ez);
+                dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, ext_zdrop, end_bonus, flag, &mut ez);
             }
             #[cfg(feature = "census")]
             dp::census::finish(census_t0, dp::census::Kind::RightExt, q_sub, t_sub,
