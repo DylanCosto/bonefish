@@ -57,6 +57,7 @@ struct AlignArgs {
     ///   map-iclr         — Illumina Complete Long Reads vs reference
     ///   map-iclr-prerender — ICLR pre-render variant
     ///   lr:hq            — accurate long reads (<1% error) vs reference
+    ///   lr:hq-balanced   — lr:hq with near-output-preserving DP savings (--gap-bw-margin 500 --ungapped-fill)
     ///   lr:hq-fast       — lr:hq with cheaper DP (--ext-bw 200 --gap-bw-margin 500 --ungapped-fill)
     ///   lr:hqae          — HQ long-read assembly eval (k=25 w=51, RMQ)
     ///   asm5 / asm10 / asm20 — asm-to-ref ~0.1/1/5% divergence
