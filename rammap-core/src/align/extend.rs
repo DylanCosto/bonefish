@@ -1812,7 +1812,7 @@ pub fn align_anchors(
                     ez.max_score_target_pos = -1;
                     ez.max_query_end_target_pos = -1;
                     ez.zdropped = 1;
-                } else if (is_sr || is_sr_rna) && q_sub.len() == t_sub.len() {
+                } else if (is_sr || is_sr_rna || *crate::align::env_flags::EXP_UNGAPPED) && q_sub.len() == t_sub.len() {
                     // SR/SR-RNA ungapped alignment
                     // Only when query and reference gap lengths match (no indels)
                     // Try ungapped score first; only use gapped alignment if ungapped is poor

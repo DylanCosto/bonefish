@@ -38,3 +38,10 @@ pub static EXP_GAP_BW: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMMAP_
 /// RAMMAP_EXP_GAP_BW_ADAPT=margin: gap-fill bandwidth = min(default, |qlen - tlen| + margin),
 /// so gaps holding a real large indel keep a band wide enough to cross it.
 pub static EXP_GAP_BW_ADAPT: LazyLock<Option<i32>> = LazyLock::new(|| int_env("RAMMAP_EXP_GAP_BW_ADAPT"));
+/// RAMMAP_EXP_RESCUE_COVER=frac: skip the RMQ rescue re-chain when the best chain already
+/// spans at least frac of the read (minimap2 runs it whenever the span exceeds 10%).
+pub static EXP_RESCUE_COVER: LazyLock<Option<f32>> =
+    LazyLock::new(|| std::env::var("RAMMAP_EXP_RESCUE_COVER").ok().and_then(|v| v.parse().ok()));
+/// RAMMAP_EXP_UNGAPPED: also use the short-read "ungapped first" gap fill for long reads
+/// (equal-length gaps whose ungapped score beats any gapped alternative skip DP).
+pub static EXP_UNGAPPED: LazyLock<bool> = LazyLock::new(|| flag("RAMMAP_EXP_UNGAPPED"));

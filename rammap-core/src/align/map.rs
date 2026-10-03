@@ -1046,8 +1046,9 @@ pub fn map_query_multi(
             let en = last_anchor.query_pos();
             let coverage = (en - st) as usize;
 
-            let needs_rescue = (qlen_sum.saturating_sub(coverage) > opt.chaining.rmq_rescue_size as usize)
-                || (coverage > (qlen_sum as f32 * opt.chaining.rmq_rescue_ratio) as usize);
+            let needs_rescue = ((qlen_sum.saturating_sub(coverage) > opt.chaining.rmq_rescue_size as usize)
+                || (coverage > (qlen_sum as f32 * opt.chaining.rmq_rescue_ratio) as usize))
+                && crate::align::env_flags::EXP_RESCUE_COVER.is_none_or(|f| (coverage as f32) < f * qlen_sum as f32);
 
             if needs_rescue {
                 PC_RESCUE_COUNT.fetch_add(1, Relaxed);
@@ -1370,8 +1371,9 @@ pub fn map_query(
             let coverage = (en - st) as usize;
 
             // RMQ rescue: check if covered range is small or anchors span long query region
-            let needs_rescue = (qlen.saturating_sub(coverage) > opt.chaining.rmq_rescue_size as usize)
-                || (coverage > (qlen as f32 * opt.chaining.rmq_rescue_ratio) as usize);
+            let needs_rescue = ((qlen.saturating_sub(coverage) > opt.chaining.rmq_rescue_size as usize)
+                || (coverage > (qlen as f32 * opt.chaining.rmq_rescue_ratio) as usize))
+                && crate::align::env_flags::EXP_RESCUE_COVER.is_none_or(|f| (coverage as f32) < f * qlen as f32);
 
             if needs_rescue {
                 PC_RESCUE_COUNT.fetch_add(1, Relaxed);
