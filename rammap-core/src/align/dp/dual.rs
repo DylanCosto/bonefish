@@ -1834,35 +1834,53 @@ macro_rules! extend_dual_affine_avx2_impl {
                         max_h = h_en0;
                         max_t = en0;
 
-                        // Process [st0..en0) with SSE (4 i32 at a time)
+                        // [st0..en1) in the SSE kernel's 4-lane order: lane i keeps the first
+                        // position (in t order) where H exceeds its running max, seeded with
+                        // H(en0); lanes are then reduced in order 0..3. Computed 8 wide: lane i
+                        // of 4 covers the same positions as lanes i and i+4 of 8, so folding those
+                        // two (higher value, then earlier position) gives the identical state.
                         let en1 = st0 + (en0 - st0) / 4 * 4;
-                        let mut max_h_ = _mm_set1_epi32(max_h);
-                        let mut max_t_ = _mm_set1_epi32(max_t);
+                        let en8 = st0 + (en1 - st0) / 8 * 8;
+                        let lane_off = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+                        let mut mh8 = _mm256_set1_epi32(max_h);
+                        let mut mp8 = _mm256_set1_epi32(max_t);
                         let mut t = st0;
-                        while t < en1 {
-                            let h1 = _mm_loadu_si128(h_ptr.add(t as usize) as *const __m128i);
-                            let v_vals = _mm_setr_epi32(
-                                *v8_ptr.add(t as usize) as i8 as i32,
-                                *v8_ptr.add(t as usize + 1) as i8 as i32,
-                                *v8_ptr.add(t as usize + 2) as i8 as i32,
-                                *v8_ptr.add(t as usize + 3) as i8 as i32,
-                            );
-                            let h1 = _mm_add_epi32(h1, v_vals);
-                            _mm_storeu_si128(h_ptr.add(t as usize) as *mut __m128i, h1);
-                            let t_ = _mm_set1_epi32(t);
-                            let tmp = _mm_cmpgt_epi32(h1, max_h_);
-                            // Blend for 32-bit conditional select
-                            max_h_ = _mm_blendv_epi8(max_h_, h1, tmp);
-                            max_t_ = _mm_blendv_epi8(max_t_, t_, tmp);
+                        while t < en8 {
+                            let hp = h_ptr.add(t as usize);
+                            let v = _mm256_cvtepi8_epi32(_mm_loadl_epi64(v8_ptr.add(t as usize) as *const __m128i));
+                            let h1 = _mm256_add_epi32(_mm256_loadu_si256(hp as *const __m256i), v);
+                            _mm256_storeu_si256(hp as *mut __m256i, h1);
+                            let gt = _mm256_cmpgt_epi32(h1, mh8);
+                            mh8 = _mm256_blendv_epi8(mh8, h1, gt);
+                            mp8 = _mm256_blendv_epi8(mp8, _mm256_add_epi32(_mm256_set1_epi32(t), lane_off), gt);
+                            t += 8;
+                        }
+                        let mut h8 = [0i32; 8];
+                        let mut p8 = [0i32; 8];
+                        _mm256_storeu_si256(h8.as_mut_ptr() as *mut __m256i, mh8);
+                        _mm256_storeu_si256(p8.as_mut_ptr() as *mut __m256i, mp8);
+                        let mut hh = [0i32; 4];
+                        let mut pp = [0i32; 4];
+                        for i in 0..4 {
+                            let j = if h8[i + 4] > h8[i] || (h8[i + 4] == h8[i] && p8[i + 4] < p8[i]) { i + 4 } else { i };
+                            hh[i] = h8[j];
+                            pp[i] = p8[j];
+                        }
+                        if t < en1 {
+                            // one trailing 4-wide block (en1 - en8 is 0 or 4)
+                            let hp = h_ptr.add(t as usize);
+                            let v = _mm_cvtepi8_epi32(_mm_cvtsi32_si128(std::ptr::read_unaligned(v8_ptr.add(t as usize) as *const i32)));
+                            let h1 = _mm_add_epi32(_mm_loadu_si128(hp as *const __m128i), v);
+                            _mm_storeu_si128(hp as *mut __m128i, h1);
+                            let mut h1a = [0i32; 4];
+                            _mm_storeu_si128(h1a.as_mut_ptr() as *mut __m128i, h1);
+                            for i in 0..4 {
+                                if h1a[i] > hh[i] { hh[i] = h1a[i]; pp[i] = t + i as i32; }
+                            }
                             t += 4;
                         }
-                        // Reduce SSE to scalar
-                        let mut hh = [0i32; 4];
-                        let mut tt = [0i32; 4];
-                        _mm_storeu_si128(hh.as_mut_ptr() as *mut __m128i, max_h_);
-                        _mm_storeu_si128(tt.as_mut_ptr() as *mut __m128i, max_t_);
                         for i in 0..4 {
-                            if max_h < hh[i] { max_h = hh[i]; max_t = tt[i] + i as i32; }
+                            if max_h < hh[i] { max_h = hh[i]; max_t = pp[i]; }
                         }
                         // Remainder
                         while t < en0 {
