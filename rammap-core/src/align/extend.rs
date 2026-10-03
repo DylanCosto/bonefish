@@ -1563,7 +1563,7 @@ pub fn align_anchors(
     let mut bw_long = (w_long as f64 * 1.5 + 1.0) as i32;
     if let Some(cap) = *crate::align::env_flags::EXP_GAP_BW { bw_long = bw_long.min(cap); }
     if bw_long < bw { bw_long = bw; }
-    let ext_bw = crate::align::env_flags::EXP_EXT_BW.unwrap_or(bw);
+    let ext_bw = opt.alignment.ext_bw.or(*crate::align::env_flags::EXP_EXT_BW).unwrap_or(bw);
 
     let qlen = qseq.len() as i32;
     let tlen = tseq.len() as i32;
@@ -1774,7 +1774,7 @@ pub fn align_anchors(
             if is_long_join {
                 bw1 = cmp::max(anchor_qe - gap_qs, anchor_re - gap_rs);
             }
-            if let Some(margin) = *crate::align::env_flags::EXP_GAP_BW_ADAPT {
+            if let Some(margin) = opt.alignment.gap_bw_margin.or(*crate::align::env_flags::EXP_GAP_BW_ADAPT) {
                 let diff = ((anchor_qe - gap_qs) - (anchor_re - gap_rs)).abs();
                 bw1 = cmp::max(bw, cmp::min(bw1, diff + margin));
             }
@@ -1812,7 +1812,8 @@ pub fn align_anchors(
                     ez.max_score_target_pos = -1;
                     ez.max_query_end_target_pos = -1;
                     ez.zdropped = 1;
-                } else if (is_sr || is_sr_rna || *crate::align::env_flags::EXP_UNGAPPED) && q_sub.len() == t_sub.len() {
+                } else if (is_sr || is_sr_rna || opt.alignment.ungapped_fill || *crate::align::env_flags::EXP_UNGAPPED)
+                    && q_sub.len() == t_sub.len() {
                     // SR/SR-RNA ungapped alignment
                     // Only when query and reference gap lengths match (no indels)
                     // Try ungapped score first; only use gapped alignment if ungapped is poor

@@ -766,6 +766,17 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.chaining.max_gap = 10000;
             opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
         },
+        // lr:hq with cheaper DP (ont-aligner Phase 3): narrower extension band, adaptive
+        // gap-fill band, ungapped-first gap fill. ~2x faster than lr:hq on HG002 R10.4.1 sup
+        // with unchanged chr20 small-variant/SV accuracy; output differs from minimap2.
+        "lr:hq-fast" => {
+            *k = 19; *w = 19;
+            opt.chaining.max_gap = 10000;
+            opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
+            opt.alignment.ext_bw = Some(200);
+            opt.alignment.gap_bw_margin = Some(500);
+            opt.alignment.ungapped_fill = true;
+        },
         "map-hifi" | "map-ccs" => {
             *k = 19; *w = 19;
             opt.chaining.max_gap = 10000;

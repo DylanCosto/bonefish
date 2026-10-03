@@ -145,6 +145,12 @@ pub struct AlignmentParams {
     pub anchor_ext_len: i32,
     pub anchor_ext_shift: i32,
     pub max_clip_ratio: f32,
+    /// DP bandwidth for left/right extensions (None: 1.5*w + 1, as minimap2).
+    pub ext_bw: Option<i32>,
+    /// Gap-fill bandwidth = min(default, |qlen - tlen| + margin) (None: minimap2 bandwidth).
+    pub gap_bw_margin: Option<i32>,
+    /// Ungapped-first gap fill for long reads (as minimap2 does for short reads).
+    pub ungapped_fill: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -234,6 +240,9 @@ impl Default for MapOptions {
                 anchor_ext_len: 20,
                 anchor_ext_shift: 6,
                 max_clip_ratio: 1.0,
+                ext_bw: None,
+                gap_bw_margin: None,
+                ungapped_fill: false,
             },
             filtering: FilteringParams {
                 best_n: 5,

@@ -57,6 +57,7 @@ struct AlignArgs {
     ///   map-iclr         — Illumina Complete Long Reads vs reference
     ///   map-iclr-prerender — ICLR pre-render variant
     ///   lr:hq            — accurate long reads (<1% error) vs reference
+    ///   lr:hq-fast       — lr:hq with cheaper DP (--ext-bw 200 --gap-bw-margin 500 --ungapped-fill)
     ///   lr:hqae          — HQ long-read assembly eval (k=25 w=51, RMQ)
     ///   asm5 / asm10 / asm20 — asm-to-ref ~0.1/1/5% divergence
     ///   ava-ont / ava-pb — all-vs-all Nanopore / PacBio read overlap
@@ -262,6 +263,18 @@ struct AlignArgs {
     /// Max chaining iterations
     #[arg(long)]
     pub max_chain_iter: Option<i32>,
+
+    /// DP bandwidth for read-end extensions [default: 1.5*bandwidth+1]
+    #[arg(long)]
+    pub ext_bw: Option<i32>,
+
+    /// Gap-fill bandwidth = min(default, |qlen-tlen| + INT), keeping large indels crossable
+    #[arg(long)]
+    pub gap_bw_margin: Option<i32>,
+
+    /// Try an ungapped fill first for equal-length gaps (long reads; short reads always do)
+    #[arg(long)]
+    pub ungapped_fill: bool,
 
     /// Score for ambiguous bases
     #[arg(long = "score-N")]
@@ -618,6 +631,9 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if let Some(v) = cli.end_seed_pen { opt.alignment.anchor_ext_shift = v; }
     if let Some(v) = cli.max_chain_skip { opt.chaining.max_chain_skip = v; }
     if let Some(v) = cli.max_chain_iter { opt.chaining.max_chain_iter = v; }
+    if let Some(v) = cli.ext_bw { opt.alignment.ext_bw = Some(v); }
+    if let Some(v) = cli.gap_bw_margin { opt.alignment.gap_bw_margin = Some(v); }
+    if cli.ungapped_fill { opt.alignment.ungapped_fill = true; }
     if let Some(v) = cli.max_clip_ratio { opt.alignment.max_clip_ratio = v; }
     if let Some(v) = cli.mask_level { opt.filtering.mask_level = v; }
     if let Some(v) = cli.mask_len { opt.filtering.mask_len = v; }
