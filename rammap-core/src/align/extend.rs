@@ -1407,6 +1407,7 @@ fn extend_dual_ext(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
 
 pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+
 /// Gap fill with an optional narrow first pass (band |qlen - tlen| + `margin`). A banded
 /// optimum can miss a path that leaves the band and comes back (a deletion and an insertion in
 /// one VNTR) without touching the band edge, so the band is widened to cover every sampled read
@@ -1456,16 +1457,19 @@ fn path_max_offdiag(cigar: &[u32]) -> i32 {
 }
 
 thread_local! {
-    static GAP_KMERS: std::cell::RefCell<Vec<u64>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// Scratch for `offband_only_kmers`: target k-mers, off-band-only hits, in-band hit positions.
+    static GAP_KMERS: std::cell::RefCell<(Vec<u64>, Vec<u64>, Vec<i32>)> =
+        const { std::cell::RefCell::new((Vec::new(), Vec::new(), Vec::new())) };
 }
 
 /// Widest diagonal the band must cover: sampled read 15-mers (every 4th position) that occur in
 /// `t` only off the band |t_pos - q_pos| <= `w` are binned by the diagonal of their nearest
 /// occurrence (16-wide bins), and a bin with at least 3 of them is a path the band would miss
 /// (a run of read sequence matching the target at that shift, as in a VNTR deletion plus
-/// insertion). Isolated off-band hits, typically another copy of an interspersed repeat matched
-/// where the in-band copy has a sequencing error, do not count. Returns the largest such
-/// |diagonal|, or 0. Sequences are nt4 (0-3; 4 = N).
+/// insertion), unless in-band hits outnumber it 2:1 over the same query stretch. Isolated
+/// off-band hits, typically another copy of a repeat matched where the in-band copy has a
+/// sequencing error, do not count. Returns the largest such |diagonal|, or 0. Sequences are nt4
+/// (0-3; 4 = N).
 fn offband_only_kmers(q: &[u8], t: &[u8], w: i32) -> i32 {
     const K: usize = 15;
     const MIN_HITS: usize = 3;
@@ -1474,8 +1478,11 @@ fn offband_only_kmers(q: &[u8], t: &[u8], w: i32) -> i32 {
     }
     let mask: u64 = (1u64 << (2 * K)) - 1;
     GAP_KMERS.with(|cell| {
-        let mut tk = cell.borrow_mut();
+        let mut buf = cell.borrow_mut();
+        let (tk, off, inb) = &mut *buf;
         tk.clear();
+        off.clear();
+        inb.clear();
         let (mut h, mut l) = (0u64, 0usize);
         for (i, &c) in t.iter().enumerate() {
             if c > 3 { l = 0; h = 0; continue; }
@@ -1484,7 +1491,6 @@ fn offband_only_kmers(q: &[u8], t: &[u8], w: i32) -> i32 {
             if l >= K { tk.push(h << 32 | (i + 1 - K) as u64); }
         }
         tk.sort_unstable();
-        let split = tk.len();
         let (mut h, mut l) = (0u64, 0usize);
         for (i, &c) in q.iter().enumerate() {
             if c > 3 { l = 0; h = 0; continue; }
@@ -1492,35 +1498,42 @@ fn offband_only_kmers(q: &[u8], t: &[u8], w: i32) -> i32 {
             l += 1;
             if l < K || (i + 1 - K) % 4 != 0 { continue; }
             let qp = (i + 1 - K) as i32;
-            let lo = tk[..split].partition_point(|&x| (x >> 32) < h);
+            let lo = tk.partition_point(|&x| (x >> 32) < h);
             let (mut nearest, mut nd) = (i32::MAX, 0i32);
-            for &x in &tk[lo..split] {
+            for &x in &tk[lo..] {
                 if (x >> 32) != h { break; }
                 let d = (x & 0xffff_ffff) as i32 - qp;
                 if d.abs() < nearest { nearest = d.abs(); nd = d; }
             }
-            if nearest != i32::MAX && nearest > w {
-                // off-band-only hit: remember its diagonal bin after the target k-mers
-                tk.push((nd >> 4) as i64 as u64);
+            if nearest == i32::MAX { continue; }
+            if nearest <= w {
+                inb.push(qp);
+            } else {
+                // (diagonal bin, query position) of an off-band-only hit
+                off.push((((nd >> 4) + (1 << 30)) as u64) << 32 | qp as u64);
             }
         }
-        let bins = &mut tk[split..];
-        if bins.len() < MIN_HITS {
+        if off.len() < MIN_HITS {
             return 0;
         }
-        bins.sort_unstable();
+        off.sort_unstable();
         let mut need = 0i32;
-        let mut run = 1usize;
-        for i in 1..=bins.len() {
-            if i < bins.len() && bins[i] == bins[i - 1] {
-                run += 1;
-            } else {
-                if run >= MIN_HITS {
-                    let d = bins[i - 1] as i64 as i32;
+        let mut i = 0;
+        while i < off.len() {
+            let bin = off[i] >> 32;
+            let mut j = i;
+            while j < off.len() && off[j] >> 32 == bin { j += 1; }
+            if j - i >= MIN_HITS {
+                // Only a shifted path that the read supports about as well as the in-band one
+                // over the same stretch can be optimal: ignore bins outnumbered 2:1 by in-band hits.
+                let (q0, q1) = ((off[i] & 0xffff_ffff) as i32, (off[j - 1] & 0xffff_ffff) as i32);
+                let n_in = inb.partition_point(|&x| x <= q1) - inb.partition_point(|&x| x < q0);
+                if 2 * (j - i) >= n_in {
+                    let d = (bin as i64 - (1 << 30)) as i32;
                     need = need.max((d.abs() + 1) * 16);
                 }
-                run = 1;
             }
+            i = j;
         }
         need
     })
