@@ -585,11 +585,11 @@ impl SegRmq {
         while n > 1 {
             let half = n / 2;
             let v = ys[base + half - 1];
-            base += if (le && v <= y) || (!le && v < y) { half } else { 0 };
+            base += half * ((v < y) | (le & (v == y))) as usize;
             n -= half;
         }
         let v = ys[base];
-        base + ((le && v <= y) || (!le && v < y)) as usize
+        base + ((v < y) | (le & (v == y))) as usize
     }
 
     #[inline]
@@ -622,19 +622,20 @@ impl SegRmq {
         let (mut best_p, mut best_i) = (f64::INFINITY, NIL);
         l += self.cap;
         r += self.cap;
+        // Branch-free over the parity bits (which side takes a node is data-dependent);
+        // a node is read even when it is not taken, but only counts when taken. The left
+        // node is tested before the right one, as in the branchy form.
         while l < r {
-            if l & 1 == 1 {
-                let better = self.pri[l] < best_p;
-                best_i = if better { self.idx[l] } else { best_i };
-                best_p = if better { self.pri[l] } else { best_p };
-                l += 1;
-            }
-            if r & 1 == 1 {
-                r -= 1;
-                let better = self.pri[r] < best_p;
-                best_i = if better { self.idx[r] } else { best_i };
-                best_p = if better { self.pri[r] } else { best_p };
-            }
+            let lt = l & 1 == 1;
+            let better = lt & (self.pri[l] < best_p);
+            best_i = if better { self.idx[l] } else { best_i };
+            best_p = f64::from_bits(if better { self.pri[l].to_bits() } else { best_p.to_bits() });
+            l += lt as usize;
+            let rt = r & 1 == 1;
+            r -= rt as usize;
+            let better = rt & (self.pri[r] < best_p);
+            best_i = if better { self.idx[r] } else { best_i };
+            best_p = f64::from_bits(if better { self.pri[r].to_bits() } else { best_p.to_bits() });
             l >>= 1;
             r >>= 1;
         }

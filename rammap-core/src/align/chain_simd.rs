@@ -370,7 +370,7 @@ pub(crate) unsafe fn chain_anchors_avx2(
                     let p = *predecessors.get_unchecked(j);
                     let dst = if valid & (p >= 0) { vis_ptr.add(p as usize) } else { &mut dummy as *mut i32 };
                     *dst = stamp;
-                    if seen && skip_count > opt.max_chain_skip { end_j = j as i64; skip_fired = true; break; }
+                    if seen & (skip_count > opt.max_chain_skip) { end_j = j as i64; skip_fired = true; break; }
                 }
 
                 if skip_fired { break; }
@@ -380,7 +380,10 @@ pub(crate) unsafe fn chain_anchors_avx2(
             if best_anchor_idx < 0 || a[i].x - a[best_anchor_idx as usize].x > max_dist_x as u64 {
                 let mut best = i32::MIN; best_anchor_idx = -1;
                 for j in (window_start..i).rev() {
-                    if best < scores[j] { best = scores[j]; best_anchor_idx = j as i64; }
+                    let sj = *scores.get_unchecked(j);
+                    let better = best < sj;
+                    best_anchor_idx = if better { j as i64 } else { best_anchor_idx };
+                    best = if better { sj } else { best };
                 }
             }
 
