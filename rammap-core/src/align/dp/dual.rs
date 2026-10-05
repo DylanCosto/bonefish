@@ -2654,9 +2654,8 @@ extend_dual_affine_avx512_impl!(extend_dual_affine_avx512_fn);
 /// Anti-diagonal DP with difference-encoded state arrays (u, v, x, y, x2, y2),
 /// matching the SIMD implementation exactly but with scalar i8 operations.
 /// Used as fallback on non-SIMD targets and for testing via `RAMMAP_FORCE_SCALAR=1`.
-/// Dual-affine extension with an adaptive band of `width` cells per anti-diagonal (exact max
-/// tracking only; see `dual_clean`). Falls back to the static band `bandwidth` without AVX2,
-/// for generic scoring, or with approximate max tracking.
+/// Dual-affine DP with an adaptive band of `width` cells per anti-diagonal (see `dual_clean`).
+/// Falls back to the static band `bandwidth` without AVX2 or for generic scoring.
 #[allow(clippy::too_many_arguments)]
 pub fn extend_dual_affine_adaptive(
     qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
@@ -2669,7 +2668,7 @@ pub fn extend_dual_affine_adaptive(
         (gap_open, gap_extend, gap_open2, gap_extend2)
     };
     #[cfg(target_arch = "x86_64")]
-    if (flags & (GENERIC_SCORING | APPROX_MAX)) == 0 && gap_open != gap_open2 && is_x86_feature_detected!("avx2") {
+    if (flags & GENERIC_SCORING) == 0 && gap_open != gap_open2 && is_x86_feature_detected!("avx2") {
         unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, width, result); }
         return;
     }

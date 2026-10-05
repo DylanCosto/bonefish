@@ -107,11 +107,12 @@ pub(super) unsafe fn extend_dual_affine_avx2_clean(
     let flag64_ = _mm256_set1_epi8(0x40);
 
     let wl = if bandwidth < 0 { target_len.max(query_len) as i32 } else { bandwidth };
-    // Adaptive band (extensions with exact max tracking only): a window of `adaptive` cells per
-    // anti-diagonal that moves one step towards the anti-diagonal's best cell each time, instead
-    // of the static band |t - q| <= wl. Its start and end never decrease, so the scalar
-    // boundary semantics carry over unchanged.
-    let adaptive = if adaptive > 0 && !approx_max { adaptive.min(wl.max(1)) } else { 0 };
+    // Adaptive band: a window of `adaptive` cells per anti-diagonal that moves one step towards
+    // the anti-diagonal's best cell (exact max tracking) or the greedy path cell (approximate
+    // tracking) each time, instead of the static band |t - q| <= wl. Its start and end never
+    // decrease, so the scalar boundary semantics carry over unchanged; the matrix bound
+    // st0 >= r - qlen + 1 pulls it onto the end corner for global alignment.
+    let adaptive = if adaptive > 0 { adaptive.min(wl.max(1)) } else { 0 };
     let band_w = if adaptive > 0 { adaptive } else { wl };
     let mut a_st: i32 = 0;
     let mut a_step: i32 = 0;
@@ -452,6 +453,9 @@ pub(super) unsafe fn extend_dual_affine_avx2_clean(
             } else {
                 h0 = *v as i8 as i32 - qe_scalar;
                 last_h0_t = 0;
+            }
+            if adaptive > 0 {
+                a_step = (en0 - st0 + 1 >= adaptive && 2 * last_h0_t > st0 + en0) as i32;
             }
             if (flags & APPROX_DROP) != 0 {
                 if h0 > result.max {
