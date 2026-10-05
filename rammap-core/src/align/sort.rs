@@ -118,8 +118,22 @@ pub fn radix_sort_128x(arr: &mut [Minimizer]) {
     if arr.len() <= RS_MIN_SIZE {
         rs_insertsort(arr);
     } else {
-        rs_sort(arr, RS_MAX_BITS, (8 - 1) * RS_MAX_BITS);
+        rs_sort(arr, RS_MAX_BITS, top_varying_byte_shift(arr));
     }
+}
+
+/// Shift of the most significant byte in which the keys differ. A pass over a byte that is the
+/// same in every key leaves the array untouched and recurses on all of it, so starting there
+/// gives the identical result; anchors (`rid_strand << 32 | pos`) skip their constant top bytes.
+#[inline]
+fn top_varying_byte_shift<T: RadixKey>(arr: &[T]) -> u32 {
+    let k0 = arr[0].radix_key();
+    let diff = arr.iter().fold(0u64, |d, e| d | (e.radix_key() ^ k0));
+    if diff == 0 {
+        return 0; // all keys equal: one pass at byte 0 is a no-op, as the full descent would be
+    }
+    let top = 63 - diff.leading_zeros();
+    (top / RS_MAX_BITS) * RS_MAX_BITS
 }
 
 /// MSD in-place radix sort for `(u64, u64)` aux entries by `.0`. Cycle-leader
@@ -129,7 +143,7 @@ pub fn radix_sort_128x_pair(arr: &mut [(u64, u64)]) {
     if arr.len() <= RS_MIN_SIZE {
         rs_insertsort(arr);
     } else {
-        rs_sort(arr, RS_MAX_BITS, (8 - 1) * RS_MAX_BITS);
+        rs_sort(arr, RS_MAX_BITS, top_varying_byte_shift(arr));
     }
 }
 
