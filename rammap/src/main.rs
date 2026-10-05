@@ -58,7 +58,7 @@ struct AlignArgs {
     ///   map-iclr-prerender — ICLR pre-render variant
     ///   lr:hq            — accurate long reads (<1% error) vs reference
     ///   lr:hq-balanced   — lr:hq with near-output-preserving DP savings (--gap-bw-margin 500 --ungapped-fill)
-    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --ungapped-fill --max-gap-ref 5000 --seg-rmq)
+    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000 --seg-rmq)
     ///   lr:hqae          — HQ long-read assembly eval (k=25 w=51, RMQ)
     ///   asm5 / asm10 / asm20 — asm-to-ref ~0.1/1/5% divergence
     ///   ava-ont / ava-pb — all-vs-all Nanopore / PacBio read overlap
