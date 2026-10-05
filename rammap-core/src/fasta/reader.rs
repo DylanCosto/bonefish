@@ -400,11 +400,16 @@ pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Reader<Box<dyn BufRead + Send
     // Detect by content (gzip magic 0x1f 0x8b) rather than trusting the extension.
     // `fill_buf` peeks without consuming, so the magic bytes remain available to
     // whichever decoder we wire up below. An empty file falls through to plain text.
-    let mut buf_reader = io::BufReader::new(file);
+    // Large enough to peek at a whole BGZF block (<= 64 KiB) when checking for BAM.
+    let mut buf_reader = io::BufReader::with_capacity(1 << 17, file);
     let is_gz_content = {
         let peek = buf_reader.fill_buf()?;
         peek.len() >= 2 && peek[0] == 0x1f && peek[1] == 0x8b
     };
+    #[cfg(not(target_arch = "wasm32"))]
+    if is_gz_content && super::bam::looks_like_bam(buf_reader.fill_buf()?) {
+        return Ok(Reader::new(Box::new(io::BufReader::with_capacity(1 << 20, super::bam::BamFastq::new(buf_reader)))));
+    }
     let ext_says_gz = path.as_ref().to_string_lossy().ends_with(".gz");
     if ext_says_gz && !is_gz_content {
         eprintln!("[WARN] '{}' has a .gz extension but is not gzipped; reading as plain text.", path.as_ref().display());

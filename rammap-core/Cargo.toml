@@ -31,12 +31,15 @@ byteorder = "1"
 
 rayon = { version = "1", optional = true, features = ["web_spin_lock"] }
 
-flate2 = "1"
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 memchr = "2"
 
 log = "0.4"
 thiserror = "2"
 anyhow = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+libdeflater = "1.26"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-time = "1"

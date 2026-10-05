@@ -585,6 +585,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
         ..out_cfg.clone()
     };
     let copy_comment = cli.copy_comment;
+    rammap::fasta::bam::set_copy_tags(copy_comment);
 
     #[cfg(not(feature = "parallel"))]
     if cli.align_threads > 1 {
