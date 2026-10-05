@@ -282,6 +282,17 @@ struct AlignArgs {
     #[arg(long)]
     pub ext_rescue: bool,
 
+    /// Extension probe LEN,MIN_SCORE_PER_KB[,LOW_BW]: align the first LEN bases of a long
+    /// extension window first and stop there if the alignment z-drops or scores below
+    /// MIN_SCORE_PER_KB (with LOW_BW: align a low-scoring window in full with band LOW_BW)
+    #[arg(long)]
+    pub ext_probe: Option<String>,
+
+    /// Gap fill: try band |qlen-tlen| + INT first, falling back to the regular band when the
+    /// path nears the narrow band's edge
+    #[arg(long)]
+    pub gap_bw_narrow: Option<i32>,
+
     /// Score for ambiguous bases
     #[arg(long = "score-N")]
     pub score_n: Option<i32>,
@@ -641,6 +652,16 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if let Some(v) = cli.gap_bw_margin { opt.alignment.gap_bw_margin = Some(v); }
     if cli.ungapped_fill { opt.alignment.ungapped_fill = true; }
     if cli.ext_rescue { opt.alignment.ext_rescue = true; }
+    if let Some(v) = cli.gap_bw_narrow { opt.alignment.gap_bw_narrow = if v > 0 { Some(v) } else { None }; }
+    if let Some(s) = &cli.ext_probe {
+        let v: Vec<i32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        match v.as_slice() {
+            [0] => opt.alignment.ext_probe = None,
+            [len, min] if *len > 0 => opt.alignment.ext_probe = Some((*len, *min, 0)),
+            [len, min, low_bw] if *len > 0 => opt.alignment.ext_probe = Some((*len, *min, *low_bw)),
+            _ => eprintln!("Warning: --ext-probe expects LEN,MIN_SCORE_PER_KB[,LOW_BW]"),
+        }
+    }
     if let Some(v) = cli.max_clip_ratio { opt.alignment.max_clip_ratio = v; }
     if let Some(v) = cli.mask_level { opt.filtering.mask_level = v; }
     if let Some(v) = cli.mask_len { opt.filtering.mask_len = v; }

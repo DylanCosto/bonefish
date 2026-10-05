@@ -26,6 +26,8 @@ pub fn print_post_chain_breakdown() {
     eprintln!("  Parent+filter:   {:.3}s", PC_PARENT_NS.load(Relaxed) as f64 / 1e9);
     eprintln!("  Div+strand:      {:.3}s", PC_DIVEST_NS.load(Relaxed) as f64 / 1e9);
     eprintln!("  Squeezed+bounds: {:.3}s", PC_SQUEEZED_NS.load(Relaxed) as f64 / 1e9);
+    eprintln!("  Extension probe stops: {}", crate::align::extend::PROBE_STOPS.load(Relaxed));
+    eprintln!("  Narrow gap-band retries: {}", crate::align::extend::GAP_NARROW_RETRIES.load(Relaxed));
     eprintln!("-----------------------------");
 }
 use crate::align::sketch::{sketch_sequence, sketch_sequence_append, Minimizer};
@@ -154,6 +156,13 @@ pub struct AlignmentParams {
     /// With a narrowed extension band: re-run z-dropped extensions with the default band when
     /// the unaligned tail shows an indel wider than the narrow band.
     pub ext_rescue: bool,
+    /// Extension probe (len, min score per kb): for extension windows longer than 1.5 x len,
+    /// first align only the first `len` bases; keep that result if it z-drops or scores below
+    /// the minimum (a low-identity read end), otherwise align the full window.
+    pub ext_probe: Option<(i32, i32, i32)>,
+    /// Narrow gap-fill band: try band |qlen - tlen| + margin first and keep it unless the
+    /// path comes within a few cells of the band edge or z-drops (then the regular band).
+    pub gap_bw_narrow: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +256,8 @@ impl Default for MapOptions {
                 gap_bw_margin: None,
                 ungapped_fill: false,
                 ext_rescue: false,
+                ext_probe: None,
+                gap_bw_narrow: None,
             },
             filtering: FilteringParams {
                 best_n: 5,

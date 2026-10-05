@@ -1373,6 +1373,81 @@ fn trim_and_prepare_anchors(
     }
 }
 
+/// Dual-affine extension with the optional narrow band (`ext_bw`), wide-band rescue and
+/// low-identity probe. With `probe = Some((len, min_per_kb))` and a window longer than
+/// 1.5 x len, the first `len` x `len` block is aligned first: up to anti-diagonal `len` its
+/// cells equal the full window's, so an early z-drop is the full window's result. If the probe
+/// z-drops, or its best score is below `min_per_kb` per 1,000 probe bases (a low-identity read
+/// end that the chain could not seed), the probe result is kept and the rest of the window is
+/// left unaligned, or, with a third value `low_bw` > 0, a low-scoring window is aligned in full
+/// with band `low_bw`; otherwise the full window is aligned.
+#[allow(clippy::too_many_arguments)]
+fn extend_dual_ext(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, ext_bw: i32, bw: i32,
+                   zdrop: i32, end_bonus: i32, flag: i32, ext_rescue: bool, probe: Option<(i32, i32, i32)>,
+                   ez: &mut DpResult) {
+    let mut done = false;
+    let mut full_bw = ext_bw;
+    if let Some((plen, min_per_kb, low_bw)) = probe {
+        let p = plen as usize;
+        if qs.len() > p + p / 2 && ts.len() > p {
+            dp::extend_dual_affine_dispatch(&qs[..p], &ts[..p], 5, mat, q, e, q2, e2, ext_bw, zdrop, end_bonus, flag, ez);
+            let low = (ez.max as i64) * 1000 < min_per_kb as i64 * p as i64;
+            if ez.reach_end == 0 && (ez.zdropped != 0 || (low && low_bw <= 0)) {
+                PROBE_STOPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                done = true;
+            } else {
+                if low { full_bw = low_bw.min(ext_bw); PROBE_STOPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
+                *ez = DpResult::default();
+            }
+        }
+    }
+    if !done {
+        dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, full_bw, zdrop, end_bonus, flag, ez);
+    }
+    if ext_rescue && ext_bw < bw && ez.zdropped != 0
+        && tail_indel_shift(qs, ts, (ez.max_score_query_pos + 1).max(0) as usize,
+                            (ez.max_score_target_pos + 1).max(0) as usize, ext_bw * 3 / 4, bw) {
+        *ez = DpResult::default();
+        dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, bw, zdrop, end_bonus, flag, ez);
+    }
+}
+
+pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Gap fill with an optional narrow first pass: band `narrow` is kept when the path stays
+/// clear of its edge (by `EDGE` cells) and does not z-drop; otherwise band `bw1` is used.
+#[allow(clippy::too_many_arguments)]
+fn gap_dual(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
+            zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
+    const EDGE: i32 = 8;
+    if let Some(nb) = narrow {
+        dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, nb, zdrop, end_bonus, flag, ez);
+        if ez.zdropped == 0 && !ez.cigar.is_empty() && path_max_offdiag(&ez.cigar) < nb - EDGE {
+            return;
+        }
+        GAP_NARROW_RETRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        *ez = DpResult::default();
+    }
+    dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, bw1, zdrop, end_bonus, flag, ez);
+}
+
+/// Largest |target_pos - query_pos| along a CIGAR path (ops len<<4|op; 0 M, 1 I, 2 D).
+fn path_max_offdiag(cigar: &[u32]) -> i32 {
+    let (mut d, mut m) = (0i32, 0i32);
+    for &c in cigar {
+        let len = (c >> 4) as i32;
+        match c & 0xf {
+            1 => { d -= len; }
+            2 | 3 => { d += len; }
+            _ => {}
+        }
+        m = m.max(d.abs());
+    }
+    m
+}
+
+pub static GAP_NARROW_RETRIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Does the unaligned tail of a z-dropped extension still match the target at one consistent
 /// diagonal shift wider than `min_shift` (up to `max_shift`)? That is the signature of an indel
 /// too wide for a narrowed extension band, as opposed to divergent or junk sequence. Compares
@@ -1617,6 +1692,7 @@ pub fn align_anchors(
     if bw_long < bw { bw_long = bw; }
     let ext_bw = opt.alignment.ext_bw.or(*crate::align::env_flags::EXP_EXT_BW).unwrap_or(bw);
     let ext_rescue = opt.alignment.ext_rescue || *crate::align::env_flags::EXP_EXT_RESCUE;
+    let ext_probe = opt.alignment.ext_probe;
 
     let qlen = qseq.len() as i32;
     let tlen = tseq.len() as i32;
@@ -1769,13 +1845,7 @@ pub fn align_anchors(
         } else if q == q2 && e == e2 {
             dp::extend_single_affine(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
         } else {
-            dp::extend_dual_affine_dispatch(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, left_zdrop, end_bonus, flag, &mut ez);
-            if ext_rescue && ext_bw < bw && ez.zdropped != 0
-                && tail_indel_shift(&q_rev, &t_rev, (ez.max_score_query_pos + 1).max(0) as usize,
-                                    (ez.max_score_target_pos + 1).max(0) as usize, ext_bw * 3 / 4, bw) {
-                ez = DpResult::default();
-                dp::extend_dual_affine_dispatch(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
-            }
+            extend_dual_ext(&q_rev, &t_rev, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, bw, left_zdrop, end_bonus, flag, ext_rescue, ext_probe, &mut ez);
         }
         #[cfg(feature = "census")]
         dp::census::finish(census_t0, dp::census::Kind::LeftExt, &q_rev, &t_rev,
@@ -1837,6 +1907,9 @@ pub fn align_anchors(
                 let diff = ((anchor_qe - gap_qs) - (anchor_re - gap_rs)).abs();
                 bw1 = cmp::max(bw, cmp::min(bw1, diff + margin));
             }
+            let gap_narrow = opt.alignment.gap_bw_narrow
+                .map(|m| ((anchor_qe - gap_qs) - (anchor_re - gap_rs)).abs() + m)
+                .filter(|&nb| nb < bw1);
 
             let q_start = cmp::max(0, gap_qs) as usize;
             let q_end = cmp::min(qlen, anchor_qe) as usize;
@@ -1899,7 +1972,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            gap_dual(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                     }
                     // Z-drop test applies to both paths
@@ -1932,7 +2005,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            gap_dual(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                         #[cfg(feature = "census")]
                         dp::census::finish(census_t0, dp::census::Kind::Gap, q_sub, t_sub,
@@ -2086,13 +2159,7 @@ pub fn align_anchors(
                 dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw, zdrop, end_bonus, flag, &mut ez);
             } else {
                 let ext_zdrop = crate::align::env_flags::EXP_EXT_ZDROP.unwrap_or(zdrop);
-                dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, ext_zdrop, end_bonus, flag, &mut ez);
-                if ext_rescue && ext_bw < bw && ez.zdropped != 0
-                    && tail_indel_shift(q_sub, t_sub, (ez.max_score_query_pos + 1).max(0) as usize,
-                                        (ez.max_score_target_pos + 1).max(0) as usize, ext_bw * 3 / 4, bw) {
-                    ez = DpResult::default();
-                    dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw, ext_zdrop, end_bonus, flag, &mut ez);
-                }
+                extend_dual_ext(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, bw, ext_zdrop, end_bonus, flag, ext_rescue, ext_probe, &mut ez);
             }
             #[cfg(feature = "census")]
             dp::census::finish(census_t0, dp::census::Kind::RightExt, q_sub, t_sub,
