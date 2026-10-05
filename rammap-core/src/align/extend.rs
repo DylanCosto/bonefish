@@ -1377,13 +1377,22 @@ fn trim_and_prepare_anchors(
 #[allow(clippy::too_many_arguments)]
 fn extend_dual_ext(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, ext_bw: i32, bw: i32,
                    zdrop: i32, end_bonus: i32, flag: i32, ext_rescue: bool, probe: Option<(i32, i32, i32)>,
-                   ez: &mut DpResult) {
+                   adaptive: Option<i32>, ez: &mut DpResult) {
+    // With `adaptive`, the probe and the full window use a band of that many cells per
+    // anti-diagonal that follows the alignment (indel drift over a long read end) instead of
+    // the static band; an indel wider than about half the window shows up as a tail shift and
+    // triggers the wide-band rescue below.
+    let adaptive = adaptive.filter(|&w| w < ext_bw);
+    let run = |qs: &[u8], ts: &[u8], band: i32, ez: &mut DpResult| match adaptive {
+        Some(w) => dp::extend_dual_affine_adaptive(qs, ts, 5, mat, q, e, q2, e2, band, w, zdrop, end_bonus, flag, ez),
+        None => dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, band, zdrop, end_bonus, flag, ez),
+    };
     let mut done = false;
     let mut full_bw = ext_bw;
     if let Some((plen, min_per_kb, low_bw)) = probe {
         let p = plen as usize;
         if qs.len() > p + p / 2 && ts.len() > p {
-            dp::extend_dual_affine_dispatch(&qs[..p], &ts[..p], 5, mat, q, e, q2, e2, ext_bw, zdrop, end_bonus, flag, ez);
+            run(&qs[..p], &ts[..p], ext_bw, ez);
             let low = (ez.max as i64) * 1000 < min_per_kb as i64 * p as i64;
             if ez.reach_end == 0 && (ez.zdropped != 0 || (low && low_bw <= 0)) {
                 PROBE_STOPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1395,17 +1404,19 @@ fn extend_dual_ext(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
         }
     }
     if !done {
-        dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, full_bw, zdrop, end_bonus, flag, ez);
+        run(qs, ts, full_bw, ez);
     }
+    let min_shift = adaptive.map_or(ext_bw * 3 / 4, |w| w / 2);
     if ext_rescue && ext_bw < bw && ez.zdropped != 0
         && tail_indel_shift(qs, ts, (ez.max_score_query_pos + 1).max(0) as usize,
-                            (ez.max_score_target_pos + 1).max(0) as usize, ext_bw * 3 / 4, bw) {
+                            (ez.max_score_target_pos + 1).max(0) as usize, min_shift, bw) {
         *ez = DpResult::default();
         dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, bw, zdrop, end_bonus, flag, ez);
     }
 }
 
 pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 
 
 /// Gap fill with an optional narrow first pass (band |qlen - tlen| + `margin`). A banded
@@ -1789,6 +1800,7 @@ pub fn align_anchors(
     let ext_bw = opt.alignment.ext_bw.or(*crate::align::env_flags::EXP_EXT_BW).unwrap_or(bw);
     let ext_rescue = opt.alignment.ext_rescue || *crate::align::env_flags::EXP_EXT_RESCUE;
     let ext_probe = opt.alignment.ext_probe;
+    let ext_adapt = opt.alignment.ext_adaptive.or(*crate::align::env_flags::EXP_EXT_ADAPT);
 
     let qlen = qseq.len() as i32;
     let tlen = tseq.len() as i32;
@@ -1941,7 +1953,7 @@ pub fn align_anchors(
         } else if q == q2 && e == e2 {
             dp::extend_single_affine(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
         } else {
-            extend_dual_ext(&q_rev, &t_rev, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, bw, left_zdrop, end_bonus, flag, ext_rescue, ext_probe, &mut ez);
+            extend_dual_ext(&q_rev, &t_rev, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, bw, left_zdrop, end_bonus, flag, ext_rescue, ext_probe, ext_adapt, &mut ez);
         }
         #[cfg(feature = "census")]
         dp::census::finish(census_t0, dp::census::Kind::LeftExt, &q_rev, &t_rev,
@@ -2258,7 +2270,7 @@ pub fn align_anchors(
                 dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw, zdrop, end_bonus, flag, &mut ez);
             } else {
                 let ext_zdrop = crate::align::env_flags::EXP_EXT_ZDROP.unwrap_or(zdrop);
-                extend_dual_ext(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, bw, ext_zdrop, end_bonus, flag, ext_rescue, ext_probe, &mut ez);
+                extend_dual_ext(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, bw, ext_zdrop, end_bonus, flag, ext_rescue, ext_probe, ext_adapt, &mut ez);
             }
             #[cfg(feature = "census")]
             dp::census::finish(census_t0, dp::census::Kind::RightExt, q_sub, t_sub,

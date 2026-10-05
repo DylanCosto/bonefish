@@ -56,3 +56,6 @@ pub static EXP_SEG_RMQ: LazyLock<bool> =
 /// RAMMAP_EXP_RMQ_CHECK=1: run both RMQ structures and count disagreements (debug).
 pub static EXP_RMQ_CHECK: LazyLock<bool> =
     LazyLock::new(|| std::env::var("RAMMAP_EXP_RMQ_CHECK").is_ok_and(|v| v != "0"));
+/// RAMMAP_EXP_EXT_ADAPT=W: adaptive extension band of W cells (see --ext-adaptive).
+pub static EXP_EXT_ADAPT: LazyLock<Option<i32>> =
+    LazyLock::new(|| std::env::var("RAMMAP_EXP_EXT_ADAPT").ok().and_then(|v| v.parse().ok()));

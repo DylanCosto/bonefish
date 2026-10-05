@@ -58,7 +58,7 @@ struct AlignArgs {
     ///   map-iclr-prerender — ICLR pre-render variant
     ///   lr:hq            — accurate long reads (<1% error) vs reference
     ///   lr:hq-balanced   — lr:hq with near-output-preserving DP savings (--gap-bw-margin 500 --ungapped-fill)
-    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000 --seg-rmq)
+    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-adaptive 64 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000 --seg-rmq --clean-dp)
     ///   lr:hqae          — HQ long-read assembly eval (k=25 w=51, RMQ)
     ///   asm5 / asm10 / asm20 — asm-to-ref ~0.1/1/5% divergence
     ///   ava-ont / ava-pb — all-vs-all Nanopore / PacBio read overlap
@@ -301,6 +301,16 @@ struct AlignArgs {
     /// Lower bound of the --gap-bw-margin band (default: the -r bandwidth x 1.5)
     #[arg(long)]
     pub gap_bw_floor: Option<i32>,
+
+    /// Extensions: adaptive band of INT cells per anti-diagonal that follows the alignment
+    /// (0 = static --ext-bw band)
+    #[arg(long)]
+    pub ext_adaptive: Option<i32>,
+
+    /// Dual-affine DP with exact band boundaries (the scalar reference's semantics) instead of
+    /// minimap2's SSE kernel behaviour; faster, output not minimap2-identical
+    #[arg(long)]
+    pub clean_dp: bool,
 
     /// RMQ chaining with a segment tree (faster; ties between equal-priority predecessors may
     /// resolve differently from minimap2)
@@ -667,6 +677,8 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.ungapped_fill { opt.alignment.ungapped_fill = true; }
     if cli.ext_rescue { opt.alignment.ext_rescue = true; }
     if cli.seg_rmq { opt.chaining.seg_rmq = true; }
+    if cli.clean_dp { opt.alignment.clean_dp = true; }
+    if let Some(v) = cli.ext_adaptive { opt.alignment.ext_adaptive = if v > 0 { Some(v) } else { None }; }
     if let Some(v) = cli.gap_bw_floor { opt.alignment.gap_bw_floor = Some(v); }
     if let Some(v) = cli.gap_bw_narrow { opt.alignment.gap_bw_narrow = if v > 0 { Some(v) } else { None }; }
     if let Some(v) = cli.max_gap_ref { opt.chaining.max_gap_ref = v; }
@@ -781,6 +793,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if let Some(v) = cli.chain_skip_scale {
         opt.filtering.chain_skip_scale = v;
     }
+    rammap::align::dp::set_clean_dual(opt.alignment.clean_dp);
     // Recompute chaining penalties after all CLI overrides
     rammap::api::finalize_options(&mut opt, k);
 

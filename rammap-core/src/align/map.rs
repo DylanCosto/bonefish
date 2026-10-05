@@ -178,6 +178,11 @@ pub struct AlignmentParams {
     /// Narrow gap-fill band |qlen - tlen| + margin, used unless read k-mers match the target
     /// only off that band, or the path nears its edge (then the regular band).
     pub gap_bw_narrow: Option<i32>,
+    /// Extensions with an adaptive band of this many cells per anti-diagonal (AVX2).
+    pub ext_adaptive: Option<i32>,
+    /// Dual-affine DP with the scalar-semantics AVX2 kernel (`dp::dual_clean`) instead of the
+    /// minimap2-identical one.
+    pub clean_dp: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -275,6 +280,8 @@ impl Default for MapOptions {
                 ext_probe: None,
                 gap_bw_floor: None,
                 gap_bw_narrow: None,
+                ext_adaptive: None,
+                clean_dp: false,
             },
             filtering: FilteringParams {
                 best_n: 5,

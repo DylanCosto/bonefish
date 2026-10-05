@@ -15,6 +15,8 @@
 mod common;
 mod single;
 mod dual;
+mod dual_clean;
+pub use dual_clean::{clean_dual, set_clean_dual};
 mod splice;
 mod lw;
 #[cfg(feature = "census")]
@@ -151,7 +153,7 @@ pub use common::{
 pub use single::{extend_single_affine, extend_single_affine_scalar};
 
 // Re-export public API from dual-affine
-pub use dual::{extend_dual_affine, extend_dual_affine_scalar};
+pub use dual::{extend_dual_affine, extend_dual_affine_adaptive, extend_dual_affine_scalar};
 
 /// Whether the current read is a speculative dry run (GPU path; always false otherwise).
 #[inline]

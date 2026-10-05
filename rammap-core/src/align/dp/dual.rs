@@ -110,6 +110,10 @@ pub fn extend_dual_affine(
 
     #[cfg(target_arch = "x86_64")]
     {
+        if super::dual_clean::clean_dual() && (flags & GENERIC_SCORING) == 0 && is_x86_feature_detected!("avx2") {
+            unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, 0, result); }
+            return;
+        }
         if super::use_avx512() {
             unsafe { extend_dual_affine_avx512_fn(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, result); }
         } else if super::use_avx2() {
@@ -2650,6 +2654,29 @@ extend_dual_affine_avx512_impl!(extend_dual_affine_avx512_fn);
 /// Anti-diagonal DP with difference-encoded state arrays (u, v, x, y, x2, y2),
 /// matching the SIMD implementation exactly but with scalar i8 operations.
 /// Used as fallback on non-SIMD targets and for testing via `RAMMAP_FORCE_SCALAR=1`.
+/// Dual-affine extension with an adaptive band of `width` cells per anti-diagonal (exact max
+/// tracking only; see `dual_clean`). Falls back to the static band `bandwidth` without AVX2,
+/// for generic scoring, or with approximate max tracking.
+#[allow(clippy::too_many_arguments)]
+pub fn extend_dual_affine_adaptive(
+    qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
+    gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8,
+    bandwidth: i32, width: i32, z_drop: i32, end_bonus: i32, flags: i32, result: &mut DpResult,
+) {
+    let (gap_open, gap_extend, gap_open2, gap_extend2) = if (gap_open2 as i32 + gap_extend2 as i32) < (gap_open as i32 + gap_extend as i32) {
+        (gap_open2, gap_extend2, gap_open, gap_extend)
+    } else {
+        (gap_open, gap_extend, gap_open2, gap_extend2)
+    };
+    #[cfg(target_arch = "x86_64")]
+    if (flags & (GENERIC_SCORING | APPROX_MAX)) == 0 && gap_open != gap_open2 && is_x86_feature_detected!("avx2") {
+        unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, width, result); }
+        return;
+    }
+    let _ = width;
+    extend_dual_affine(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, result);
+}
+
 pub fn extend_dual_affine_scalar(
     qseq: &[u8],
     tseq: &[u8],
