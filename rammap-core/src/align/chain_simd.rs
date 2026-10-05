@@ -353,18 +353,24 @@ pub(crate) unsafe fn chain_anchors_avx2(
                     &mut soa_sc_buf, chunk_start, chunk_end,
                 );
 
+                // Branch-free form of the scan (same state transitions): whether a predecessor
+                // improves the score or was already visited is data-dependent and mispredicts.
+                let stamp = i as i32;
+                let mut dummy = 0i32;
+                let vis_ptr = visited.as_mut_ptr();
                 for j in (chunk_start..chunk_end).rev() {
-                    let sc = soa_sc_buf[j];
-                    if sc == i32::MIN { continue; }
-                    let total_sc = sc + scores[j];
-                    if total_sc > best_score {
-                        best_score = total_sc; best_predecessor = j as i64;
-                        if skip_count > 0 { skip_count -= 1; }
-                    } else if visited[j] == i as i32 {
-                        skip_count += 1;
-                        if skip_count > opt.max_chain_skip { end_j = j as i64; skip_fired = true; break; }
-                    }
-                    if predecessors[j] >= 0 { visited[predecessors[j] as usize] = i as i32; }
+                    let sc = *soa_sc_buf.get_unchecked(j);
+                    let valid = sc != i32::MIN;
+                    let total_sc = sc.wrapping_add(*scores.get_unchecked(j));
+                    let better = valid & (total_sc > best_score);
+                    let seen = valid & !better & (*vis_ptr.add(j) == stamp);
+                    best_score = if better { total_sc } else { best_score };
+                    best_predecessor = if better { j as i64 } else { best_predecessor };
+                    skip_count = if better { skip_count - (skip_count > 0) as i32 } else { skip_count + seen as i32 };
+                    let p = *predecessors.get_unchecked(j);
+                    let dst = if valid & (p >= 0) { vis_ptr.add(p as usize) } else { &mut dummy as *mut i32 };
+                    *dst = stamp;
+                    if seen && skip_count > opt.max_chain_skip { end_j = j as i64; skip_fired = true; break; }
                 }
 
                 if skip_fired { break; }

@@ -21,24 +21,17 @@ use std::cmp;
 
 /// Reverse complement a DNA sequence (ASCII encoding).
 pub fn rev_comp(seq: &[u8]) -> Vec<u8> {
-    let mut rc = Vec::with_capacity(seq.len());
-    for b in seq.iter().rev() {
-        let c = match b {
-            b'A' => b'T',
-            b'a' => b'T',
-            b'C' => b'G',
-            b'c' => b'G',
-            b'G' => b'C',
-            b'g' => b'C',
-            b'T' => b'A',
-            b't' => b'A',
-            b'U' => b'A',
-            b'u' => b'A',
-            _ => b'N',
-        };
-        rc.push(c);
-    }
-    rc
+    // Table lookup (the per-base match compiled to mispredicting branches).
+    const RC: [u8; 256] = {
+        let mut t = [b'N'; 256];
+        t[b'A' as usize] = b'T'; t[b'a' as usize] = b'T';
+        t[b'C' as usize] = b'G'; t[b'c' as usize] = b'G';
+        t[b'G' as usize] = b'C'; t[b'g' as usize] = b'C';
+        t[b'T' as usize] = b'A'; t[b't' as usize] = b'A';
+        t[b'U' as usize] = b'A'; t[b'u' as usize] = b'A';
+        t
+    };
+    seq.iter().rev().map(|&b| RC[b as usize]).collect()
 }
 
 /// Reverse complement a nt4-encoded sequence (0=A,1=C,2=G,3=T,4=N).

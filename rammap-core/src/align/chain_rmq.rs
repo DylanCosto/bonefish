@@ -569,11 +569,27 @@ impl SegRmq {
     fn pull(&mut self, mut p: usize) {
         while p > 1 {
             p >>= 1;
-            let (l, r) = (2 * p, 2 * p + 1);
-            let c = if self.pri[r] < self.pri[l] { r } else { l };
+            // Child index by arithmetic, not a (mispredicting) branch.
+            let c = 2 * p + (self.pri[2 * p + 1] < self.pri[2 * p]) as usize;
             self.pri[p] = self.pri[c];
             self.idx[p] = self.idx[c];
         }
+    }
+
+    /// First rank whose query position is > y (`le`) or >= y (`!le`); branch-free binary search.
+    #[inline(always)]
+    fn bound(&self, y: i32, le: bool) -> usize {
+        let ys = &self.ys;
+        let (mut base, mut n) = (0usize, ys.len());
+        if n == 0 { return 0; }
+        while n > 1 {
+            let half = n / 2;
+            let v = ys[base + half - 1];
+            base += if (le && v <= y) || (!le && v < y) { half } else { 0 };
+            n -= half;
+        }
+        let v = ys[base];
+        base + ((le && v <= y) || (!le && v < y)) as usize
     }
 
     #[inline]
@@ -599,8 +615,8 @@ impl SegRmq {
     /// bounds (lo_y, MAX) .. (hi_y, 0)).
     #[inline]
     fn rmq(&self, lo_y: i32, hi_y: i32) -> Option<(i32, usize, f64)> {
-        let mut l = self.ys.partition_point(|&y| y <= lo_y);
-        let mut r = self.ys.partition_point(|&y| y < hi_y);
+        let mut l = self.bound(lo_y, true);
+        let mut r = self.bound(hi_y, false);
         if r < self.ys.len() && self.ys[r] == hi_y && self.is[r] == 0 { r += 1; }
         if l >= r { return None; }
         let (mut best_p, mut best_i) = (f64::INFINITY, NIL);
@@ -608,12 +624,16 @@ impl SegRmq {
         r += self.cap;
         while l < r {
             if l & 1 == 1 {
-                if self.pri[l] < best_p { best_p = self.pri[l]; best_i = self.idx[l]; }
+                let better = self.pri[l] < best_p;
+                best_i = if better { self.idx[l] } else { best_i };
+                best_p = if better { self.pri[l] } else { best_p };
                 l += 1;
             }
             if r & 1 == 1 {
                 r -= 1;
-                if self.pri[r] < best_p { best_p = self.pri[r]; best_i = self.idx[r]; }
+                let better = self.pri[r] < best_p;
+                best_i = if better { self.idx[r] } else { best_i };
+                best_p = if better { self.pri[r] } else { best_p };
             }
             l >>= 1;
             r >>= 1;
