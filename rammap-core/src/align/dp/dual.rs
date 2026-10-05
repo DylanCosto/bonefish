@@ -1515,6 +1515,11 @@ macro_rules! extend_dual_affine_avx2_impl {
             // H[] array for exact max tracking (only when !approx_max)
             let (h_vec, h_ptr) = alloc_h_array(approx_max, tlen_, 32);
             let _ = &h_vec; // prevent early drop
+            // Packed max tracking needs |H| < 2^16 and (en1 - st0) / 4 < 2^13. Every in-band cell
+            // is reachable from the origin or from the best cell by a staircase of gaps costing
+            // at most (1 + 2 * (q2 + e2) / bandwidth) per anti-diagonal step, so qlen + tlen <=
+            // 20000 with bandwidth >= 32 bounds |H| below 60000.
+            let packed_h = query_len + target_len <= 20000 && bandwidth >= 32;
 
             // Initialize result
             init_dp_result(result);
@@ -1619,9 +1624,11 @@ macro_rules! extend_dual_affine_avx2_impl {
                 }
 
                 // Core DP loop with dual-affine — byte-addressed for SSE-compatible rounding
-                let mut x1_ = avx2_insert_byte0(_mm256_setzero_si256(), x1 as u8);
-                let mut x21_ = avx2_insert_byte0(_mm256_setzero_si256(), x21 as u8);
-                let mut v1_ = avx2_insert_byte0(_mm256_setzero_si256(), v1 as u8);
+                // Previous raw (unshifted) vectors; byte 31 is the carry shifted into byte 0 of
+                // the next vector (the boundary value before the first one).
+                let mut x1_ = _mm256_insert_epi8(_mm256_setzero_si256(), x1, 31);
+                let mut x21_ = _mm256_insert_epi8(_mm256_setzero_si256(), x21, 31);
+                let mut v1_ = _mm256_insert_epi8(_mm256_setzero_si256(), v1, 31);
 
                 let u_b = u as *mut u8;
                 let v_b = v as *mut u8;
@@ -1634,38 +1641,38 @@ macro_rules! extend_dual_affine_avx2_impl {
                 let st_usize = st as usize;
                 let stride_bytes = n_col_ * 32;
                 let mut bp = st_usize;
-                let mut bp_first = true;
+                if with_cigar {
+                    *band_offset_ptr.add(r as usize) = st;
+                    *band_offset_end_ptr.add(r as usize) = en;
+                }
+                // st and en + 1 are multiples of 16, so only the last 32-byte step can overrun
+                // en, by exactly 16 bytes. Earlier steps never write there, so the overrun is
+                // saved before the loop and restored after it.
+                let es = en_usize + 1;
+                let overrun = (es - st_usize) % 32 != 0;
+                let z128 = _mm_setzero_si128();
+                let (mut save_u, mut save_v, mut save_x, mut save_y, mut save_x2, mut save_y2) = (z128, z128, z128, z128, z128, z128);
+                if overrun {
+                    save_u = _mm_loadu_si128(u_b.add(es) as *const __m128i);
+                    save_v = _mm_loadu_si128(v_b.add(es) as *const __m128i);
+                    save_x = _mm_loadu_si128(x_b.add(es) as *const __m128i);
+                    save_y = _mm_loadu_si128(y_b.add(es) as *const __m128i);
+                    save_x2 = _mm_loadu_si128(x2_b.add(es) as *const __m128i);
+                    save_y2 = _mm_loadu_si128(y2_b.add(es) as *const __m128i);
+                }
 
                 while bp <= en_usize {
-                    // Save excess bytes on last partial iteration
-                    let excess = if bp + 31 > en_usize {
-                        bp + 32 - (en_usize + 1)
-                    } else { 0 };
-                    // en + 1 and bp - st are multiples of 16 and 32, so the overrun is 0 or 16
-                    // bytes: save and restore it with fixed 16-byte moves.
-                    debug_assert!(excess == 0 || excess == 16);
-                    let es = en_usize + 1;
-                    let z128 = _mm_setzero_si128();
-                    let (mut save_u, mut save_v, mut save_x, mut save_y, mut save_x2, mut save_y2) = (z128, z128, z128, z128, z128, z128);
-                    if excess > 0 {
-                        save_u = _mm_loadu_si128(u_b.add(es) as *const __m128i);
-                        save_v = _mm_loadu_si128(v_b.add(es) as *const __m128i);
-                        save_x = _mm_loadu_si128(x_b.add(es) as *const __m128i);
-                        save_y = _mm_loadu_si128(y_b.add(es) as *const __m128i);
-                        save_x2 = _mm_loadu_si128(x2_b.add(es) as *const __m128i);
-                        save_y2 = _mm_loadu_si128(y2_b.add(es) as *const __m128i);
-                    }
 
                     // Byte-addressed loads
                     let mut z = _mm256_loadu_si256(s_b_ptr.add(bp) as *const __m256i);
 
                     let xt_val = _mm256_loadu_si256(x_b.add(bp) as *const __m256i);
-                    let (xt1, tmp_x) = avx2_shift_left_1(xt_val, x1_);
-                    x1_ = tmp_x;
+                    let xt1 = avx2_shl1_prev(xt_val, x1_);
+                    x1_ = xt_val;
 
                     let vt_val = _mm256_loadu_si256(v_b.add(bp) as *const __m256i);
-                    let (vt1, tmp_v) = avx2_shift_left_1(vt_val, v1_);
-                    v1_ = tmp_v;
+                    let vt1 = avx2_shl1_prev(vt_val, v1_);
+                    v1_ = vt_val;
 
                     let a = _mm256_add_epi8(xt1, vt1);
 
@@ -1673,8 +1680,8 @@ macro_rules! extend_dual_affine_avx2_impl {
                     let b = _mm256_add_epi8(_mm256_loadu_si256(y_b.add(bp) as *const __m256i), ut);
 
                     let x2t_val = _mm256_loadu_si256(x2_b.add(bp) as *const __m256i);
-                    let (x2t1, tmp_x2) = avx2_shift_left_1(x2t_val, x21_);
-                    x21_ = tmp_x2;
+                    let x2t1 = avx2_shl1_prev(x2t_val, x21_);
+                    x21_ = x2t_val;
 
                     let a2 = _mm256_add_epi8(x2t1, vt1);
                     let b2 = _mm256_add_epi8(_mm256_loadu_si256(y2_b.add(bp) as *const __m256i), ut);
@@ -1708,10 +1715,6 @@ macro_rules! extend_dual_affine_avx2_impl {
                         // Gap LEFT-alignment path — byte-addressed traceback
                         let pr_byte_off = r as usize * stride_bytes + (bp - st_usize);
                         let pr_ptr_local = p_ptr.add(pr_byte_off);
-                        if bp_first {
-                            *band_offset_ptr.add(r as usize) = st;
-                            *band_offset_end_ptr.add(r as usize) = en;
-                        }
 
                         // States 1..4 are tried in increasing order and a later strict
                         // improvement overwrites d, so d = max over improving states (a max
@@ -1757,10 +1760,6 @@ macro_rules! extend_dual_affine_avx2_impl {
                         // Gap RIGHT-alignment path — byte-addressed traceback
                         let pr_byte_off = r as usize * stride_bytes + (bp - st_usize);
                         let pr_ptr_local = p_ptr.add(pr_byte_off);
-                        if bp_first {
-                            *band_offset_ptr.add(r as usize) = st;
-                            *band_offset_end_ptr.add(r as usize) = en;
-                        }
 
                         let tmp = _mm256_cmpgt_epi8(z, a);
                         let mut d = _mm256_andnot_si256(tmp, flag1_);
@@ -1801,18 +1800,15 @@ macro_rules! extend_dual_affine_avx2_impl {
                         _mm256_storeu_si256(pr_ptr_local as *mut __m256i, d);
                     }
 
-                    // Restore excess bytes on partial last iteration
-                    if excess > 0 {
-                        _mm_storeu_si128(u_b.add(es) as *mut __m128i, save_u);
-                        _mm_storeu_si128(v_b.add(es) as *mut __m128i, save_v);
-                        _mm_storeu_si128(x_b.add(es) as *mut __m128i, save_x);
-                        _mm_storeu_si128(y_b.add(es) as *mut __m128i, save_y);
-                        _mm_storeu_si128(x2_b.add(es) as *mut __m128i, save_x2);
-                        _mm_storeu_si128(y2_b.add(es) as *mut __m128i, save_y2);
-                    }
-
-                    bp_first = false;
                     bp += 32;
+                }
+                if overrun {
+                    _mm_storeu_si128(u_b.add(es) as *mut __m128i, save_u);
+                    _mm_storeu_si128(v_b.add(es) as *mut __m128i, save_v);
+                    _mm_storeu_si128(x_b.add(es) as *mut __m128i, save_x);
+                    _mm_storeu_si128(y_b.add(es) as *mut __m128i, save_y);
+                    _mm_storeu_si128(x2_b.add(es) as *mut __m128i, save_x2);
+                    _mm_storeu_si128(y2_b.add(es) as *mut __m128i, save_y2);
                 }
 
                 // Update h0 and track max score
@@ -1842,46 +1838,84 @@ macro_rules! extend_dual_affine_avx2_impl {
                         // two (higher value, then earlier position) gives the identical state.
                         let en1 = st0 + (en0 - st0) / 4 * 4;
                         let en8 = st0 + (en1 - st0) / 8 * 8;
-                        let lane_off = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
-                        let mut mh8 = _mm256_set1_epi32(max_h);
-                        let mut mp8 = _mm256_set1_epi32(max_t);
                         let mut t = st0;
-                        while t < en8 {
-                            let hp = h_ptr.add(t as usize);
-                            let v = _mm256_cvtepi8_epi32(_mm_loadl_epi64(v8_ptr.add(t as usize) as *const __m128i));
-                            let h1 = _mm256_add_epi32(_mm256_loadu_si256(hp as *const __m256i), v);
-                            _mm256_storeu_si256(hp as *mut __m256i, h1);
-                            let gt = _mm256_cmpgt_epi32(h1, mh8);
-                            mh8 = _mm256_blendv_epi8(mh8, h1, gt);
-                            mp8 = _mm256_blendv_epi8(mp8, _mm256_add_epi32(_mm256_set1_epi32(t), lane_off), gt);
-                            t += 8;
-                        }
-                        let mut h8 = [0i32; 8];
-                        let mut p8 = [0i32; 8];
-                        _mm256_storeu_si256(h8.as_mut_ptr() as *mut __m256i, mh8);
-                        _mm256_storeu_si256(p8.as_mut_ptr() as *mut __m256i, mp8);
-                        let mut hh = [0i32; 4];
-                        let mut pp = [0i32; 4];
-                        for i in 0..4 {
-                            let j = if h8[i + 4] > h8[i] || (h8[i + 4] == h8[i] && p8[i + 4] < p8[i]) { i + 4 } else { i };
-                            hh[i] = h8[j];
-                            pp[i] = p8[j];
-                        }
-                        if t < en1 {
-                            // one trailing 4-wide block (en1 - en8 is 0 or 4)
-                            let hp = h_ptr.add(t as usize);
-                            let v = _mm_cvtepi8_epi32(_mm_cvtsi32_si128(std::ptr::read_unaligned(v8_ptr.add(t as usize) as *const i32)));
-                            let h1 = _mm_add_epi32(_mm_loadu_si128(hp as *const __m128i), v);
-                            _mm_storeu_si128(hp as *mut __m128i, h1);
-                            let mut h1a = [0i32; 4];
-                            _mm_storeu_si128(h1a.as_mut_ptr() as *mut __m128i, h1);
-                            for i in 0..4 {
-                                if h1a[i] > hh[i] { hh[i] = h1a[i]; pp[i] = t + i as i32; }
+                        if packed_h {
+                            // Same result in one max per 8 cells: key = H << 15 | (32767 - rank),
+                            // rank = lane << 13 | (t - st0) / 4 with lane = (t - st0) % 4, so the
+                            // largest key is the largest H, then the lowest lane, then the earliest
+                            // position (see `packed_h` for the range guard).
+                            let mut low = _mm256_setr_epi32(32767, 32767 - (1 << 13), 32767 - (2 << 13), 32767 - (3 << 13),
+                                                            32766, 32766 - (1 << 13), 32766 - (2 << 13), 32766 - (3 << 13));
+                            let two = _mm256_set1_epi32(2);
+                            let mut mk = _mm256_set1_epi32(i32::MIN);
+                            while t < en8 {
+                                let hp = h_ptr.add(t as usize);
+                                let v = _mm256_cvtepi8_epi32(_mm_loadl_epi64(v8_ptr.add(t as usize) as *const __m128i));
+                                let h1 = _mm256_add_epi32(_mm256_loadu_si256(hp as *const __m256i), v);
+                                _mm256_storeu_si256(hp as *mut __m256i, h1);
+                                mk = _mm256_max_epi32(mk, _mm256_or_si256(_mm256_slli_epi32(h1, 15), low));
+                                low = _mm256_sub_epi32(low, two);
+                                t += 8;
                             }
-                            t += 4;
-                        }
-                        for i in 0..4 {
-                            if max_h < hh[i] { max_h = hh[i]; max_t = pp[i]; }
+                            let mut m4 = _mm_max_epi32(_mm256_castsi256_si128(mk), _mm256_extracti128_si256(mk, 1));
+                            if t < en1 {
+                                let hp = h_ptr.add(t as usize);
+                                let v = _mm_cvtepi8_epi32(_mm_cvtsi32_si128(std::ptr::read_unaligned(v8_ptr.add(t as usize) as *const i32)));
+                                let h1 = _mm_add_epi32(_mm_loadu_si128(hp as *const __m128i), v);
+                                _mm_storeu_si128(hp as *mut __m128i, h1);
+                                m4 = _mm_max_epi32(m4, _mm_or_si128(_mm_slli_epi32(h1, 15), _mm256_castsi256_si128(low)));
+                                t += 4;
+                            }
+                            m4 = _mm_max_epi32(m4, _mm_shuffle_epi32(m4, 0b01_00_11_10));
+                            m4 = _mm_max_epi32(m4, _mm_shuffle_epi32(m4, 0b10_11_00_01));
+                            let key = _mm_cvtsi128_si32(m4);
+                            if key != i32::MIN && (key >> 15) > max_h {
+                                let rank = 32767 - (key & 0x7fff);
+                                max_h = key >> 15;
+                                max_t = st0 + (rank & 0x1fff) * 4 + (rank >> 13);
+                            }
+                            debug_assert_eq!(t, en1);
+                        } else {
+                            let lane_off = _mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7);
+                            let mut mh8 = _mm256_set1_epi32(max_h);
+                            let mut mp8 = _mm256_set1_epi32(max_t);
+                            while t < en8 {
+                                let hp = h_ptr.add(t as usize);
+                                let v = _mm256_cvtepi8_epi32(_mm_loadl_epi64(v8_ptr.add(t as usize) as *const __m128i));
+                                let h1 = _mm256_add_epi32(_mm256_loadu_si256(hp as *const __m256i), v);
+                                _mm256_storeu_si256(hp as *mut __m256i, h1);
+                                let gt = _mm256_cmpgt_epi32(h1, mh8);
+                                mh8 = _mm256_blendv_epi8(mh8, h1, gt);
+                                mp8 = _mm256_blendv_epi8(mp8, _mm256_add_epi32(_mm256_set1_epi32(t), lane_off), gt);
+                                t += 8;
+                            }
+                            let mut h8 = [0i32; 8];
+                            let mut p8 = [0i32; 8];
+                            _mm256_storeu_si256(h8.as_mut_ptr() as *mut __m256i, mh8);
+                            _mm256_storeu_si256(p8.as_mut_ptr() as *mut __m256i, mp8);
+                            let mut hh = [0i32; 4];
+                            let mut pp = [0i32; 4];
+                            for i in 0..4 {
+                                let j = if h8[i + 4] > h8[i] || (h8[i + 4] == h8[i] && p8[i + 4] < p8[i]) { i + 4 } else { i };
+                                hh[i] = h8[j];
+                                pp[i] = p8[j];
+                            }
+                            if t < en1 {
+                                // one trailing 4-wide block (en1 - en8 is 0 or 4)
+                                let hp = h_ptr.add(t as usize);
+                                let v = _mm_cvtepi8_epi32(_mm_cvtsi32_si128(std::ptr::read_unaligned(v8_ptr.add(t as usize) as *const i32)));
+                                let h1 = _mm_add_epi32(_mm_loadu_si128(hp as *const __m128i), v);
+                                _mm_storeu_si128(hp as *mut __m128i, h1);
+                                let mut h1a = [0i32; 4];
+                                _mm_storeu_si128(h1a.as_mut_ptr() as *mut __m128i, h1);
+                                for i in 0..4 {
+                                    if h1a[i] > hh[i] { hh[i] = h1a[i]; pp[i] = t + i as i32; }
+                                }
+                                t += 4;
+                            }
+                            for i in 0..4 {
+                                if max_h < hh[i] { max_h = hh[i]; max_t = pp[i]; }
+                            }
                         }
                         // Remainder
                         while t < en0 {

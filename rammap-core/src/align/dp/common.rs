@@ -225,6 +225,17 @@ pub(super) unsafe fn avx2_shift_left_1(v: __m256i, carry: __m256i) -> (__m256i, 
     (result, carry_out)
 }
 
+/// Shift a 256-bit register left by 1 byte across lanes, shifting in byte 31 of `prev`:
+/// the same result as `avx2_shift_left_1(v, carry)` when `carry` holds `prev`'s byte 31 in
+/// byte 0, in two instructions.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+pub(super) unsafe fn avx2_shl1_prev(v: __m256i, prev: __m256i) -> __m256i {
+    // [prev.hi | v.lo] supplies byte 15 of each lane's left neighbour.
+    _mm256_alignr_epi8(v, _mm256_permute2x128_si256(prev, v, 0x21), 15)
+}
+
 /// Insert a byte at position 0 of a 256-bit register, preserving bytes 1-31.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
