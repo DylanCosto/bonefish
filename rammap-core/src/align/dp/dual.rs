@@ -1713,17 +1713,20 @@ macro_rules! extend_dual_affine_avx2_impl {
                             *band_offset_end_ptr.add(r as usize) = en;
                         }
 
+                        // States 1..4 are tried in increasing order and a later strict
+                        // improvement overwrites d, so d = max over improving states (a max
+                        // of masked flags instead of byte blends).
                         let tmp = _mm256_cmpgt_epi8(a, z);
                         let mut d = _mm256_and_si256(tmp, flag1_);
                         z = _mm256_max_epi8(z, a);
                         let tmp = _mm256_cmpgt_epi8(b, z);
-                        d = _mm256_blendv_epi8(d, flag2_, tmp);
+                        d = _mm256_max_epu8(d, _mm256_and_si256(tmp, flag2_));
                         z = _mm256_max_epi8(z, b);
                         let tmp = _mm256_cmpgt_epi8(a2, z);
-                        d = _mm256_blendv_epi8(d, flag3_, tmp);
+                        d = _mm256_max_epu8(d, _mm256_and_si256(tmp, flag3_));
                         z = _mm256_max_epi8(z, a2);
                         let tmp = _mm256_cmpgt_epi8(b2, z);
-                        d = _mm256_blendv_epi8(d, flag4_, tmp);
+                        d = _mm256_max_epu8(d, _mm256_and_si256(tmp, flag4_));
                         z = _mm256_max_epi8(z, b2);
                         z = _mm256_min_epi8(z, sc_mch_);
 
@@ -1763,13 +1766,13 @@ macro_rules! extend_dual_affine_avx2_impl {
                         let mut d = _mm256_andnot_si256(tmp, flag1_);
                         z = _mm256_max_epi8(z, a);
                         let tmp = _mm256_cmpgt_epi8(z, b);
-                        d = _mm256_blendv_epi8(flag2_, d, tmp);
+                        d = _mm256_max_epu8(d, _mm256_andnot_si256(tmp, flag2_));
                         z = _mm256_max_epi8(z, b);
                         let tmp = _mm256_cmpgt_epi8(z, a2);
-                        d = _mm256_blendv_epi8(flag3_, d, tmp);
+                        d = _mm256_max_epu8(d, _mm256_andnot_si256(tmp, flag3_));
                         z = _mm256_max_epi8(z, a2);
                         let tmp = _mm256_cmpgt_epi8(z, b2);
-                        d = _mm256_blendv_epi8(flag4_, d, tmp);
+                        d = _mm256_max_epu8(d, _mm256_andnot_si256(tmp, flag4_));
                         z = _mm256_max_epi8(z, b2);
                         z = _mm256_min_epi8(z, sc_mch_);
 

@@ -288,6 +288,11 @@ struct AlignArgs {
     #[arg(long)]
     pub ext_probe: Option<String>,
 
+    /// Max reference gap between chained anchors in the main (DP) chaining pass [-g]; the
+    /// extension window and the long-join rescue keep -g
+    #[arg(long)]
+    pub max_gap_ref: Option<i32>,
+
     /// RMQ chaining with a segment tree (faster; ties between equal-priority predecessors may
     /// resolve differently from minimap2)
     #[arg(long)]
@@ -653,6 +658,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.ungapped_fill { opt.alignment.ungapped_fill = true; }
     if cli.ext_rescue { opt.alignment.ext_rescue = true; }
     if cli.seg_rmq { opt.chaining.seg_rmq = true; }
+    if let Some(v) = cli.max_gap_ref { opt.chaining.max_gap_ref = v; }
     if let Some(s) = &cli.ext_probe {
         let v: Vec<i32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
         match v.as_slice() {
@@ -1562,6 +1568,89 @@ fn map_one_part(
                         run()
                     }))
                 };
+                // CPU-only: stream reads into the pool with up to two chunks in flight, so the
+                // stragglers at the end of one chunk overlap with the next chunk instead of
+                // leaving cores idle at a per-chunk barrier. Chunks are still written in order.
+                if !gpu_on {
+                    use std::sync::atomic::{AtomicUsize, Ordering};
+                    struct Chunk {
+                        data: Vec<SeData>,
+                        done: Vec<std::sync::OnceLock<(String, AlignmentStats)>>,
+                        remaining: AtomicUsize,
+                    }
+                    thread_local! {
+                        static CTX: std::cell::RefCell<Option<(rammap::align::extend::AlignmentContext, rammap::align::map::MapContext)>> =
+                            const { std::cell::RefCell::new(None) };
+                    }
+                    const MAX_IN_FLIGHT: usize = 2;
+                    let (tx_done, rx_done) = std::sync::mpsc::channel::<usize>();
+                    let align_one = &align_one;
+                    let mut send_failed = false;
+                    rayon::in_place_scope(|sc| {
+                        let mut in_flight: std::collections::VecDeque<(usize, std::sync::Arc<Chunk>)> = std::collections::VecDeque::new();
+                        let mut finished: std::collections::HashSet<usize> = std::collections::HashSet::new();
+                        let mut next_id = 0usize;
+                        let mut input_done = false;
+                        loop {
+                            // Write out completed chunks in order.
+                            while let Some((id, _)) = in_flight.front() {
+                                if !finished.remove(id) { break; }
+                                let (_, mut c) = in_flight.pop_front().unwrap();
+                                // Workers drop their handle just after the final decrement.
+                                let c = loop {
+                                    match std::sync::Arc::try_unwrap(c) {
+                                        Ok(c) => break c,
+                                        Err(back) => { c = back; std::thread::yield_now(); }
+                                    }
+                                };
+                                let results: Vec<(String, AlignmentStats)> = c.done.into_iter().map(|r| r.into_inner().expect("every read aligned")).collect();
+                                if tx_out.send(results).is_err() { send_failed = true; break; }
+                            }
+                            if send_failed { break; }
+                            if !input_done && in_flight.len() < MAX_IN_FLIGHT {
+                                match rx.recv() {
+                                    Ok(chunk_data) if !chunk_data.is_empty() => {
+                                        let n = chunk_data.len();
+                                        let id = next_id;
+                                        next_id += 1;
+                                        let c = std::sync::Arc::new(Chunk { data: chunk_data, done: (0..n).map(|_| std::sync::OnceLock::new()).collect(),
+                                                                            remaining: AtomicUsize::new(n) });
+                                        for ri in 0..n {
+                                            let c = std::sync::Arc::clone(&c);
+                                            let tx_done = tx_done.clone();
+                                            sc.spawn(move |_| {
+                                                let read = &c.data[ri];
+                                                let r = CTX.with(|cell| {
+                                                    let mut g = cell.borrow_mut();
+                                                    let (ctx, map_ctx) = g.get_or_insert_with(|| (rammap::align::extend::AlignmentContext::new(), rammap::align::map::MapContext::new()));
+                                                    align_one(ctx, map_ctx, read, false)
+                                                });
+                                                let r = r.unwrap_or_else(|_| {
+                                                    eprintln!("[WARNING] alignment panicked for read: {}", read.0);
+                                                    (String::new(), AlignmentStats::default())
+                                                });
+                                                let _ = c.done[ri].set(r);
+                                                let last = c.remaining.fetch_sub(1, Ordering::AcqRel) == 1;
+                                                drop(c);
+                                                if last { let _ = tx_done.send(id); }
+                                            });
+                                        }
+                                        in_flight.push_back((id, c));
+                                        continue;
+                                    }
+                                    _ => input_done = true,
+                                }
+                            }
+                            if in_flight.is_empty() { break; }
+                            match rx_done.recv() {
+                                Ok(id) => { finished.insert(id); }
+                                Err(_) => break,
+                            }
+                        }
+                    });
+                    drop(tx_out);
+                    return writer_handle.join().expect("writer thread panicked");
+                }
                 struct OpenChunk {
                     data: Vec<SeData>,
                     done: Vec<Option<(String, AlignmentStats)>>,
