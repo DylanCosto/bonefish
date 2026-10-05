@@ -30,6 +30,9 @@ pub fn print_post_chain_breakdown() {
     eprintln!("  Div+strand:      {:.3}s", PC_DIVEST_NS.load(Relaxed) as f64 / 1e9);
     eprintln!("  Squeezed+bounds: {:.3}s", PC_SQUEEZED_NS.load(Relaxed) as f64 / 1e9);
     eprintln!("  Extension probe stops: {}", crate::align::extend::PROBE_STOPS.load(Relaxed));
+    eprintln!("  Narrow gap band: {} used ({} widened), {} too wide, {} edge fallbacks",
+        crate::align::extend::GAP_NARROW_USED.load(Relaxed), crate::align::extend::GAP_NARROW_WIDENED.load(Relaxed),
+        crate::align::extend::GAP_NARROW_KMER.load(Relaxed), crate::align::extend::GAP_NARROW_EDGE.load(Relaxed));
     if *crate::align::env_flags::EXP_RMQ_CHECK {
         use crate::align::chain_rmq::{RMQ_CHECK_N, RMQ_CHECK_DIFF, RMQ_CHECK_DIFF_PRI};
         eprintln!("  RMQ check: {} queries, {} different index ({} different priority)", RMQ_CHECK_N.load(Relaxed), RMQ_CHECK_DIFF.load(Relaxed), RMQ_CHECK_DIFF_PRI.load(Relaxed));
@@ -172,6 +175,9 @@ pub struct AlignmentParams {
     pub ext_probe: Option<(i32, i32, i32)>,
     /// Lower bound of the adaptive gap-fill band (None: the default bandwidth).
     pub gap_bw_floor: Option<i32>,
+    /// Narrow gap-fill band |qlen - tlen| + margin, used unless read k-mers match the target
+    /// only off that band, or the path nears its edge (then the regular band).
+    pub gap_bw_narrow: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -268,6 +274,7 @@ impl Default for MapOptions {
                 ext_rescue: false,
                 ext_probe: None,
                 gap_bw_floor: None,
+                gap_bw_narrow: None,
             },
             filtering: FilteringParams {
                 best_n: 5,

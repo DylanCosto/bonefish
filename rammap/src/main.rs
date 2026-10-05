@@ -293,6 +293,11 @@ struct AlignArgs {
     #[arg(long)]
     pub max_gap_ref: Option<i32>,
 
+    /// Gap fill: try band |qlen-tlen| + INT first unless read k-mers match the target only off
+    /// that band; fall back to the regular band when the path nears its edge
+    #[arg(long)]
+    pub gap_bw_narrow: Option<i32>,
+
     /// Lower bound of the --gap-bw-margin band (default: the -r bandwidth x 1.5)
     #[arg(long)]
     pub gap_bw_floor: Option<i32>,
@@ -663,6 +668,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.ext_rescue { opt.alignment.ext_rescue = true; }
     if cli.seg_rmq { opt.chaining.seg_rmq = true; }
     if let Some(v) = cli.gap_bw_floor { opt.alignment.gap_bw_floor = Some(v); }
+    if let Some(v) = cli.gap_bw_narrow { opt.alignment.gap_bw_narrow = if v > 0 { Some(v) } else { None }; }
     if let Some(v) = cli.max_gap_ref { opt.chaining.max_gap_ref = v; }
     if let Some(s) = &cli.ext_probe {
         let v: Vec<i32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();

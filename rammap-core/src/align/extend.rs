@@ -1407,6 +1407,130 @@ fn extend_dual_ext(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
 
 pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Gap fill with an optional narrow first pass (band |qlen - tlen| + `margin`). A banded
+/// optimum can miss a path that leaves the band and comes back (a deletion and an insertion in
+/// one VNTR) without touching the band edge, so the band is widened to cover every sampled read
+/// 15-mer that matches the target only off it; the result is kept unless it z-drops or its path
+/// comes within `EDGE` cells of the band edge (then the regular band `bw1`).
+#[allow(clippy::too_many_arguments)]
+fn gap_dual(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
+            zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
+    use std::sync::atomic::Ordering::Relaxed;
+    const EDGE: i32 = 8;
+    if let Some(m) = narrow {
+        let mut nb = (ts.len() as i32 - qs.len() as i32).abs() + m;
+        let need = offband_only_kmers(qs, ts, nb - EDGE);
+        if need > 0 {
+            // Widen the band to cover those k-mers' diagonals (plus the margin).
+            nb = need + m;
+        }
+        if nb < bw1 {
+            dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, nb, zdrop, end_bonus, flag, ez);
+            if ez.zdropped == 0 && !ez.cigar.is_empty() && path_max_offdiag(&ez.cigar) < nb - EDGE {
+                GAP_NARROW_USED.fetch_add(1, Relaxed);
+                return;
+            }
+            GAP_NARROW_EDGE.fetch_add(1, Relaxed);
+            *ez = DpResult::default();
+        } else {
+            GAP_NARROW_KMER.fetch_add(1, Relaxed);
+        }
+        if need > 0 { GAP_NARROW_WIDENED.fetch_add(1, Relaxed); }
+    }
+    dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, bw1, zdrop, end_bonus, flag, ez);
+}
+
+/// Largest |target_pos - query_pos| along a CIGAR path (ops len<<4|op; 0 M, 1 I, 2 D).
+fn path_max_offdiag(cigar: &[u32]) -> i32 {
+    let (mut d, mut m) = (0i32, 0i32);
+    for &c in cigar {
+        let len = (c >> 4) as i32;
+        match c & 0xf {
+            1 => { d -= len; }
+            2 | 3 => { d += len; }
+            _ => {}
+        }
+        m = m.max(d.abs());
+    }
+    m
+}
+
+thread_local! {
+    static GAP_KMERS: std::cell::RefCell<Vec<u64>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Widest diagonal the band must cover: sampled read 15-mers (every 4th position) that occur in
+/// `t` only off the band |t_pos - q_pos| <= `w` are binned by the diagonal of their nearest
+/// occurrence (16-wide bins), and a bin with at least 3 of them is a path the band would miss
+/// (a run of read sequence matching the target at that shift, as in a VNTR deletion plus
+/// insertion). Isolated off-band hits, typically another copy of an interspersed repeat matched
+/// where the in-band copy has a sequencing error, do not count. Returns the largest such
+/// |diagonal|, or 0. Sequences are nt4 (0-3; 4 = N).
+fn offband_only_kmers(q: &[u8], t: &[u8], w: i32) -> i32 {
+    const K: usize = 15;
+    const MIN_HITS: usize = 3;
+    if q.len() < K || t.len() < K {
+        return 0;
+    }
+    let mask: u64 = (1u64 << (2 * K)) - 1;
+    GAP_KMERS.with(|cell| {
+        let mut tk = cell.borrow_mut();
+        tk.clear();
+        let (mut h, mut l) = (0u64, 0usize);
+        for (i, &c) in t.iter().enumerate() {
+            if c > 3 { l = 0; h = 0; continue; }
+            h = ((h << 2) | c as u64) & mask;
+            l += 1;
+            if l >= K { tk.push(h << 32 | (i + 1 - K) as u64); }
+        }
+        tk.sort_unstable();
+        let split = tk.len();
+        let (mut h, mut l) = (0u64, 0usize);
+        for (i, &c) in q.iter().enumerate() {
+            if c > 3 { l = 0; h = 0; continue; }
+            h = ((h << 2) | c as u64) & mask;
+            l += 1;
+            if l < K || (i + 1 - K) % 4 != 0 { continue; }
+            let qp = (i + 1 - K) as i32;
+            let lo = tk[..split].partition_point(|&x| (x >> 32) < h);
+            let (mut nearest, mut nd) = (i32::MAX, 0i32);
+            for &x in &tk[lo..split] {
+                if (x >> 32) != h { break; }
+                let d = (x & 0xffff_ffff) as i32 - qp;
+                if d.abs() < nearest { nearest = d.abs(); nd = d; }
+            }
+            if nearest != i32::MAX && nearest > w {
+                // off-band-only hit: remember its diagonal bin after the target k-mers
+                tk.push((nd >> 4) as i64 as u64);
+            }
+        }
+        let bins = &mut tk[split..];
+        if bins.len() < MIN_HITS {
+            return 0;
+        }
+        bins.sort_unstable();
+        let mut need = 0i32;
+        let mut run = 1usize;
+        for i in 1..=bins.len() {
+            if i < bins.len() && bins[i] == bins[i - 1] {
+                run += 1;
+            } else {
+                if run >= MIN_HITS {
+                    let d = bins[i - 1] as i64 as i32;
+                    need = need.max((d.abs() + 1) * 16);
+                }
+                run = 1;
+            }
+        }
+        need
+    })
+}
+
+pub static GAP_NARROW_USED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static GAP_NARROW_KMER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static GAP_NARROW_EDGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static GAP_NARROW_WIDENED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Does the unaligned tail of a z-dropped extension still match the target at one consistent
 /// diagonal shift wider than `min_shift` (up to `max_shift`)? That is the signature of an indel
 /// too wide for a narrowed extension band, as opposed to divergent or junk sequence. Compares
@@ -1866,6 +1990,12 @@ pub fn align_anchors(
                 let diff = ((anchor_qe - gap_qs) - (anchor_re - gap_rs)).abs();
                 bw1 = cmp::max(opt.alignment.gap_bw_floor.unwrap_or(bw), cmp::min(bw1, diff + margin));
             }
+            // Narrow first pass only where it saves real work: band well inside the matrix.
+            let gap_narrow = opt.alignment.gap_bw_narrow.filter(|&m| {
+                let (gq, gt) = (anchor_qe - gap_qs, anchor_re - gap_rs);
+                let nb = (gq - gt).abs() + m;
+                nb < bw1 && 2 * nb < gq.min(gt)
+            });
 
             let q_start = cmp::max(0, gap_qs) as usize;
             let q_end = cmp::min(qlen, anchor_qe) as usize;
@@ -1928,7 +2058,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            gap_dual(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                     }
                     // Z-drop test applies to both paths
@@ -1961,7 +2091,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            gap_dual(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                         #[cfg(feature = "census")]
                         dp::census::finish(census_t0, dp::census::Kind::Gap, q_sub, t_sub,
