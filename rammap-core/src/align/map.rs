@@ -12,6 +12,8 @@ use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 
 // Sub-timers for post-chain breakdown (nanoseconds, summed across threads)
 static PC_RESCUE_NS: AtomicU64 = AtomicU64::new(0);
+static PC_RECHAIN_NS: AtomicU64 = AtomicU64::new(0);
+static PC_RECHAIN_COUNT: AtomicU64 = AtomicU64::new(0);
 static PC_RESCUE_COUNT: AtomicU64 = AtomicU64::new(0);
 static PC_RESCUE_ANCHORS: AtomicU64 = AtomicU64::new(0);
 static PC_BUILD_REGS_NS: AtomicU64 = AtomicU64::new(0);
@@ -22,12 +24,16 @@ static PC_SQUEEZED_NS: AtomicU64 = AtomicU64::new(0);
 pub fn print_post_chain_breakdown() {
     eprintln!("--- Post-chain sub-timers ---");
     eprintln!("  RMQ rescue:      {:.3}s ({} calls, {} anchors)", PC_RESCUE_NS.load(Relaxed) as f64 / 1e9, PC_RESCUE_COUNT.load(Relaxed), PC_RESCUE_ANCHORS.load(Relaxed));
+    eprintln!("    of which high-occ re-chain: {:.3}s ({} calls)", PC_RECHAIN_NS.load(Relaxed) as f64 / 1e9, PC_RECHAIN_COUNT.load(Relaxed));
     eprintln!("  Build regs:      {:.3}s", PC_BUILD_REGS_NS.load(Relaxed) as f64 / 1e9);
     eprintln!("  Parent+filter:   {:.3}s", PC_PARENT_NS.load(Relaxed) as f64 / 1e9);
     eprintln!("  Div+strand:      {:.3}s", PC_DIVEST_NS.load(Relaxed) as f64 / 1e9);
     eprintln!("  Squeezed+bounds: {:.3}s", PC_SQUEEZED_NS.load(Relaxed) as f64 / 1e9);
     eprintln!("  Extension probe stops: {}", crate::align::extend::PROBE_STOPS.load(Relaxed));
-    eprintln!("  Narrow gap-band retries: {}", crate::align::extend::GAP_NARROW_RETRIES.load(Relaxed));
+    if *crate::align::env_flags::EXP_RMQ_CHECK {
+        use crate::align::chain_rmq::{RMQ_CHECK_N, RMQ_CHECK_DIFF, RMQ_CHECK_DIFF_PRI};
+        eprintln!("  RMQ check: {} queries, {} different index ({} different priority)", RMQ_CHECK_N.load(Relaxed), RMQ_CHECK_DIFF.load(Relaxed), RMQ_CHECK_DIFF_PRI.load(Relaxed));
+    }
     eprintln!("-----------------------------");
 }
 use crate::align::sketch::{sketch_sequence, sketch_sequence_append, Minimizer};
@@ -119,6 +125,10 @@ pub struct ChainingParams {
     pub rmq_rescue_ratio: f32,
     pub rmq_inner_dist: i32,
     pub rmq_size_cap: i32,
+    /// RMQ chaining with a segment tree instead of the AVL tree: same range minima, but a tie
+    /// between exactly equal priorities may pick a different anchor (output not guaranteed
+    /// byte-identical to minimap2).
+    pub seg_rmq: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -160,9 +170,6 @@ pub struct AlignmentParams {
     /// first align only the first `len` bases; keep that result if it z-drops or scores below
     /// the minimum (a low-identity read end), otherwise align the full window.
     pub ext_probe: Option<(i32, i32, i32)>,
-    /// Narrow gap-fill band: try band |qlen - tlen| + margin first and keep it unless the
-    /// path comes within a few cells of the band edge or z-drops (then the regular band).
-    pub gap_bw_narrow: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -228,6 +235,7 @@ impl Default for MapOptions {
                 rmq_rescue_ratio: 0.1,
                 rmq_inner_dist: 1000,
                 rmq_size_cap: 100000,
+                seg_rmq: false,
             },
             scoring: ScoringParams {
                 match_score: 2,
@@ -257,7 +265,6 @@ impl Default for MapOptions {
                 ungapped_fill: false,
                 ext_rescue: false,
                 ext_probe: None,
-                gap_bw_narrow: None,
             },
             filtering: FilteringParams {
                 best_n: 5,
@@ -1427,6 +1434,8 @@ pub fn map_query(
         let rechain = u.is_empty();
 
         if rechain {
+            let rc0 = Instant::now();
+            PC_RECHAIN_COUNT.fetch_add(1, Relaxed);
             rep_len = if opt.flags.contains(AlignFlags::HEAP_SORT) {
                 collect_seed_hits_heap(opt, mi, qlen, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, opt.seeding.max_occ, qn_opt, &mut ctx.seed_scratch)
             } else {
@@ -1441,6 +1450,7 @@ pub fn map_query(
             ctx.anchors = anchors;
             u = u2;
             chains = chains2;
+            PC_RECHAIN_NS.fetch_add(rc0.elapsed().as_nanos() as u64, Relaxed);
         }
     }
 

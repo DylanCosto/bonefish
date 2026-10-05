@@ -48,3 +48,11 @@ pub static EXP_UNGAPPED: LazyLock<bool> = LazyLock::new(|| flag("RAMMAP_EXP_UNGA
 /// RAMMAP_EXP_EXT_RESCUE: re-run a z-dropped narrow-band extension with the default band when
 /// the unaligned tail still matches the reference at a diagonal shift wider than the band.
 pub static EXP_EXT_RESCUE: LazyLock<bool> = LazyLock::new(|| flag("RAMMAP_EXP_EXT_RESCUE"));
+
+/// RAMMAP_EXP_SEG_RMQ=1: RMQ chaining uses a segment tree over query-position ranks instead of
+/// the AVL tree (same minimum; ties between equal priorities may resolve differently).
+pub static EXP_SEG_RMQ: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("RAMMAP_EXP_SEG_RMQ").is_ok_and(|v| v != "0"));
+/// RAMMAP_EXP_RMQ_CHECK=1: run both RMQ structures and count disagreements (debug).
+pub static EXP_RMQ_CHECK: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("RAMMAP_EXP_RMQ_CHECK").is_ok_and(|v| v != "0"));

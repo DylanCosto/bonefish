@@ -288,10 +288,10 @@ struct AlignArgs {
     #[arg(long)]
     pub ext_probe: Option<String>,
 
-    /// Gap fill: try band |qlen-tlen| + INT first, falling back to the regular band when the
-    /// path nears the narrow band's edge
+    /// RMQ chaining with a segment tree (faster; ties between equal-priority predecessors may
+    /// resolve differently from minimap2)
     #[arg(long)]
-    pub gap_bw_narrow: Option<i32>,
+    pub seg_rmq: bool,
 
     /// Score for ambiguous bases
     #[arg(long = "score-N")]
@@ -652,7 +652,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if let Some(v) = cli.gap_bw_margin { opt.alignment.gap_bw_margin = Some(v); }
     if cli.ungapped_fill { opt.alignment.ungapped_fill = true; }
     if cli.ext_rescue { opt.alignment.ext_rescue = true; }
-    if let Some(v) = cli.gap_bw_narrow { opt.alignment.gap_bw_narrow = if v > 0 { Some(v) } else { None }; }
+    if cli.seg_rmq { opt.chaining.seg_rmq = true; }
     if let Some(s) = &cli.ext_probe {
         let v: Vec<i32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
         match v.as_slice() {

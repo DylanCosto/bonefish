@@ -530,57 +530,140 @@ impl RmqTree {
         Some((n.key_y, n.key_i as usize, n.pri))
     }
 
-    /// Reverse in-order iterator over elements with key_y <= start_y.
-    ///
-    /// The walk stack is bounded by the AVL tree height, which is itself bounded
-    /// by ~1.44·log2(`rmq_size_cap`) — well under 64 for any practical cap. We
-    /// keep the stack inline on the iterator to avoid a heap allocation per
-    /// `iter_rev_le()` call (hot path: fires once per non-exact outer-tree hit,
-    /// tens of millions of times per chromosome at asm presets).
-    fn iter_rev_le(&self, start_y: i32) -> RmqRevIter<'_> {
-        let mut iter = RmqRevIter { tree: self, stack: [0u32; RMQ_ITER_STACK_CAP], stack_len: 0 };
-        let mut t = self.root;
-        while t != NIL {
-            let node = &self.nodes[t as usize];
-            if node.key_y <= start_y {
-                debug_assert!(iter.stack_len < RMQ_ITER_STACK_CAP, "RMQ iter stack overflow");
-                iter.stack[iter.stack_len] = t;
-                iter.stack_len += 1;
-                t = node.right;
-            } else {
-                t = node.left;
-            }
+}
+
+/// Segment-tree RMQ over the query-position ranks of all anchors of one chaining call. Holds the
+/// same (key, priority) set as the AVL tree and answers the same range-minimum queries; only the
+/// choice among exactly equal priorities can differ.
+struct SegRmq {
+    ys: Vec<i32>,       // query position by rank
+    is: Vec<u32>,       // anchor index by rank
+    rank: Vec<u32>,     // rank by anchor index
+    pri: Vec<f64>,      // 2 * cap, 1-based heap layout
+    idx: Vec<u32>,
+    cap: usize,
+    size: usize,
+}
+
+impl SegRmq {
+    fn new(a: &[Minimizer]) -> Self {
+        let n = a.len();
+        let mut keys: Vec<u64> = (0..n).map(|j| ((a[j].query_pos() as u32 as u64) << 32) | j as u64).collect();
+        keys.sort_unstable();
+        let mut ys = Vec::with_capacity(n);
+        let mut is = Vec::with_capacity(n);
+        let mut rank = vec![0u32; n];
+        for (r, &k) in keys.iter().enumerate() {
+            ys.push((k >> 32) as u32 as i32);
+            is.push(k as u32);
+            rank[k as u32 as usize] = r as u32;
         }
-        iter
+        let cap = n.next_power_of_two().max(1);
+        SegRmq { ys, is, rank, pri: vec![f64::INFINITY; 2 * cap], idx: vec![NIL; 2 * cap], cap, size: 0 }
+    }
+
+    #[inline]
+    fn len(&self) -> usize { self.size }
+
+    #[inline(always)]
+    fn pull(&mut self, mut p: usize) {
+        while p > 1 {
+            p >>= 1;
+            let (l, r) = (2 * p, 2 * p + 1);
+            let c = if self.pri[r] < self.pri[l] { r } else { l };
+            self.pri[p] = self.pri[c];
+            self.idx[p] = self.idx[c];
+        }
+    }
+
+    #[inline]
+    fn insert_elem(&mut self, j: usize, pri: f64) {
+        let p = self.cap + self.rank[j] as usize;
+        self.pri[p] = pri;
+        self.idx[p] = j as u32;
+        self.size += 1;
+        self.pull(p);
+    }
+
+    #[inline]
+    fn erase(&mut self, j: usize) {
+        let p = self.cap + self.rank[j] as usize;
+        if self.idx[p] == NIL { return; }
+        self.pri[p] = f64::INFINITY;
+        self.idx[p] = NIL;
+        self.size -= 1;
+        self.pull(p);
+    }
+
+    /// Minimum over keys (y, i) with lo_y < y < hi_y, or y == hi_y and i == 0 (the AVL query
+    /// bounds (lo_y, MAX) .. (hi_y, 0)).
+    #[inline]
+    fn rmq(&self, lo_y: i32, hi_y: i32) -> Option<(i32, usize, f64)> {
+        let mut l = self.ys.partition_point(|&y| y <= lo_y);
+        let mut r = self.ys.partition_point(|&y| y < hi_y);
+        if r < self.ys.len() && self.ys[r] == hi_y && self.is[r] == 0 { r += 1; }
+        if l >= r { return None; }
+        let (mut best_p, mut best_i) = (f64::INFINITY, NIL);
+        l += self.cap;
+        r += self.cap;
+        while l < r {
+            if l & 1 == 1 {
+                if self.pri[l] < best_p { best_p = self.pri[l]; best_i = self.idx[l]; }
+                l += 1;
+            }
+            if r & 1 == 1 {
+                r -= 1;
+                if self.pri[r] < best_p { best_p = self.pri[r]; best_i = self.idx[r]; }
+            }
+            l >>= 1;
+            r >>= 1;
+        }
+        if best_i == NIL { return None; }
+        let j = best_i as usize;
+        Some((self.ys[self.rank[j] as usize], j, best_p))
     }
 }
 
-const RMQ_ITER_STACK_CAP: usize = 64;
+pub static RMQ_CHECK_DIFF: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static RMQ_CHECK_DIFF_PRI: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static RMQ_CHECK_N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-struct RmqRevIter<'a> {
-    tree: &'a RmqTree,
-    stack: [u32; RMQ_ITER_STACK_CAP],
-    stack_len: usize,
+/// The inner (short-range) RMQ "tree" is only ever iterated in reverse key order, never range-
+/// minimum queried, so a sorted vector of (y, i) keys gives the identical iteration order with
+/// cheaper insert/erase (it holds the anchors of a short reference window).
+struct SortedKeys {
+    keys: Vec<u64>,
 }
 
-impl<'a> Iterator for RmqRevIter<'a> {
-    type Item = (i32, usize, f64);
+impl SortedKeys {
+    fn new() -> Self { SortedKeys { keys: Vec::with_capacity(256) } }
+
+    #[inline(always)]
+    fn key(y: i32, i: usize) -> u64 { ((y as u32 as u64) << 32) | i as u32 as u64 }
 
     #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.stack_len == 0 { return None; }
-        self.stack_len -= 1;
-        let t = self.stack[self.stack_len];
-        let node = &self.tree.nodes[t as usize];
-        let result = (node.key_y, node.key_i as usize, node.pri);
-        let mut child = node.left;
-        while child != NIL {
-            debug_assert!(self.stack_len < RMQ_ITER_STACK_CAP, "RMQ iter stack overflow");
-            self.stack[self.stack_len] = child;
-            self.stack_len += 1;
-            child = self.tree.nodes[child as usize].right;
+    fn len(&self) -> usize { self.keys.len() }
+
+    #[inline]
+    fn insert_elem(&mut self, y: i32, i: usize) {
+        let k = Self::key(y, i);
+        let pos = self.keys.partition_point(|&x| x < k);
+        self.keys.insert(pos, k);
+    }
+
+    #[inline]
+    fn erase(&mut self, y: i32, i: usize) {
+        let k = Self::key(y, i);
+        if let Ok(pos) = self.keys.binary_search(&k) {
+            self.keys.remove(pos);
         }
-        Some(result)
+    }
+
+    /// Elements with key_y <= start_y in decreasing (y, i) order, as (y, i).
+    #[inline]
+    fn iter_rev_le(&self, start_y: i32) -> impl Iterator<Item = (i32, usize)> + '_ {
+        let end = self.keys.partition_point(|&x| (x >> 32) as u32 as i32 <= start_y);
+        self.keys[..end].iter().rev().map(|&k| ((k >> 32) as u32 as i32, (k & 0xffff_ffff) as usize))
     }
 }
 
@@ -650,8 +733,12 @@ pub fn chain_anchors_rmq(
     // visited uses sentinel comparison (visited[j] == i) so must be zeroed
     visited.clear(); visited.resize(n, 0i32);
 
+    let seg = opt.seg_rmq || *crate::align::env_flags::EXP_SEG_RMQ;
+    let check = *crate::align::env_flags::EXP_RMQ_CHECK;
+    let use_avl = !seg || check;
     let mut root = RmqTree::new();
-    let mut root_inner = if max_dist_inner > 0 { Some(RmqTree::new()) } else { None };
+    let mut seg_root = if seg || check { Some(SegRmq::new(a)) } else { None };
+    let mut root_inner = if max_dist_inner > 0 { Some(SortedKeys::new()) } else { None };
 
     let mut window_start: usize = 0;
     let mut inner_window_start: usize = 0;
@@ -668,9 +755,10 @@ pub fn chain_anchors_rmq(
         if insert_from < i && a[insert_from].x != a[i].x {
             for j in insert_from..i {
                 let pri = -(scores[j] as f64 + 0.5 * opt.chn_pen_gap as f64 * ((a[j].ref_pos() + a[j].query_pos()) as f64));
-                root.insert_elem(a[j].query_pos(), j, pri);
+                if use_avl { root.insert_elem(a[j].query_pos(), j, pri); }
+                if let Some(sr) = &mut seg_root { sr.insert_elem(j, pri); }
                 if let Some(inner) = &mut root_inner {
-                    inner.insert_elem(a[j].query_pos(), j, pri);
+                    inner.insert_elem(a[j].query_pos(), j);
                 }
             }
             insert_from = i;
@@ -680,9 +768,10 @@ pub fn chain_anchors_rmq(
         while window_start < i && (
             a[i].ref_id_strand() != a[window_start].ref_id_strand() ||
             a[i].x > a[window_start].x + max_dist as u64 ||
-            root.len() > opt.rmq_size_cap as usize
+            (if use_avl { root.len() } else { seg_root.as_ref().map_or(0, |sr| sr.len()) }) > opt.rmq_size_cap as usize
         ) {
-            root.erase(a[window_start].query_pos(), window_start);
+            if use_avl { root.erase(a[window_start].query_pos(), window_start); }
+            if let Some(sr) = &mut seg_root { sr.erase(window_start); }
             window_start += 1;
         }
 
@@ -702,7 +791,21 @@ pub fn chain_anchors_rmq(
         let lo_y = a[i].query_pos() - max_dist;
         let hi_y = a[i].query_pos();
 
-        if let Some((_q_y, q_i, _q_pri)) = root.rmq(lo_y, hi_y) {
+        let hit = if use_avl {
+            let h = root.rmq(lo_y, hi_y);
+            if check {
+                let h2 = seg_root.as_ref().unwrap().rmq(lo_y, hi_y);
+                RMQ_CHECK_N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                if h.map(|x| x.1) != h2.map(|x| x.1) {
+                    RMQ_CHECK_DIFF.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if h.map(|x| x.2) != h2.map(|x| x.2) { RMQ_CHECK_DIFF_PRI.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
+                }
+            }
+            h
+        } else {
+            seg_root.as_ref().unwrap().rmq(lo_y, hi_y)
+        };
+        if let Some((_q_y, q_i, _q_pri)) = hit {
             let j = q_i;
             let (sc, exact, width) = compute_chain_score_simple(&a[i], &a[j], opt.chn_pen_gap, opt.chn_pen_skip);
             let total_sc = scores[j] + sc;
@@ -714,7 +817,7 @@ pub fn chain_anchors_rmq(
             // If not exact match, also search inner tree for close matches
             if !exact && let Some(ref inner) = root_inner && a[i].query_pos() > 0 {
                 let mut skip_count = 0;
-                for (q_y, q_i, _q_pri) in inner.iter_rev_le(a[i].query_pos() - 1) {
+                for (q_y, q_i) in inner.iter_rev_le(a[i].query_pos() - 1) {
                     if q_y < a[i].query_pos() - max_dist_inner {
                         break;
                     }
@@ -867,6 +970,7 @@ mod tests {
             rmq_rescue_ratio: 0.1,
             rmq_inner_dist: 100,
             rmq_size_cap: 500,
+            seg_rmq: false,
         };
         let mut bufs = ChainingBuffers::new();
         let (u, _chains) = chain_anchors_rmq(

@@ -1414,40 +1414,6 @@ fn extend_dual_ext(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
 
 pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Gap fill with an optional narrow first pass: band `narrow` is kept when the path stays
-/// clear of its edge (by `EDGE` cells) and does not z-drop; otherwise band `bw1` is used.
-#[allow(clippy::too_many_arguments)]
-fn gap_dual(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
-            zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
-    const EDGE: i32 = 8;
-    if let Some(nb) = narrow {
-        dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, nb, zdrop, end_bonus, flag, ez);
-        if ez.zdropped == 0 && !ez.cigar.is_empty() && path_max_offdiag(&ez.cigar) < nb - EDGE {
-            return;
-        }
-        GAP_NARROW_RETRIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        *ez = DpResult::default();
-    }
-    dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, bw1, zdrop, end_bonus, flag, ez);
-}
-
-/// Largest |target_pos - query_pos| along a CIGAR path (ops len<<4|op; 0 M, 1 I, 2 D).
-fn path_max_offdiag(cigar: &[u32]) -> i32 {
-    let (mut d, mut m) = (0i32, 0i32);
-    for &c in cigar {
-        let len = (c >> 4) as i32;
-        match c & 0xf {
-            1 => { d -= len; }
-            2 | 3 => { d += len; }
-            _ => {}
-        }
-        m = m.max(d.abs());
-    }
-    m
-}
-
-pub static GAP_NARROW_RETRIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
 /// Does the unaligned tail of a z-dropped extension still match the target at one consistent
 /// diagonal shift wider than `min_shift` (up to `max_shift`)? That is the signature of an indel
 /// too wide for a narrowed extension band, as opposed to divergent or junk sequence. Compares
@@ -1907,9 +1873,6 @@ pub fn align_anchors(
                 let diff = ((anchor_qe - gap_qs) - (anchor_re - gap_rs)).abs();
                 bw1 = cmp::max(bw, cmp::min(bw1, diff + margin));
             }
-            let gap_narrow = opt.alignment.gap_bw_narrow
-                .map(|m| ((anchor_qe - gap_qs) - (anchor_re - gap_rs)).abs() + m)
-                .filter(|&nb| nb < bw1);
 
             let q_start = cmp::max(0, gap_qs) as usize;
             let q_end = cmp::min(qlen, anchor_qe) as usize;
@@ -1972,7 +1935,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            gap_dual(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                     }
                     // Z-drop test applies to both paths
@@ -2005,7 +1968,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            gap_dual(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                         #[cfg(feature = "census")]
                         dp::census::finish(census_t0, dp::census::Kind::Gap, q_sub, t_sub,
