@@ -776,16 +776,21 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.alignment.gap_bw_margin = Some(500);
             opt.alignment.ungapped_fill = true;
         },
-        // lr:hq with cheaper DP (ont-aligner Phase 3): narrower extension band (with a wide-band
-        // retry when an extension's tail shows a wider indel), adaptive gap-fill band,
-        // ungapped-first gap fill. ~1.9x faster than lr:hq on HG002 R10.4.1 sup with SNP, indel
-        // and SV accuracy at baseline level on chr20 and chr22; output differs from minimap2.
+        // lr:hq with cheaper DP and chaining (ont-aligner Phase 3): narrower extension band (with
+        // a wide-band retry when an extension's tail shows a wider indel), a 2 kb probe that stops
+        // extending into low-identity read ends, adaptive gap-fill band, ungapped-first gap fill,
+        // 5 kb reference gap limit in the main chaining pass (the long-join rescue keeps -g) and
+        // segment-tree RMQ. ~2.4x faster than lr:hq on HG002 R10.4.1 sup with SNP, indel and SV
+        // accuracy at baseline level on chr20 and chr22; output differs from minimap2.
         "lr:hq-fast" => {
             *k = 19; *w = 19;
             opt.chaining.max_gap = 10000;
+            opt.chaining.max_gap_ref = 5000;
+            opt.chaining.seg_rmq = true;
             opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
             opt.alignment.ext_bw = Some(200);
             opt.alignment.ext_rescue = true;
+            opt.alignment.ext_probe = Some((2000, 1000, 0));
             opt.alignment.gap_bw_margin = Some(500);
             opt.alignment.ungapped_fill = true;
         },

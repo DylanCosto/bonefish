@@ -170,6 +170,8 @@ pub struct AlignmentParams {
     /// first align only the first `len` bases; keep that result if it z-drops or scores below
     /// the minimum (a low-identity read end), otherwise align the full window.
     pub ext_probe: Option<(i32, i32, i32)>,
+    /// Lower bound of the adaptive gap-fill band (None: the default bandwidth).
+    pub gap_bw_floor: Option<i32>,
 }
 
 #[derive(Debug, Clone)]
@@ -265,6 +267,7 @@ impl Default for MapOptions {
                 ungapped_fill: false,
                 ext_rescue: false,
                 ext_probe: None,
+                gap_bw_floor: None,
             },
             filtering: FilteringParams {
                 best_n: 5,
@@ -1380,6 +1383,12 @@ pub fn map_query(
         #[cfg(not(feature = "parallel"))]
         chain_anchors(&opt.chaining, opt.filtering.is_splice, 1, max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs)
     };
+    // A reference gap limit below -g (--max-gap-ref) can leave a read with sparse anchors
+    // without any chain: chain it again with -g.
+    if u.is_empty() && !anchors.is_empty() && opt.chaining.max_gap_ref > 0 && max_chain_gap_ref < opt.chaining.max_gap
+        && !opt.flags.contains(AlignFlags::RMQ_CHAIN) && !opt.filtering.is_splice {
+        (u, chains) = chain_anchors(&opt.chaining, false, 1, opt.chaining.max_gap, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs);
+    }
     ctx.anchors = anchors;
 
     stats.t_chain = t2.elapsed();

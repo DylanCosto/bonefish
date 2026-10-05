@@ -58,7 +58,7 @@ struct AlignArgs {
     ///   map-iclr-prerender — ICLR pre-render variant
     ///   lr:hq            — accurate long reads (<1% error) vs reference
     ///   lr:hq-balanced   — lr:hq with near-output-preserving DP savings (--gap-bw-margin 500 --ungapped-fill)
-    ///   lr:hq-fast       — lr:hq with cheaper DP (--ext-bw 200 --ext-rescue --gap-bw-margin 500 --ungapped-fill)
+    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --ungapped-fill --max-gap-ref 5000 --seg-rmq)
     ///   lr:hqae          — HQ long-read assembly eval (k=25 w=51, RMQ)
     ///   asm5 / asm10 / asm20 — asm-to-ref ~0.1/1/5% divergence
     ///   ava-ont / ava-pb — all-vs-all Nanopore / PacBio read overlap
@@ -292,6 +292,10 @@ struct AlignArgs {
     /// extension window and the long-join rescue keep -g
     #[arg(long)]
     pub max_gap_ref: Option<i32>,
+
+    /// Lower bound of the --gap-bw-margin band (default: the -r bandwidth x 1.5)
+    #[arg(long)]
+    pub gap_bw_floor: Option<i32>,
 
     /// RMQ chaining with a segment tree (faster; ties between equal-priority predecessors may
     /// resolve differently from minimap2)
@@ -658,6 +662,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.ungapped_fill { opt.alignment.ungapped_fill = true; }
     if cli.ext_rescue { opt.alignment.ext_rescue = true; }
     if cli.seg_rmq { opt.chaining.seg_rmq = true; }
+    if let Some(v) = cli.gap_bw_floor { opt.alignment.gap_bw_floor = Some(v); }
     if let Some(v) = cli.max_gap_ref { opt.chaining.max_gap_ref = v; }
     if let Some(s) = &cli.ext_probe {
         let v: Vec<i32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();

@@ -1871,7 +1871,7 @@ pub fn align_anchors(
             }
             if let Some(margin) = opt.alignment.gap_bw_margin.or(*crate::align::env_flags::EXP_GAP_BW_ADAPT) {
                 let diff = ((anchor_qe - gap_qs) - (anchor_re - gap_rs)).abs();
-                bw1 = cmp::max(bw, cmp::min(bw1, diff + margin));
+                bw1 = cmp::max(opt.alignment.gap_bw_floor.unwrap_or(bw), cmp::min(bw1, diff + margin));
             }
 
             let q_start = cmp::max(0, gap_qs) as usize;
