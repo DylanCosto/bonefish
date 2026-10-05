@@ -1641,20 +1641,19 @@ macro_rules! extend_dual_affine_avx2_impl {
                     let excess = if bp + 31 > en_usize {
                         bp + 32 - (en_usize + 1)
                     } else { 0 };
-                    let mut save_u = [0u8; 16];
-                    let mut save_v = [0u8; 16];
-                    let mut save_x = [0u8; 16];
-                    let mut save_y = [0u8; 16];
-                    let mut save_x2 = [0u8; 16];
-                    let mut save_y2 = [0u8; 16];
+                    // en + 1 and bp - st are multiples of 16 and 32, so the overrun is 0 or 16
+                    // bytes: save and restore it with fixed 16-byte moves.
+                    debug_assert!(excess == 0 || excess == 16);
+                    let es = en_usize + 1;
+                    let z128 = _mm_setzero_si128();
+                    let (mut save_u, mut save_v, mut save_x, mut save_y, mut save_x2, mut save_y2) = (z128, z128, z128, z128, z128, z128);
                     if excess > 0 {
-                        let es = en_usize + 1;
-                        std::ptr::copy_nonoverlapping(u_b.add(es), save_u.as_mut_ptr(), excess);
-                        std::ptr::copy_nonoverlapping(v_b.add(es), save_v.as_mut_ptr(), excess);
-                        std::ptr::copy_nonoverlapping(x_b.add(es), save_x.as_mut_ptr(), excess);
-                        std::ptr::copy_nonoverlapping(y_b.add(es), save_y.as_mut_ptr(), excess);
-                        std::ptr::copy_nonoverlapping(x2_b.add(es), save_x2.as_mut_ptr(), excess);
-                        std::ptr::copy_nonoverlapping(y2_b.add(es), save_y2.as_mut_ptr(), excess);
+                        save_u = _mm_loadu_si128(u_b.add(es) as *const __m128i);
+                        save_v = _mm_loadu_si128(v_b.add(es) as *const __m128i);
+                        save_x = _mm_loadu_si128(x_b.add(es) as *const __m128i);
+                        save_y = _mm_loadu_si128(y_b.add(es) as *const __m128i);
+                        save_x2 = _mm_loadu_si128(x2_b.add(es) as *const __m128i);
+                        save_y2 = _mm_loadu_si128(y2_b.add(es) as *const __m128i);
                     }
 
                     // Byte-addressed loads
@@ -1801,13 +1800,12 @@ macro_rules! extend_dual_affine_avx2_impl {
 
                     // Restore excess bytes on partial last iteration
                     if excess > 0 {
-                        let es = en_usize + 1;
-                        std::ptr::copy_nonoverlapping(save_u.as_ptr(), u_b.add(es), excess);
-                        std::ptr::copy_nonoverlapping(save_v.as_ptr(), v_b.add(es), excess);
-                        std::ptr::copy_nonoverlapping(save_x.as_ptr(), x_b.add(es), excess);
-                        std::ptr::copy_nonoverlapping(save_y.as_ptr(), y_b.add(es), excess);
-                        std::ptr::copy_nonoverlapping(save_x2.as_ptr(), x2_b.add(es), excess);
-                        std::ptr::copy_nonoverlapping(save_y2.as_ptr(), y2_b.add(es), excess);
+                        _mm_storeu_si128(u_b.add(es) as *mut __m128i, save_u);
+                        _mm_storeu_si128(v_b.add(es) as *mut __m128i, save_v);
+                        _mm_storeu_si128(x_b.add(es) as *mut __m128i, save_x);
+                        _mm_storeu_si128(y_b.add(es) as *mut __m128i, save_y);
+                        _mm_storeu_si128(x2_b.add(es) as *mut __m128i, save_x2);
+                        _mm_storeu_si128(y2_b.add(es) as *mut __m128i, save_y2);
                     }
 
                     bp_first = false;
