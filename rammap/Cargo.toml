@@ -35,3 +35,6 @@ rayon = { version = "1", optional = true, features = ["web_spin_lock"] }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tikv-jemallocator = { version = "0.6", optional = true }
 mimalloc = { version = "0.1", default-features = false, optional = true }
+
+[dev-dependencies]
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }

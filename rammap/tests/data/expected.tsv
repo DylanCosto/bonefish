@@ -1,0 +1,8 @@
+# case	source	arguments	fnv1a64 (output without @PG lines)
+lrhq_sam	minimap2-2.31	-ax lr:hq	501e082f0ed8847c
+lrhq_paf_cs	minimap2-2.31	-cx lr:hq --cs	0dbe0f23d7d28af9
+lrhq_md_eqx	minimap2-2.31	-ax lr:hq --MD --eqx	04828122406ae60f
+lrhq_paf	minimap2-2.31	-x lr:hq	af4d8293fe20abf3
+fast_sam	rammap	-ax lr:hq-fast	628b1210f9dc2a14
+balanced_sam	rammap	-ax lr:hq-balanced	501e082f0ed8847c
+fast_paf	rammap	-x lr:hq-fast	af4d8293fe20abf3
