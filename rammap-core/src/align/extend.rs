@@ -1239,6 +1239,10 @@ pub struct AlignResult {
     /// Right-side anchors from z-drop split (region-relative ref_pos). Caller must
     /// restore to absolute coords before using in a subsequent alignment.
     pub split_right_anchors: Option<Vec<Minimizer>>,
+    /// Start / end of an extension window the low-identity probe left unaligned (query
+    /// coordinates as `query_start`), so callers can treat it as covered by this alignment.
+    pub probe_claim_qs: Option<usize>,
+    pub probe_claim_qe: Option<usize>,
     /// Offset of the split point within the chain's anchor array.
     pub split_offset_in_orig: Option<usize>,
     /// True if z-drop split detected inversion (zdrop_code == 2).
@@ -1377,7 +1381,7 @@ fn trim_and_prepare_anchors(
 #[allow(clippy::too_many_arguments)]
 fn extend_dual_ext(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, ext_bw: i32, bw: i32,
                    zdrop: i32, end_bonus: i32, flag: i32, ext_rescue: bool, probe: Option<(i32, i32, i32)>,
-                   adaptive: Option<i32>, ez: &mut DpResult) {
+                   adaptive: Option<i32>, ez: &mut DpResult) -> bool {
     // With `adaptive`, the probe and the full window use a band of that many cells per
     // anti-diagonal that follows the alignment (indel drift over a long read end) instead of
     // the static band; an indel wider than about half the window shows up as a tail shift and
@@ -1388,6 +1392,7 @@ fn extend_dual_ext(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
         None => dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, band, zdrop, end_bonus, flag, ez),
     };
     let mut done = false;
+    let mut low_stop = false;
     let mut full_bw = ext_bw;
     if let Some((plen, min_per_kb, low_bw)) = probe {
         let p = plen as usize;
@@ -1397,6 +1402,7 @@ fn extend_dual_ext(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
             if ez.reach_end == 0 && (ez.zdropped != 0 || (low && low_bw <= 0)) {
                 PROBE_STOPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 done = true;
+                low_stop = ez.zdropped == 0;
             } else {
                 if low { full_bw = low_bw.min(ext_bw); PROBE_STOPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed); }
                 *ez = DpResult::default();
@@ -1412,7 +1418,9 @@ fn extend_dual_ext(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
                             (ez.max_score_target_pos + 1).max(0) as usize, min_shift, bw) {
         *ez = DpResult::default();
         dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, bw, zdrop, end_bonus, flag, ez);
+        low_stop = false;
     }
+    low_stop
 }
 
 pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -1786,7 +1794,10 @@ pub fn align_anchors(
     let split_inv = call.split_inv;
 
     // --- Function body (formerly align_anchors_full) ---
-    let empty = AlignResult { cigar_ops: Vec::new(), query_start: 0, query_end: 0, ref_start: 0, ref_end: 0, dp_score: 0, split_right_anchors: None, split_offset_in_orig: None, split_inv: false };
+    let empty = AlignResult { cigar_ops: Vec::new(), query_start: 0, query_end: 0, ref_start: 0, ref_end: 0, dp_score: 0, split_right_anchors: None, split_offset_in_orig: None, split_inv: false, probe_claim_qs: None, probe_claim_qe: None };
+    // Query ends of extension windows the probe left unaligned as low-identity (if any).
+    let mut probe_claim_qs: Option<i32> = None;
+    let mut probe_claim_qe: Option<i32> = None;
     if anchors.is_empty() { return empty; }
 
 
@@ -1953,7 +1964,9 @@ pub fn align_anchors(
         } else if q == q2 && e == e2 {
             dp::extend_single_affine(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
         } else {
-            extend_dual_ext(&q_rev, &t_rev, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, bw, left_zdrop, end_bonus, flag, ext_rescue, ext_probe, ext_adapt, &mut ez);
+            if extend_dual_ext(&q_rev, &t_rev, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, bw, left_zdrop, end_bonus, flag, ext_rescue, ext_probe, ext_adapt, &mut ez) {
+                probe_claim_qs = Some(qs0);
+            }
         }
         #[cfg(feature = "census")]
         dp::census::finish(census_t0, dp::census::Kind::LeftExt, &q_rev, &t_rev,
@@ -2270,7 +2283,9 @@ pub fn align_anchors(
                 dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw, zdrop, end_bonus, flag, &mut ez);
             } else {
                 let ext_zdrop = crate::align::env_flags::EXP_EXT_ZDROP.unwrap_or(zdrop);
-                extend_dual_ext(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, bw, ext_zdrop, end_bonus, flag, ext_rescue, ext_probe, ext_adapt, &mut ez);
+                if extend_dual_ext(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, ext_bw, bw, ext_zdrop, end_bonus, flag, ext_rescue, ext_probe, ext_adapt, &mut ez) {
+                    probe_claim_qe = Some(qe0);
+                }
             }
             #[cfg(feature = "census")]
             dp::census::finish(census_t0, dp::census::Kind::RightExt, q_sub, t_sub,
@@ -2315,6 +2330,8 @@ pub fn align_anchors(
         split_right_anchors,
         split_offset_in_orig,
         split_inv: split_inv_flag,
+        probe_claim_qs: probe_claim_qs.map(|v| cmp::max(0, v) as usize),
+        probe_claim_qe: probe_claim_qe.map(|v| cmp::max(0, v) as usize),
     }
 }
 

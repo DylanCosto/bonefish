@@ -379,6 +379,10 @@ pub struct AlnResult {
     pub md_str: String,
     pub query_start: usize,
     pub query_end: usize,
+    /// Query interval including extension windows the low-identity probe left unaligned
+    /// (equal to query_start..query_end otherwise).
+    pub claim_qs: usize,
+    pub claim_qe: usize,
     pub ref_start: usize,
     pub ref_end: usize,
     pub edit_distance: u32,
@@ -455,6 +459,9 @@ fn align_single_mapping(
     let mut has_n_skip = false;
     let mut qs = mapping.query_start;
     let mut qe = mapping.query_end;
+    // Query interval including extension windows the low-identity probe left unaligned.
+    let mut claim_qs = qs;
+    let mut claim_qe = qe;
     let mut rs = mapping.ref_start;
     let mut re = mapping.ref_end;
     let mut effective_cnt = mapping.anchor_count;
@@ -860,12 +867,18 @@ fn align_single_mapping(
         dp_max = compute_alignment_score_max(&ops, &mat, opt.scoring.gap_open, opt.scoring.gap_extend, aln_qseq, aln_tseq, log_gap);
         recalc_info = DpRecalcInfo::from_ops(&ops);
 
+        let cqs = aln_result.probe_claim_qs.unwrap_or(new_qs).min(new_qs);
+        let cqe = aln_result.probe_claim_qe.unwrap_or(new_qe).max(new_qe);
         if mapping.is_reverse && !is_qstrand {
             qs = qlen - new_qe;
             qe = qlen - new_qs;
+            claim_qs = qlen - cqe;
+            claim_qe = qlen - cqs;
         } else {
             qs = new_qs;
             qe = new_qe;
+            claim_qs = cqs;
+            claim_qe = cqe;
         }
         rs = new_rs;
         re = new_re;
@@ -908,6 +921,7 @@ fn align_single_mapping(
         ds_str,
         md_str,
         query_start: qs, query_end: qe, ref_start: rs, ref_end: re,
+        claim_qs, claim_qe,
         edit_distance: nm, num_ambiguous: nn, divergence: de,
         is_secondary: mapping.is_secondary,
         split: 0,
@@ -1117,6 +1131,8 @@ fn try_align_inversion(
         md_str,
         query_start: inv_qs,
         query_end: inv_qe,
+        claim_qs: inv_qs,
+        claim_qe: inv_qe,
         ref_start: inv_rs,
         ref_end: inv_re,
         edit_distance: nm,
@@ -1395,6 +1411,33 @@ fn filter_alignment_results(
 /// Sorts results, assigns parents, selects secondaries, and counts suboptimal hits.
 /// Handles ALL_CHAINS bypass, CIGAR vs non-CIGAR modes.
 /// Returns (filtered results, parent_indices).
+/// Drop alignments of low-identity read ends that the extension probe left unaligned: an
+/// alignment lying at least half inside such a window of a higher-scoring alignment, with
+/// divergence above 15%, is the weak chain minimap2's full extension would have masked (the
+/// tail aligned at ~75% identity). Well-matching alignments there (a chimeric part, an SV
+/// breakpoint) are kept.
+fn drop_probe_tail_junk(results: &mut Vec<AlnResult>) {
+    const MAX_DIV: f64 = 0.15;
+    let tails: Vec<(usize, usize, i32)> = results.iter()
+        .filter(|r| r.claim_qs < r.query_start || r.claim_qe > r.query_end)
+        .flat_map(|r| [(r.claim_qs, r.query_start, r.dp_score), (r.query_end, r.claim_qe, r.dp_score)])
+        .filter(|&(a, b, _)| b > a)
+        .collect();
+    if tails.is_empty() {
+        return;
+    }
+    results.retain(|r| {
+        if r.divergence <= MAX_DIV {
+            return true;
+        }
+        let len = r.query_end.saturating_sub(r.query_start);
+        !tails.iter().any(|&(a, b, sc)| {
+            let ol = r.query_end.min(b).saturating_sub(r.query_start.max(a));
+            sc > r.dp_score && 2 * ol >= len
+        })
+    });
+}
+
 fn assign_parents_and_select(
     mut results: Vec<AlnResult>,
     recalc_infos: &[DpRecalcInfo],
@@ -1455,6 +1498,7 @@ fn assign_parents_and_select(
 
         if out.do_cigar {
             filter_alignment_results(&mut results, None, opt.chaining.min_cnt, opt.chaining.min_chain_score, opt.alignment.min_dp_max, opt.alignment.max_clip_ratio, qlen);
+            drop_probe_tail_junk(&mut results);
         }
 
         // Propagate is_alt from index sequences to results

@@ -42,6 +42,8 @@ impl Aligner for NWAligner {
             split_right_anchors: None,
             split_offset_in_orig: None,
             split_inv: false,
+            probe_claim_qs: None,
+            probe_claim_qe: None,
         };
         if anchors.is_empty() { return empty; }
 
@@ -131,6 +133,8 @@ impl Aligner for NWAligner {
             split_right_anchors: None,
             split_offset_in_orig: None,
             split_inv: false,
+            probe_claim_qs: None,
+            probe_claim_qe: None,
         }
     }
 }
