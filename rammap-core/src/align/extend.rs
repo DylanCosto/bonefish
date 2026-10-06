@@ -1509,7 +1509,7 @@ fn offband_only_kmers(q: &[u8], t: &[u8], w: i32) -> i32 {
             l += 1;
             if l >= K { tk.push(h << 32 | (i + 1 - K) as u64); }
         }
-        tk.sort_unstable();
+        crate::align::sort::radix_sort_u64(tk); // distinct keys (position in the low bits)
         let (mut h, mut l) = (0u64, 0usize);
         for (i, &c) in q.iter().enumerate() {
             if c > 3 { l = 0; h = 0; continue; }
@@ -1535,7 +1535,7 @@ fn offband_only_kmers(q: &[u8], t: &[u8], w: i32) -> i32 {
         if off.len() < MIN_HITS {
             return 0;
         }
-        off.sort_unstable();
+        crate::align::sort::radix_sort_u64(off); // distinct keys (query position in the low bits)
         let mut need = 0i32;
         let mut i = 0;
         while i < off.len() {

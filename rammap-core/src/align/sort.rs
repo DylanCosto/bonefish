@@ -19,6 +19,11 @@ impl RadixKey for Minimizer {
     fn radix_key(&self) -> u64 { self.x }
 }
 
+impl RadixKey for u64 {
+    #[inline(always)]
+    fn radix_key(&self) -> u64 { *self }
+}
+
 impl RadixKey for (u64, u64) {
     #[inline(always)]
     fn radix_key(&self) -> u64 { self.0 }
@@ -61,6 +66,16 @@ fn rs_sort<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
     for i in 1..size {
         be[i] += be[i - 1];
         bb[i] = be[i - 1];
+    }
+
+    // A byte shared by every key leaves the array as it is: go straight to the next byte
+    // (exactly what the permutation + recursion below would amount to).
+    let b0 = ((arr[0].radix_key() >> s) & m) as usize;
+    if be[b0] - bb[b0] == arr.len() {
+        if s > 0 {
+            rs_sort(arr, n_bits, s.saturating_sub(n_bits));
+        }
+        return;
     }
 
     // In-place cyclic permutation (American Flag sort)
@@ -134,6 +149,16 @@ fn top_varying_byte_shift<T: RadixKey>(arr: &[T]) -> u32 {
     }
     let top = 63 - diff.leading_zeros();
     (top / RS_MAX_BITS) * RS_MAX_BITS
+}
+
+/// In-place radix sort of u64 values. Only for keys known to be distinct (where every sort
+/// gives the same result), as a faster drop-in for `sort_unstable`.
+pub fn radix_sort_u64(arr: &mut [u64]) {
+    if arr.len() <= RS_MIN_SIZE {
+        rs_insertsort(arr);
+    } else {
+        rs_sort(arr, RS_MAX_BITS, top_varying_byte_shift(arr));
+    }
 }
 
 /// MSD in-place radix sort for `(u64, u64)` aux entries by `.0`. Cycle-leader

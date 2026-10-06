@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 static PC_RESCUE_NS: AtomicU64 = AtomicU64::new(0);
 static PC_RECHAIN_NS: AtomicU64 = AtomicU64::new(0);
 static PC_RECHAIN_COUNT: AtomicU64 = AtomicU64::new(0);
+static PC_RESCUE_SKIP: AtomicU64 = AtomicU64::new(0);
 static PC_RESCUE_COUNT: AtomicU64 = AtomicU64::new(0);
 static PC_RESCUE_ANCHORS: AtomicU64 = AtomicU64::new(0);
 static PC_BUILD_REGS_NS: AtomicU64 = AtomicU64::new(0);
@@ -23,7 +24,7 @@ static PC_SQUEEZED_NS: AtomicU64 = AtomicU64::new(0);
 
 pub fn print_post_chain_breakdown() {
     eprintln!("--- Post-chain sub-timers ---");
-    eprintln!("  RMQ rescue:      {:.3}s ({} calls, {} anchors)", PC_RESCUE_NS.load(Relaxed) as f64 / 1e9, PC_RESCUE_COUNT.load(Relaxed), PC_RESCUE_ANCHORS.load(Relaxed));
+    eprintln!("  RMQ rescue:      {:.3}s ({} calls, {} anchors, {} skipped: no joinable chains)", PC_RESCUE_NS.load(Relaxed) as f64 / 1e9, PC_RESCUE_COUNT.load(Relaxed), PC_RESCUE_ANCHORS.load(Relaxed), PC_RESCUE_SKIP.load(Relaxed));
     eprintln!("    of which high-occ re-chain: {:.3}s ({} calls)", PC_RECHAIN_NS.load(Relaxed) as f64 / 1e9, PC_RECHAIN_COUNT.load(Relaxed));
     eprintln!("  Build regs:      {:.3}s", PC_BUILD_REGS_NS.load(Relaxed) as f64 / 1e9);
     eprintln!("  Parent+filter:   {:.3}s", PC_PARENT_NS.load(Relaxed) as f64 / 1e9);
@@ -1428,6 +1429,12 @@ pub fn map_query(
             let needs_rescue = ((qlen.saturating_sub(coverage) > opt.chaining.rmq_rescue_size as usize)
                 || (coverage > (qlen as f32 * opt.chaining.rmq_rescue_ratio) as usize))
                 && crate::align::env_flags::EXP_RESCUE_COVER.is_none_or(|f| (coverage as f32) < f * qlen as f32);
+            let needs_rescue = needs_rescue && (!*crate::align::env_flags::EXP_RESCUE_JOIN || {
+                let max_dist = opt.chaining.max_gap.max(opt.chaining.bandwidth_long);
+                let j = chains_joinable(&u, &chains, max_dist, opt.chaining.bandwidth_long);
+                if !j { PC_RESCUE_SKIP.fetch_add(1, Relaxed); }
+                j
+            });
 
             if needs_rescue {
                 PC_RESCUE_COUNT.fetch_add(1, Relaxed);
@@ -1876,4 +1883,31 @@ mod tests {
         assert!(!res[0].is_secondary, "First should be primary");
         assert!(res[1].is_secondary, "Second should be secondary (overlapping)");
     }
+}
+
+/// Whether two of the chains (`u`: score << 32 | count, anchors in `chains` chain by chain,
+/// each in reference order) could be joined by long-gap chaining: same reference and strand,
+/// the second starting after the first in both reference and query (overlap allowed) with
+/// both gaps within `max_dist` and the diagonal shift within `bw`.
+fn chains_joinable(u: &[u64], chains: &[Minimizer], max_dist: i32, bw: i32) -> bool {
+    let mut ext: Vec<(u64, i32, i32, i32, i32)> = Vec::with_capacity(u.len()); // (rid_strand, rs, re, qs, qe)
+    let mut off = 0usize;
+    for &v in u {
+        let n = (v & 0xFFFFFFFF) as usize;
+        if n == 0 { continue; }
+        let (a0, a1) = (&chains[off], &chains[off + n - 1]);
+        ext.push((a0.ref_id_strand(), a0.ref_pos(), a1.ref_pos(), a0.query_pos(), a1.query_pos()));
+        off += n;
+    }
+    for (i, a) in ext.iter().enumerate() {
+        for b in ext[i + 1..].iter() {
+            if a.0 != b.0 { continue; }
+            let (f, s) = if a.1 <= b.1 { (a, b) } else { (b, a) };
+            // s must start after f starts and end after f ends, in both reference and query.
+            if !(s.3 > f.3 && s.2 > f.2 && s.4 > f.4) { continue; }
+            let (dr, dq) = (s.1 - f.2, s.3 - f.4);
+            if dr <= max_dist && dq <= max_dist && (dr - dq).abs() <= bw { return true; }
+        }
+    }
+    false
 }

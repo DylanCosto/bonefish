@@ -42,6 +42,9 @@ pub static EXP_GAP_BW_ADAPT: LazyLock<Option<i32>> = LazyLock::new(|| int_env("R
 /// spans at least frac of the read (minimap2 runs it whenever the span exceeds 10%).
 pub static EXP_RESCUE_COVER: LazyLock<Option<f32>> =
     LazyLock::new(|| std::env::var("RAMMAP_EXP_RESCUE_COVER").ok().and_then(|v| v.parse().ok()));
+/// RAMMAP_EXP_RESCUE_JOIN: run the RMQ rescue re-chain only when two first-pass chains could
+/// be joined (collinear, same strand, gaps within the long-join distance and bandwidth).
+pub static EXP_RESCUE_JOIN: LazyLock<bool> = LazyLock::new(|| flag("RAMMAP_EXP_RESCUE_JOIN"));
 /// RAMMAP_EXP_UNGAPPED: also use the short-read "ungapped first" gap fill for long reads
 /// (equal-length gaps whose ungapped score beats any gapped alternative skip DP).
 pub static EXP_UNGAPPED: LazyLock<bool> = LazyLock::new(|| flag("RAMMAP_EXP_UNGAPPED"));

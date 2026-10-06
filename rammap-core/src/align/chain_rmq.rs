@@ -20,6 +20,8 @@ use crate::align::sort::radix_sort_128x;
 use crate::align::map::{ChainingParams, ChainingBuffers};
 
 const NIL: u32 = u32::MAX;
+/// Query-position bin width (log2) of the segment-tree rank lookup table.
+const YBIN_SHIFT: usize = 6;
 
 /// Arena-based AVL tree with subtree-min augmentation for O(log n) RMQ.
 /// Replaces the previous treap with iterative insert/erase and compact nodes.
@@ -537,6 +539,7 @@ impl RmqTree {
 /// choice among exactly equal priorities can differ.
 struct SegRmq {
     ys: Vec<i32>,       // query position by rank
+    ybin: Vec<u32>,     // ybin[k] = first rank with query position >= k << YBIN_SHIFT
     is: Vec<u32>,       // anchor index by rank
     rank: Vec<u32>,     // rank by anchor index
     pri: Vec<f64>,      // 2 * cap, 1-based heap layout
@@ -549,7 +552,7 @@ impl SegRmq {
     fn new(a: &[Minimizer]) -> Self {
         let n = a.len();
         let mut keys: Vec<u64> = (0..n).map(|j| ((a[j].query_pos() as u32 as u64) << 32) | j as u64).collect();
-        keys.sort_unstable();
+        crate::align::sort::radix_sort_u64(&mut keys); // distinct keys (anchor index in the low bits)
         let mut ys = Vec::with_capacity(n);
         let mut is = Vec::with_capacity(n);
         let mut rank = vec![0u32; n];
@@ -559,7 +562,17 @@ impl SegRmq {
             rank[k as u32 as usize] = r as u32;
         }
         let cap = n.next_power_of_two().max(1);
-        SegRmq { ys, is, rank, pri: vec![f64::INFINITY; 2 * cap], idx: vec![NIL; 2 * cap], cap, size: 0 }
+        let ymax = ys.last().copied().unwrap_or(0).max(0) as usize;
+        let mut ybin = Vec::with_capacity((ymax >> YBIN_SHIFT) + 2);
+        let mut r = 0usize;
+        // (No table if a query position were negative: `bound` then searches all ranks.)
+        let nbins = if ys.first().is_some_and(|&y| y < 0) { 0 } else { (ymax >> YBIN_SHIFT) + 2 };
+        for k in 0..nbins {
+            let t = (k << YBIN_SHIFT) as i64;
+            while r < ys.len() && (ys[r] as i64) < t { r += 1; }
+            ybin.push(r as u32);
+        }
+        SegRmq { ys, ybin, is, rank, pri: vec![f64::INFINITY; 2 * cap], idx: vec![NIL; 2 * cap], cap, size: 0 }
     }
 
     #[inline]
@@ -576,20 +589,28 @@ impl SegRmq {
         }
     }
 
-    /// First rank whose query position is > y (`le`) or >= y (`!le`); branch-free binary search.
+    /// First rank whose query position is > y (`le`) or >= y (`!le`): the coarse bin table
+    /// narrows it to the ranks of one 64-bp bin, then a short binary search finishes.
     #[inline(always)]
     fn bound(&self, y: i32, le: bool) -> usize {
         let ys = &self.ys;
-        let (mut base, mut n) = (0usize, ys.len());
-        if n == 0 { return 0; }
-        while n > 1 {
+        let t = y as i64 + le as i64; // first rank with query position >= t
+        let (mut base, end) = if self.ybin.is_empty() {
+            (0, ys.len())
+        } else {
+            if t <= 0 { return 0; }
+            let k = (t >> YBIN_SHIFT) as usize;
+            if k + 1 >= self.ybin.len() { return ys.len(); }
+            (self.ybin[k] as usize, self.ybin[k + 1] as usize)
+        };
+        if t > i32::MAX as i64 { return ys.len(); }
+        let t = t as i32;
+        let mut n = end - base;
+        while n > 0 {
             let half = n / 2;
-            let v = ys[base + half - 1];
-            base += half * ((v < y) | (le & (v == y))) as usize;
-            n -= half;
+            if ys[base + half] < t { base += half + 1; n -= half + 1; } else { n = half; }
         }
-        let v = ys[base];
-        base + ((v < y) | (le & (v == y))) as usize
+        base
     }
 
     #[inline]
