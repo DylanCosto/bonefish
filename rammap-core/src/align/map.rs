@@ -133,6 +133,9 @@ pub struct ChainingParams {
     /// between exactly equal priorities may pick a different anchor (output not guaranteed
     /// byte-identical to minimap2).
     pub seg_rmq: bool,
+    /// Run the RMQ rescue re-chain only when two first-pass chains could be joined
+    /// (collinear, same strand, gaps within the long-join distance and bandwidth).
+    pub rescue_join: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -250,6 +253,7 @@ impl Default for MapOptions {
                 rmq_inner_dist: 1000,
                 rmq_size_cap: 100000,
                 seg_rmq: false,
+                rescue_join: false,
             },
             scoring: ScoringParams {
                 match_score: 2,
@@ -1429,7 +1433,7 @@ pub fn map_query(
             let needs_rescue = ((qlen.saturating_sub(coverage) > opt.chaining.rmq_rescue_size as usize)
                 || (coverage > (qlen as f32 * opt.chaining.rmq_rescue_ratio) as usize))
                 && crate::align::env_flags::EXP_RESCUE_COVER.is_none_or(|f| (coverage as f32) < f * qlen as f32);
-            let needs_rescue = needs_rescue && (!*crate::align::env_flags::EXP_RESCUE_JOIN || {
+            let needs_rescue = needs_rescue && (!(opt.chaining.rescue_join || *crate::align::env_flags::EXP_RESCUE_JOIN) || {
                 let max_dist = opt.chaining.max_gap.max(opt.chaining.bandwidth_long);
                 let j = chains_joinable(&u, &chains, max_dist, opt.chaining.bandwidth_long);
                 if !j { PC_RESCUE_SKIP.fetch_add(1, Relaxed); }

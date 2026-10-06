@@ -317,6 +317,10 @@ struct AlignArgs {
     #[arg(long)]
     pub seg_rmq: bool,
 
+    /// Run the long-gap (RMQ) rescue re-chain only when two first-pass chains could be joined [on in lr:hq-fast]
+    #[arg(long)]
+    pub rescue_join: bool,
+
     /// Score for ambiguous bases
     #[arg(long = "score-N")]
     pub score_n: Option<i32>,
@@ -683,6 +687,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.ungapped_fill { opt.alignment.ungapped_fill = true; }
     if cli.ext_rescue { opt.alignment.ext_rescue = true; }
     if cli.seg_rmq { opt.chaining.seg_rmq = true; }
+    if cli.rescue_join { opt.chaining.rescue_join = true; }
     if cli.clean_dp { opt.alignment.clean_dp = true; }
     if let Some(v) = cli.ext_adaptive { opt.alignment.ext_adaptive = if v > 0 { Some(v) } else { None }; }
     if let Some(v) = cli.gap_bw_floor { opt.alignment.gap_bw_floor = Some(v); }
