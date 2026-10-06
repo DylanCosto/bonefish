@@ -32,6 +32,45 @@ pub struct TargetSequence {
 /// Magic bytes for multi-part index format
 const RMMI_MAGIC: &[u8; 4] = b"RMMI";
 
+/// Magic bytes for the raw (memory-mappable) index format.
+const RAW_MAGIC: &[u8; 4] = b"RMRW";
+const RAW_VERSION: u32 = 1;
+/// Written natively; reads back as this value only on a same-endian machine.
+const RAW_ENDIAN: u32 = 0x0102_0304;
+/// Section alignment (page size) in raw index files.
+const RAW_ALIGN: u64 = 4096;
+
+/// Raw index part header. `sections` holds (byte offset from the part start, element count)
+/// for the bucket headers, slots, positions and packed sequences.
+#[derive(Serialize, Deserialize)]
+struct RawHeader {
+    version: u32,
+    endian: u32,
+    kmer_size: usize,
+    window_size: usize,
+    homopolymer_compressed: bool,
+    index: usize,
+    seqs: Vec<TargetSequence>,
+    bucket_bits: u32,
+    count_hist: Vec<(u32, u64)>,
+    sections: [(u64, u64); 4],
+    part_len: u64,
+}
+
+fn pad_to(pos: u64, align: u64) -> u64 {
+    (align - pos % align) % align
+}
+
+fn write_zeros<W: Write>(w: &mut W, n: u64) -> io::Result<()> {
+    io::copy(&mut io::repeat(0).take(n), w).map(|_| ())
+}
+
+/// The bytes of a slice of plain-old-data values (integers / `#[repr(C)]` integer structs).
+fn as_bytes<T: Copy>(v: &[T]) -> &[u8] {
+    // SAFETY: only used for u32/u64 and #[repr(C)] structs of u64 fields (no padding bytes).
+    unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, std::mem::size_of_val(v)) }
+}
+
 // ─── Seed lookup trait + backends ───
 
 /// Trait for seed lookup backends.
@@ -86,7 +125,7 @@ pub struct Index {
     /// codes 0=A, 1=C, 2=G, 3=T, 4=N, low nibble first).
     /// Kept at runtime for on-demand per-region nt4 extraction (~375 MB for GRCh38).
     #[serde(default)]
-    pub packed_seqs: Vec<u32>,
+    pub packed_seqs: super::index_storage::Storage<u32>,
     /// Derived (not serialized): dense lexicographic ranks of the target names,
     /// computed on first use for the ava self-skip fast path. See [`name_rank`].
     #[serde(skip)]
@@ -165,7 +204,7 @@ impl IndexBuilder {
                 index: 0,
                 seqs: Vec::new(),
                 backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
-                packed_seqs: Vec::new(),
+                packed_seqs: Default::default(),
                 name_rank: Default::default(),
             },
             w, k, is_hpc, max_occ,
@@ -258,7 +297,7 @@ impl IndexBuilder {
         self.idx.backend = LookupBackend::BucketHash(
             super::index_bucket::BucketHashLookup::build(self.bucket_bits, &mut self.buckets, self.max_occ)
         );
-        self.idx.packed_seqs = self.packed;
+        self.idx.packed_seqs = self.packed.into();
         self.idx
     }
 }
@@ -285,7 +324,7 @@ impl Index {
     /// Strip target sequences from index (for --idx-no-seq).
     /// Keeps all metadata (name, len, offset) but clears all sequence data.
     pub fn strip_sequences(&mut self) {
-        self.packed_seqs = Vec::new();
+        self.packed_seqs = Default::default();
     }
 
     /// Returns true if this index has stored sequences.
@@ -376,6 +415,120 @@ impl Index {
         bincode::serialize_into(writer, self).map_err(io::Error::other)
     }
 
+    /// Save one part in the format chosen by `raw` (see [`save_raw_part`](Self::save_raw_part)).
+    pub fn save_part_as<W: Write + Seek>(&self, writer: &mut W, raw: bool) -> io::Result<()> {
+        if raw { self.save_raw_part(writer) } else { self.save_part(writer) }
+    }
+
+    /// Save a single index to file in the format chosen by `raw`.
+    pub fn save_as(&self, path: &str, raw: bool) -> io::Result<()> {
+        let f = File::create(path).map_err(|e| io::Error::new(e.kind(), format!("Failed to create index '{}': {}", path, e)))?;
+        let mut writer = BufWriter::new(f);
+        self.save_part_as(&mut writer, raw)?;
+        writer.flush()
+    }
+
+    /// Save one part in the raw (memory-mappable) format: a small bincode header followed by
+    /// the bucket headers, hash-table slots, positions and packed sequences as page-aligned
+    /// native-endian arrays, so [`load_raw_parts`](Self::load_raw_parts) can use them in place.
+    /// Parts start on page boundaries; several can be written to one stream.
+    pub fn save_raw_part<W: Write + Seek>(&self, writer: &mut W) -> io::Result<()> {
+        let pos = writer.stream_position()?;
+        write_zeros(writer, pad_to(pos, RAW_ALIGN))?;
+        let LookupBackend::BucketHash(b) = &self.backend;
+        let (bucket_bits, hdrs, slots, positions) = b.raw_parts();
+        let sizes = [std::mem::size_of_val(hdrs), std::mem::size_of_val(slots),
+                     std::mem::size_of_val(positions), std::mem::size_of_val(&self.packed_seqs[..])];
+        let counts = [hdrs.len(), slots.len(), positions.len(), self.packed_seqs.len()];
+        let mut hdr = RawHeader {
+            version: RAW_VERSION, endian: RAW_ENDIAN,
+            kmer_size: self.kmer_size, window_size: self.window_size,
+            homopolymer_compressed: self.homopolymer_compressed, index: self.index,
+            seqs: self.seqs.clone(), bucket_bits, count_hist: b.count_histogram(),
+            sections: [(0, 0); 4], part_len: 0,
+        };
+        // Integers are fixed-width in bincode, so the header size doesn't depend on the offsets.
+        let hdr_len = bincode::serialized_size(&hdr).map_err(io::Error::other)?;
+        let mut off = 8 + hdr_len;
+        for i in 0..4 {
+            off += pad_to(off, RAW_ALIGN);
+            hdr.sections[i] = (off, counts[i] as u64);
+            off += sizes[i] as u64;
+        }
+        hdr.part_len = off;
+        writer.write_all(RAW_MAGIC)?;
+        writer.write_all(&(hdr_len as u32).to_le_bytes())?;
+        bincode::serialize_into(&mut *writer, &hdr).map_err(io::Error::other)?;
+        let mut off = 8 + hdr_len;
+        let bytes: [&[u8]; 4] = [as_bytes(hdrs), as_bytes(slots), as_bytes(positions), as_bytes(&self.packed_seqs[..])];
+        for i in 0..4 {
+            write_zeros(writer, hdr.sections[i].0 - off)?;
+            writer.write_all(bytes[i])?;
+            off = hdr.sections[i].0 + sizes[i] as u64;
+        }
+        Ok(())
+    }
+
+    /// True if the file starts with the raw index magic.
+    pub fn sniff_is_raw_index(path: &str) -> bool {
+        let mut magic = [0u8; 4];
+        File::open(path).and_then(|mut f| f.read_exact(&mut magic)).is_ok() && &magic == RAW_MAGIC
+    }
+
+    /// Map a raw index file (all parts). The large arrays are used straight from the page
+    /// cache: nothing is copied or rebuilt, and pages are faulted in as lookups touch them.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load_raw_parts(path: &str) -> io::Result<Vec<Self>> {
+        use super::index_storage::Storage;
+        let bad = |m: String| io::Error::new(io::ErrorKind::InvalidData, format!("{}: {}", path, m));
+        let f = File::open(path).map_err(|e| io::Error::new(e.kind(), format!("Failed to open index '{}': {}", path, e)))?;
+        // SAFETY: the file is opened read-only and treated as immutable; like every other
+        // mmap user we rely on it not being truncated or rewritten while mapped.
+        let map = std::sync::Arc::new(unsafe { memmap2::Mmap::map(&f)? });
+        let _ = map.advise(memmap2::Advice::WillNeed);
+        let mut parts = Vec::new();
+        let mut pos = 0u64;
+        while pos < map.len() as u64 {
+            let p = pos as usize;
+            if map.len() < p + 8 || &map[p..p + 4] != RAW_MAGIC {
+                return Err(bad(format!("missing raw index magic at offset {}", pos)));
+            }
+            let hdr_len = u32::from_le_bytes(map[p + 4..p + 8].try_into().unwrap()) as usize;
+            let hdr: RawHeader = bincode::deserialize(map.get(p + 8..p + 8 + hdr_len).ok_or_else(|| bad("truncated header".into()))?)
+                .map_err(|e| bad(format!("bad header: {}", e)))?;
+            if hdr.version != RAW_VERSION || hdr.endian != RAW_ENDIAN {
+                return Err(bad(format!("unsupported raw index (version {}, endian marker {:#x})", hdr.version, hdr.endian)));
+            }
+            if pos + hdr.part_len > map.len() as u64 { return Err(bad("truncated part".into())); }
+            let sec = |i: usize, size: usize| -> io::Result<(usize, usize)> {
+                let (off, n) = hdr.sections[i];
+                let end = off.checked_add(n.checked_mul(size as u64).ok_or_else(|| bad("bad section".into()))?);
+                if off % RAW_ALIGN != 0 || end.is_none_or(|e| e > hdr.part_len) { return Err(bad("bad section".into())); }
+                Ok(((pos + off) as usize, n as usize))
+            };
+            let (ho, hn) = sec(0, 16)?;
+            let (so, sn) = sec(1, 16)?;
+            let (po, pn) = sec(2, 8)?;
+            let (qo, qn) = sec(3, 4)?;
+            let lookup = super::index_bucket::BucketHashLookup::from_raw_parts(
+                hdr.bucket_bits, Storage::mapped(map.clone(), ho, hn), Storage::mapped(map.clone(), so, sn),
+                Storage::mapped(map.clone(), po, pn), Some(hdr.count_hist)).map_err(bad)?;
+            parts.push(Index {
+                kmer_size: hdr.kmer_size,
+                window_size: hdr.window_size,
+                homopolymer_compressed: hdr.homopolymer_compressed,
+                index: hdr.index,
+                seqs: hdr.seqs,
+                backend: LookupBackend::BucketHash(lookup),
+                packed_seqs: Storage::mapped(map.clone(), qo, qn),
+                name_rank: Default::default(),
+            });
+            pos += hdr.part_len;
+            pos += pad_to(pos, RAW_ALIGN);
+        }
+        Ok(parts)
+    }
+
     /// Load a single-part index from file. Handles both old (no magic) and new (RMMI) formats.
     pub fn load(path: &str) -> io::Result<Self> {
         let f = File::open(path).map_err(|e| io::Error::new(e.kind(), format!("Failed to open index '{}': {}", path, e)))?;
@@ -407,7 +560,7 @@ impl Index {
         if f.read_exact(&mut magic).is_err() {
             return false;
         }
-        &magic == RMMI_MAGIC || &magic == Self::MINIMAP2_INDEX_MAGIC
+        &magic == RMMI_MAGIC || &magic == RAW_MAGIC || &magic == Self::MINIMAP2_INDEX_MAGIC
     }
 
     /// Load the next index part from a reader. Returns None on EOF.
@@ -531,7 +684,7 @@ impl Index {
             index: 0,
             seqs,
             backend,
-            packed_seqs,
+            packed_seqs: packed_seqs.into(),
             name_rank: Default::default(),
         };
 
@@ -551,7 +704,7 @@ impl Index {
             index: 0,
             seqs,
             backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
-            packed_seqs: Vec::new(),
+            packed_seqs: Default::default(),
             name_rank: Default::default(),
         }
     }
@@ -564,7 +717,7 @@ impl Index {
             index: 0,
             seqs: Vec::new(),
             backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
-            packed_seqs: Vec::new(),
+            packed_seqs: Default::default(),
             name_rank: Default::default(),
         }
     }
@@ -594,7 +747,7 @@ impl Index {
             index: 0,
             seqs: Vec::new(),
             backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
-            packed_seqs: Vec::new(),
+            packed_seqs: Default::default(),
             name_rank: Default::default(),
         };
 
@@ -676,7 +829,7 @@ impl Index {
             rid_offset += take_n;
         }
         drop(seq_data);
-        idx.packed_seqs = packed;
+        idx.packed_seqs = packed.into();
 
         // Parallel bucket post-processing: sort each bucket independently.
         #[cfg(feature = "parallel")]
@@ -733,17 +886,21 @@ impl Index {
         if frac <= 0.0 { return usize::MAX; }
         if self.backend.is_empty() { return min_mid; }
 
-        let mut counts: Vec<u32> = self.backend.occurrence_counts().collect();
-
-        let n = counts.len();
+        // Same k-th smallest count as sorting every count, read off the count histogram.
+        let hist = match &self.backend { LookupBackend::BucketHash(b) => b.count_histogram() };
+        let n: u64 = hist.iter().map(|h| h.1).sum();
         if n == 0 { return min_mid; }
 
-        counts.sort_unstable();
-
-        let k = ((1.0f64 - frac as f64) * n as f64) as usize;
+        let k = ((1.0f64 - frac as f64) * n as f64) as u64;
         let k = k.min(n - 1);
+        let mut seen = 0u64;
+        let mut kth = 0u32;
+        for &(c, cnt) in &hist {
+            seen += cnt;
+            if seen > k { kth = c; break; }
+        }
 
-        let mut threshold = counts[k] as usize + 1;
+        let mut threshold = kth as usize + 1;
 
         // Clamp to [min_mid_occ, max_mid_occ] (matching mm_mapopt_update)
         if threshold < min_mid { threshold = min_mid; }
@@ -800,5 +957,84 @@ mod tests {
         // frac=0.5 -> finds count at 50th percentile
         let m05 = idx.cal_mid_occ(0.5, 10, 1000000);
         assert!(m05 >= 10, "frac=0.5 should be at least 10, got {}", m05); 
+    }
+
+    /// A random 20 kb reference with some repeats, indexed with small k/w so hashes repeat.
+    fn test_index() -> Index {
+        let mut x = 0x1234_5678_9abc_def0u64;
+        let mut rnd = || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
+        let mut a: Vec<u8> = (0..20000).map(|_| b"ACGT"[(rnd() & 3) as usize]).collect();
+        let rep = a[1000..1400].to_vec();
+        for k in 0..5 { a[3000 + k * 2000..3400 + k * 2000].copy_from_slice(&rep); }
+        let b: Vec<u8> = (0..7000).map(|_| b"ACGTN"[(rnd() % 5) as usize]).collect();
+        Index::build(vec![("a".into(), a), ("b".into(), b)], 5, 11, false, usize::MAX)
+    }
+
+    fn assert_same(x: &Index, y: &Index) {
+        assert_eq!(x.seqs.len(), y.seqs.len());
+        assert_eq!(&x.packed_seqs[..], &y.packed_seqs[..]);
+        assert_eq!(x.cal_mid_occ(0.01, 1, 1000), y.cal_mid_occ(0.01, 1, 1000));
+        let mut hits = 0;
+        for h in 0..(1u64 << 22) {
+            let a = x.get(h).map(|p| { let mut p = p.to_vec(); p.sort_unstable(); p });
+            let b = y.get(h).map(|p| { let mut p = p.to_vec(); p.sort_unstable(); p });
+            assert_eq!(a, b, "hash {}", h);
+            hits += a.is_some() as usize;
+        }
+        assert!(hits > 1000);
+    }
+
+    #[test]
+    fn test_lookup_matches_minimizers() {
+        // Every minimizer of the reference must be found, at its own position.
+        let idx = test_index();
+        let mut missing = 0;
+        let mut seen = std::collections::HashMap::new();
+        for h in 0..(1u64 << 22) {
+            if let Some(p) = idx.get(h) { seen.insert(h, p.len()); }
+            if idx.get_range(h).is_some() != idx.get(h).is_some() { missing += 1; }
+        }
+        assert_eq!(missing, 0);
+        let total: usize = seen.values().sum();
+        assert!(total > 2000, "{} positions", total);
+        assert!(seen.values().any(|&n| n >= 5), "repeats should give multi-occurrence hashes");
+    }
+
+    #[test]
+    fn test_bincode_roundtrip() {
+        let idx = test_index();
+        let mut buf = std::io::Cursor::new(Vec::new());
+        idx.save_part(&mut buf).unwrap();
+        buf.set_position(0);
+        let back = Index::load_part(&mut buf).unwrap().unwrap();
+        assert_same(&idx, &back);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn test_raw_roundtrip() {
+        let idx = test_index();
+        let mut two = test_index();
+        two.index = 1;
+        let path = std::env::temp_dir().join(format!("rammap_raw_test_{}.raw", std::process::id()));
+        let p = path.to_str().unwrap();
+        {
+            let mut w = BufWriter::new(File::create(p).unwrap());
+            idx.save_raw_part(&mut w).unwrap();
+            two.save_raw_part(&mut w).unwrap();
+            w.flush().unwrap();
+        }
+        assert!(Index::sniff_is_raw_index(p) && Index::sniff_is_index_file(p));
+        let parts = Index::load_raw_parts(p).unwrap();
+        std::fs::remove_file(p).unwrap();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[1].index, 1);
+        assert_same(&idx, &parts[0]);
+        assert_same(&two, &parts[1]);
+        // A mapped index re-serializes to the same bincode index.
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        idx.save_part(&mut a).unwrap();
+        parts[0].save_part(&mut b).unwrap();
+        assert_eq!(a.len(), b.len());
     }
 }

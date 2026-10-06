@@ -34,6 +34,7 @@ pub mod dp;
 pub mod extend;
 pub mod filter;
 pub mod index_bucket;
+pub mod index_storage;
 pub mod index;
 pub mod jump;
 pub mod junc;

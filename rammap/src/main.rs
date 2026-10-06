@@ -433,6 +433,11 @@ struct AlignArgs {
     #[arg(long)]
     pub idx_no_seq: bool,
 
+    /// Write the -d index in the raw format, which loads by memory-mapping (near-instant).
+    /// With a pre-built index as the target, -d converts it.
+    #[arg(long)]
+    pub idx_raw: bool,
+
     /// Pairing mode: no, weak, or strong [determined by preset]
     #[arg(long)]
     pub pairing: Option<String>,
@@ -888,22 +893,56 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
         // ─── Load from .mmi/.idx: iterate over parts ───
         eprintln!("[*] Loading index from {}...", target_path);
         let t_load = Instant::now();
+        // Raw indexes are memory-mapped (all parts at once; pages fault in on use);
+        // other formats are deserialized one part at a time.
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut mapped_parts: Option<std::collections::VecDeque<Index>> = if Index::sniff_is_raw_index(target_path) {
+            Some(Index::load_raw_parts(target_path)
+                .map_err(|e| anyhow::anyhow!("Error loading index: {}", e))?.into())
+        } else {
+            None
+        };
+        #[cfg(target_arch = "wasm32")]
+        let mut mapped_parts: Option<std::collections::VecDeque<Index>> = None;
         let f = std::fs::File::open(target_path)
             .map_err(|e| anyhow::anyhow!("Error opening index '{}': {}", target_path, e))?;
         let mut idx_reader = std::io::BufReader::new(f);
+        // -d with a pre-built index: convert it (e.g. to the raw format with --idx-raw).
+        let mut dump_writer: Option<std::io::BufWriter<std::fs::File>> = if let Some(dump_path) = &cli.dump_index {
+            Some(std::io::BufWriter::new(std::fs::File::create(dump_path)
+                .map_err(|e| anyhow::anyhow!("Failed to create index '{}': {}", dump_path, e))?))
+        } else {
+            None
+        };
 
         loop {
-            let mut mi = match Index::load_part(&mut idx_reader)
-                .map_err(|e| anyhow::anyhow!("Error loading index part: {}", e))? {
+            let next = match mapped_parts.as_mut() {
+                Some(parts) => parts.pop_front(),
+                None => Index::load_part(&mut idx_reader)
+                    .map_err(|e| anyhow::anyhow!("Error loading index part: {}", e))?,
+            };
+            let mut mi = match next {
                 Some(idx) => idx,
                 None => break,
             };
             n_parts += 1;
+            if let Some(dw) = dump_writer.as_mut() {
+                if cli.idx_no_seq {
+                    let mut idx_copy = mi.clone();
+                    idx_copy.strip_sequences();
+                    idx_copy.save_part_as(dw, cli.idx_raw)
+                } else {
+                    mi.save_part_as(dw, cli.idx_raw)
+                }.map_err(|e| anyhow::anyhow!("Failed to save index part: {}", e))?;
+            }
             let total_len: u64 = mi.seqs.iter().map(|s| s.len as u64).sum();
             eprintln!("[*] Loaded part {} in {:.3}s — k: {}; w: {}; hpc: {}; #seq: {}; total len: {}",
                 n_parts, t_load.elapsed().as_secs_f64(),
                 mi.kmer_size, mi.window_size, if mi.homopolymer_compressed { 1 } else { 0 },
                 mi.seqs.len(), total_len);
+            if n_parts == 1 && mapped_parts.is_none() && cli.dump_index.is_none() {
+                eprintln!("[*] Tip: `rammap -d INDEX.raw --idx-raw {}` converts this index to the raw format, which loads near-instantly", target_path);
+            }
             if n_parts == 1 && do_cigar && !mi.has_sequences() {
                 anyhow::bail!("The prebuilt index doesn't contain sequences. Cannot produce CIGAR/cs/MD output.");
             }
@@ -993,10 +1032,10 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
                         if cli.idx_no_seq {
                             let mut idx_copy = mi.clone();
                             idx_copy.strip_sequences();
-                            if let Err(e) = idx_copy.save(dump_path) {
+                            if let Err(e) = idx_copy.save_as(dump_path, cli.idx_raw) {
                                 eprintln!("Warning: Failed to save index: {}", e);
                             }
-                        } else if let Err(e) = mi.save(dump_path) {
+                        } else if let Err(e) = mi.save_as(dump_path, cli.idx_raw) {
                             eprintln!("Warning: Failed to save index: {}", e);
                         }
                     }
@@ -1046,9 +1085,9 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
                             if cli.idx_no_seq {
                                 let mut idx_copy = mi.clone();
                                 idx_copy.strip_sequences();
-                                idx_copy.save_part(dw).map_err(|e| anyhow::anyhow!("Failed to save index part: {}", e))?;
+                                idx_copy.save_part_as(dw, cli.idx_raw).map_err(|e| anyhow::anyhow!("Failed to save index part: {}", e))?;
                             } else {
-                                mi.save_part(dw).map_err(|e| anyhow::anyhow!("Failed to save index part: {}", e))?;
+                                mi.save_part_as(dw, cli.idx_raw).map_err(|e| anyhow::anyhow!("Failed to save index part: {}", e))?;
                             }
                         }
 
@@ -1128,9 +1167,9 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
                     if cli.idx_no_seq {
                         let mut idx_copy = mi.clone();
                         idx_copy.strip_sequences();
-                        idx_copy.save_part(dw).map_err(|e| anyhow::anyhow!("Failed to save index part: {}", e))?;
+                        idx_copy.save_part_as(dw, cli.idx_raw).map_err(|e| anyhow::anyhow!("Failed to save index part: {}", e))?;
                     } else {
-                        mi.save_part(dw).map_err(|e| anyhow::anyhow!("Failed to save index part: {}", e))?;
+                        mi.save_part_as(dw, cli.idx_raw).map_err(|e| anyhow::anyhow!("Failed to save index part: {}", e))?;
                     }
                 }
 
