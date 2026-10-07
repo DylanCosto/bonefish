@@ -801,6 +801,27 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.alignment.clean_dp = true;
             opt.alignment.ungapped_fill = true;
         },
+        // lr:hq-fast plus speed-for-SV-sensitivity trades (ont-aligner Round 7): fewer allowed
+        // non-improving predecessors in the main chaining pass and asymmetric gap-fill bands.
+        // SNP/indel accuracy at lr:hq-fast level; loses some SV support (see the README).
+        "lr:hq-turbo" => {
+            *k = 19; *w = 19;
+            opt.chaining.max_gap = 10000;
+            opt.chaining.max_gap_ref = 5000;
+            opt.chaining.seg_rmq = true;
+            opt.chaining.rescue_join = true;
+            opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
+            opt.alignment.ext_bw = Some(200);
+            opt.alignment.ext_rescue = true;
+            opt.alignment.ext_probe = Some((2000, 1000, 0));
+            opt.alignment.gap_bw_margin = Some(500);
+            opt.alignment.gap_bw_narrow = Some(32);
+            opt.alignment.ext_adaptive = Some(64);
+            opt.alignment.clean_dp = true;
+            opt.alignment.ungapped_fill = true;
+            opt.chaining.max_chain_skip = 10;
+            opt.alignment.gap_band_asym = true;
+        },
         "map-hifi" | "map-ccs" => {
             *k = 19; *w = 19;
             opt.chaining.max_gap = 10000;

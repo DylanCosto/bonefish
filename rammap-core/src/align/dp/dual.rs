@@ -111,7 +111,7 @@ pub fn extend_dual_affine(
     #[cfg(target_arch = "x86_64")]
     {
         if super::dual_clean::clean_dual() && (flags & GENERIC_SCORING) == 0 && is_x86_feature_detected!("avx2") {
-            unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, 0, result); }
+            unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, 0, 0, result); }
             return;
         }
         if super::use_avx512() {
@@ -2669,11 +2669,37 @@ pub fn extend_dual_affine_adaptive(
     };
     #[cfg(target_arch = "x86_64")]
     if (flags & GENERIC_SCORING) == 0 && gap_open != gap_open2 && is_x86_feature_detected!("avx2") {
-        unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, width, result); }
+        unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, width, 0, result); }
         return;
     }
     let _ = width;
     extend_dual_affine(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, result);
+}
+
+/// Static band over the diagonals t - q in [diag_lo, diag_hi] (which must contain 0 and
+/// tlen - qlen for global alignment) instead of the symmetric |t - q| <= bandwidth: a gap fill
+/// whose ends differ by D needs [min(0, D), max(0, D)] plus a margin, about half the cells of
+/// the symmetric band around D. Clean AVX2 kernel when available; otherwise the symmetric band
+/// that contains the range.
+pub fn extend_dual_affine_diag_range(
+    qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
+    gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8,
+    diag_lo: i32, diag_hi: i32, z_drop: i32, end_bonus: i32, flags: i32, result: &mut DpResult,
+) {
+    let shift = (diag_lo + diag_hi).div_euclid(2);
+    let half = (diag_hi - shift).max(shift - diag_lo);
+    let (go, ge, go2, ge2) = if (gap_open2 as i32 + gap_extend2 as i32) < (gap_open as i32 + gap_extend as i32) {
+        (gap_open2, gap_extend2, gap_open, gap_extend)
+    } else {
+        (gap_open, gap_extend, gap_open2, gap_extend2)
+    };
+    #[cfg(target_arch = "x86_64")]
+    if (flags & GENERIC_SCORING) == 0 && go != go2 && is_x86_feature_detected!("avx2") {
+        unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, go, ge, go2, ge2, half, z_drop, end_bonus, flags, 0, shift, result); }
+        return;
+    }
+    let bw = diag_lo.abs().max(diag_hi.abs());
+    super::extend_dual_affine_dispatch(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bw, z_drop, end_bonus, flags, result);
 }
 
 pub fn extend_dual_affine_scalar(

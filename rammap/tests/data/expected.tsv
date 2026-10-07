@@ -6,3 +6,4 @@ lrhq_paf	minimap2-2.31	-x lr:hq	af4d8293fe20abf3
 fast_sam	rammap	-ax lr:hq-fast	81ec695369877c8c
 balanced_sam	rammap	-ax lr:hq-balanced	501e082f0ed8847c
 fast_paf	rammap	-x lr:hq-fast	a2549676576510c3
+turbo_sam	rammap	-ax lr:hq-turbo	d14821ad23360ce6

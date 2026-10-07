@@ -153,7 +153,7 @@ pub use common::{
 pub use single::{extend_single_affine, extend_single_affine_scalar};
 
 // Re-export public API from dual-affine
-pub use dual::{extend_dual_affine, extend_dual_affine_adaptive, extend_dual_affine_scalar};
+pub use dual::{extend_dual_affine, extend_dual_affine_adaptive, extend_dual_affine_diag_range, extend_dual_affine_scalar};
 
 /// Whether the current read is a speculative dry run (GPU path; always false otherwise).
 #[inline]
@@ -1031,5 +1031,38 @@ mod tests {
         }
         assert_eq!(sse_so.score, avx512_so.score, "score-only score mismatch");
         assert_eq!(sse_so.max, avx512_so.max, "score-only max mismatch");
+    }
+}
+
+#[cfg(test)]
+mod bench_gap {
+    use super::*;
+    /// Per-call cost of a typical lr:hq-fast gap fill (200 bp, ~4% error, band |D| + 32).
+    #[test]
+    #[ignore]
+    fn bench_gap_fill() {
+        let mut x = 0x2545F4914F6CDD1Du64;
+        let mut rnd = || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
+        let t: Vec<u8> = (0..200).map(|_| (rnd() & 3) as u8).collect();
+        let mut q = Vec::new();
+        for &c in &t { let r = rnd() % 100; if r < 2 { q.push((rnd() & 3) as u8); } else if r < 3 { } else if r < 4 { q.push(c); q.push((rnd() & 3) as u8); } else { q.push(c); } }
+        let mat = { let mut m = [0i8; 25]; for i in 0..5 { for j in 0..5 { m[i * 5 + j] = if i == 4 || j == 4 { -1 } else if i == j { 2 } else { -4 }; } } m };
+        set_clean_dual(true);
+        let only = std::env::var("BENCH_ONLY").ok();
+        for (name, flags, nb) in [("cigar nb=|D|+32", APPROX_MAX, (t.len() as i32 - q.len() as i32).abs() + 32), ("cigar nb=31", APPROX_MAX, 31),
+                                  ("score-only nb=|D|+32", APPROX_MAX | SCORE_ONLY, (t.len() as i32 - q.len() as i32).abs() + 32)] {
+            if only.as_deref().is_some_and(|o| !name.contains(o)) { continue; }
+            let mut ez = DpResult::default();
+            let n = 200_000;
+            let t0 = std::time::Instant::now();
+            for _ in 0..n {
+                ez = DpResult::default();
+                extend_dual_affine_dispatch(&q, &t, 5, &mat, 4, 2, 24, 1, nb, 400, -1, flags, &mut ez);
+            }
+            let ns = t0.elapsed().as_nanos() as f64 / n as f64;
+            let cells = (q.len() + t.len()) as f64 * (nb as f64 + 1.0);
+            eprintln!("{name}: {ns:.0} ns/call ({} antidiagonals, band {nb}, {:.2} ns/antidiag), score {}", q.len() + t.len(), ns / (q.len() + t.len()) as f64, ez.score);
+            let _ = cells;
+        }
     }
 }

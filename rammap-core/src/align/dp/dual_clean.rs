@@ -40,6 +40,48 @@ static CLEAN_DUAL_ENV: std::sync::LazyLock<bool> =
 #[target_feature(enable = "avx2")]
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn extend_dual_affine_avx2_clean(
+    qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
+    gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8,
+    bandwidth: i32, z_drop: i32, end_bonus: i32, flags: i32, adaptive: i32, band_shift: i32,
+    result: &mut DpResult,
+) { unsafe {
+    // One specialised copy per flag combination: with the flags as constants the inner loop has
+    // no per-vector branches and its masks stay in vector registers.
+    let m1 = alphabet_size.wrapping_sub(1) as u8;
+    let has_n = qseq.iter().chain(tseq.iter()).any(|&c| c >= m1);
+    let approx_max = (flags & APPROX_MAX) != 0;
+    let with_cigar = (flags & SCORE_ONLY) == 0;
+    let right_align = (flags & RIGHT_ALIGN) != 0;
+    macro_rules! go {
+        ($a:literal, $c:literal, $r:literal, $n:literal) => {
+            clean_impl::<$a, $c, $r, $n>(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2,
+                                         bandwidth, z_drop, end_bonus, flags, adaptive, band_shift, result)
+        };
+    }
+    match (approx_max, with_cigar, right_align, has_n) {
+        (false, false, false, false) => go!(false, false, false, false),
+        (false, false, false, true) => go!(false, false, false, true),
+        (false, false, true, false) => go!(false, false, true, false),
+        (false, false, true, true) => go!(false, false, true, true),
+        (false, true, false, false) => go!(false, true, false, false),
+        (false, true, false, true) => go!(false, true, false, true),
+        (false, true, true, false) => go!(false, true, true, false),
+        (false, true, true, true) => go!(false, true, true, true),
+        (true, false, false, false) => go!(true, false, false, false),
+        (true, false, false, true) => go!(true, false, false, true),
+        (true, false, true, false) => go!(true, false, true, false),
+        (true, false, true, true) => go!(true, false, true, true),
+        (true, true, false, false) => go!(true, true, false, false),
+        (true, true, false, true) => go!(true, true, false, true),
+        (true, true, true, false) => go!(true, true, true, false),
+        (true, true, true, true) => go!(true, true, true, true),
+    }
+}}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(clippy::too_many_arguments)]
+unsafe fn clean_impl<const APPROX: bool, const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
     qseq: &[u8],
     tseq: &[u8],
     alphabet_size: i8,
@@ -53,13 +95,14 @@ pub(super) unsafe fn extend_dual_affine_avx2_clean(
     end_bonus: i32,
     flags: i32,
     adaptive: i32,
+    band_shift: i32,
     result: &mut DpResult,
 ) { unsafe {
     let query_len = qseq.len();
     let target_len = tseq.len();
-    let approx_max = (flags & APPROX_MAX) != 0;
-    let with_cigar = (flags & SCORE_ONLY) == 0;
-    let right_align = (flags & RIGHT_ALIGN) != 0;
+    let approx_max = APPROX;
+    let with_cigar = CIGAR;
+    let right_align = RIGHT;
 
     if alphabet_size <= 1 || query_len == 0 || target_len == 0 {
         return;
@@ -95,8 +138,7 @@ pub(super) unsafe fn extend_dual_affine_avx2_clean(
     let sc_n_ = _mm256_set1_epi8(if n_sc == 0 { -gap_extend2 } else { n_sc });
     let m1_ = _mm256_set1_epi8(alphabet_size - 1);
     let sc_mch_mis_ = _mm256_set1_epi8(score_matrix[0].wrapping_sub(score_matrix[1]));
-    let m1 = (alphabet_size - 1) as u8;
-    let has_n = qseq.iter().chain(tseq.iter()).any(|&c| c >= m1);
+    let has_n = HAS_N;
     let flag1_ = _mm256_set1_epi8(1);
     let flag2_ = _mm256_set1_epi8(2);
     let flag3_ = _mm256_set1_epi8(3);
@@ -184,8 +226,9 @@ pub(super) unsafe fn extend_dual_affine_avx2_clean(
             st0 = a_st;
             en0 = en0.min(st0 + adaptive - 1);
         } else {
-            if st0 < (r - wl + 1) >> 1 { st0 = (r - wl + 1) >> 1; }
-            if en0 > (r + wl) >> 1 { en0 = (r + wl) >> 1; }
+            // Static band: diagonals t - q in [band_shift - wl, band_shift + wl].
+            if st0 < (r - wl + band_shift + 1) >> 1 { st0 = (r - wl + band_shift + 1) >> 1; }
+            if en0 > (r + wl + band_shift) >> 1 { en0 = (r + wl + band_shift) >> 1; }
         }
         if st0 > en0 {
             result.zdropped = 1;

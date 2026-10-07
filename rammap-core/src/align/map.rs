@@ -161,6 +161,8 @@ pub struct AlignmentParams {
     pub max_sw_mat: i64,
     pub min_dp_max: i32,
     pub min_dp_len: i32,
+    /// Asymmetric gap-fill bands (lr:hq-turbo; see `extend::gap_dual_asym`).
+    pub gap_band_asym: bool,
     pub anchor_ext_len: i32,
     pub anchor_ext_shift: i32,
     pub max_clip_ratio: f32,
@@ -275,6 +277,7 @@ impl Default for MapOptions {
                 max_sw_mat: 100_000_000,
                 min_dp_max: 80, // min_chain_score * a = 40 * 2
                 min_dp_len: 200,
+                gap_band_asym: false,
                 anchor_ext_len: 20,
                 anchor_ext_shift: 6,
                 max_clip_ratio: 1.0,

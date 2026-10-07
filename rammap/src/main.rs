@@ -58,7 +58,8 @@ struct AlignArgs {
     ///   map-iclr-prerender — ICLR pre-render variant
     ///   lr:hq            — accurate long reads (<1% error) vs reference
     ///   lr:hq-balanced   — lr:hq with near-output-preserving DP savings (--gap-bw-margin 500 --ungapped-fill)
-    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-adaptive 64 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000 --seg-rmq --clean-dp)
+    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-adaptive 64 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000 --seg-rmq --clean-dp --rescue-join)
+    ///   lr:hq-turbo      — lr:hq-fast plus --max-chain-skip 10 --gap-band-asym (faster; loses some SV support)
     ///   lr:hqae          — HQ long-read assembly eval (k=25 w=51, RMQ)
     ///   asm5 / asm10 / asm20 — asm-to-ref ~0.1/1/5% divergence
     ///   ava-ont / ava-pb — all-vs-all Nanopore / PacBio read overlap
@@ -320,6 +321,11 @@ struct AlignArgs {
     /// Run the long-gap (RMQ) rescue re-chain only when two first-pass chains could be joined [on in lr:hq-fast]
     #[arg(long)]
     pub rescue_join: bool,
+
+    /// Asymmetric gap-fill bands: cover only the diagonals between the gap's ends (plus off-band
+    /// k-mer evidence) [on in lr:hq-turbo; faster, loses some SV support]
+    #[arg(long)]
+    pub gap_band_asym: bool,
 
     /// Turn off --rescue-join (e.g. to undo it in lr:hq-fast)
     #[arg(long, conflicts_with = "rescue_join")]
@@ -693,6 +699,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.seg_rmq { opt.chaining.seg_rmq = true; }
     if cli.rescue_join { opt.chaining.rescue_join = true; }
     if cli.no_rescue_join { opt.chaining.rescue_join = false; }
+    if cli.gap_band_asym { opt.alignment.gap_band_asym = true; }
     if cli.clean_dp { opt.alignment.clean_dp = true; }
     if let Some(v) = cli.ext_adaptive { opt.alignment.ext_adaptive = if v > 0 { Some(v) } else { None }; }
     if let Some(v) = cli.gap_bw_floor { opt.alignment.gap_bw_floor = Some(v); }
