@@ -1561,7 +1561,7 @@ fn map_one_part(
         #[cfg(feature = "parallel")]
         {
             type SeData = (String, Vec<u8>, Option<String>, Option<String>);
-            let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<SeData>>(1);
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<SeData>>(2);
             let (tx_out, rx_out) = std::sync::mpsc::sync_channel::<Vec<(String, AlignmentStats)>>(2);
 
             total_stats = std::thread::scope(|s| -> anyhow::Result<AlignmentStats> {
@@ -1637,9 +1637,12 @@ fn map_one_part(
                         run()
                     }))
                 };
-                // CPU-only: stream reads into the pool with up to two chunks in flight, so the
-                // stragglers at the end of one chunk overlap with the next chunk instead of
-                // leaving cores idle at a per-chunk barrier. Chunks are still written in order.
+                // CPU-only: stream reads into the pool chunk by chunk, so the stragglers at the
+                // end of one chunk overlap with later chunks instead of leaving cores idle at a
+                // per-chunk barrier. Two chunks are always admitted; beyond that a new chunk is
+                // admitted whenever fewer than 2 x threads reads are left queued or running
+                // (e.g. one long read still holding the oldest chunk), up to MAX_IN_FLIGHT.
+                // Chunks are still written in order.
                 if !gpu_on {
                     use std::sync::atomic::{AtomicUsize, Ordering};
                     struct Chunk {
@@ -1651,7 +1654,12 @@ fn map_one_part(
                         static CTX: std::cell::RefCell<Option<(rammap::align::extend::AlignmentContext, rammap::align::map::MapContext)>> =
                             const { std::cell::RefCell::new(None) };
                     }
-                    const MAX_IN_FLIGHT: usize = 2;
+                    const MIN_IN_FLIGHT: usize = 2;
+                    const MAX_IN_FLIGHT: usize = 8;
+                    let low_water = 2 * rayon::current_num_threads();
+                    // Reads admitted but not yet aligned, over all chunks in flight.
+                    let outstanding = std::sync::Arc::new(AtomicUsize::new(0));
+                    // usize::MAX = "outstanding fell below the low-water mark", else a finished chunk id.
                     let (tx_done, rx_done) = std::sync::mpsc::channel::<usize>();
                     let align_one = &align_one;
                     let mut send_failed = false;
@@ -1676,7 +1684,9 @@ fn map_one_part(
                                 if tx_out.send(results).is_err() { send_failed = true; break; }
                             }
                             if send_failed { break; }
-                            if !input_done && in_flight.len() < MAX_IN_FLIGHT {
+                            let admit = in_flight.len() < MIN_IN_FLIGHT
+                                || (in_flight.len() < MAX_IN_FLIGHT && outstanding.load(Ordering::Acquire) < low_water);
+                            if !input_done && admit {
                                 match rx.recv() {
                                     Ok(chunk_data) if !chunk_data.is_empty() => {
                                         let n = chunk_data.len();
@@ -1684,9 +1694,11 @@ fn map_one_part(
                                         next_id += 1;
                                         let c = std::sync::Arc::new(Chunk { data: chunk_data, done: (0..n).map(|_| std::sync::OnceLock::new()).collect(),
                                                                             remaining: AtomicUsize::new(n) });
+                                        outstanding.fetch_add(n, Ordering::AcqRel);
                                         for ri in 0..n {
                                             let c = std::sync::Arc::clone(&c);
                                             let tx_done = tx_done.clone();
+                                            let outstanding = std::sync::Arc::clone(&outstanding);
                                             sc.spawn(move |_| {
                                                 let read = &c.data[ri];
                                                 let r = CTX.with(|cell| {
@@ -1702,6 +1714,7 @@ fn map_one_part(
                                                 let last = c.remaining.fetch_sub(1, Ordering::AcqRel) == 1;
                                                 drop(c);
                                                 if last { let _ = tx_done.send(id); }
+                                                if outstanding.fetch_sub(1, Ordering::AcqRel) == low_water { let _ = tx_done.send(usize::MAX); }
                                             });
                                         }
                                         in_flight.push_back((id, c));
@@ -1712,6 +1725,7 @@ fn map_one_part(
                             }
                             if in_flight.is_empty() { break; }
                             match rx_done.recv() {
+                                Ok(usize::MAX) => {} // below the low-water mark: re-check admission
                                 Ok(id) => { finished.insert(id); }
                                 Err(_) => break,
                             }
