@@ -353,18 +353,21 @@ pub(crate) unsafe fn chain_anchors_avx2(
                     &mut soa_sc_buf, chunk_start, chunk_end,
                 );
 
+                // SAFETY: j < i < n and predecessors[j] < j, all within the n-sized buffers.
+                let (scb, scr, vis, pre) = (soa_sc_buf.as_ptr(), scores.as_ptr(), visited.as_mut_ptr(), predecessors.as_ptr());
                 for j in (chunk_start..chunk_end).rev() {
-                    let sc = soa_sc_buf[j];
+                    let sc = *scb.add(j);
                     if sc == i32::MIN { continue; }
-                    let total_sc = sc + scores[j];
+                    let total_sc = sc + *scr.add(j);
                     if total_sc > best_score {
                         best_score = total_sc; best_predecessor = j as i64;
                         if skip_count > 0 { skip_count -= 1; }
-                    } else if visited[j] == i as i32 {
+                    } else if *vis.add(j) == i as i32 {
                         skip_count += 1;
                         if skip_count > opt.max_chain_skip { end_j = j as i64; skip_fired = true; break; }
                     }
-                    if predecessors[j] >= 0 { visited[predecessors[j] as usize] = i as i32; }
+                    let p = *pre.add(j);
+                    if p >= 0 { *vis.add(p as usize) = i as i32; }
                 }
 
                 if skip_fired { break; }

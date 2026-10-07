@@ -1499,17 +1499,27 @@ fn offband_only_kmers(q: &[u8], t: &[u8], w: i32) -> i32 {
     GAP_KMERS.with(|cell| {
         let mut buf = cell.borrow_mut();
         let (tk, off, inb) = &mut *buf;
-        tk.clear();
         off.clear();
         inb.clear();
+        // Target k-mers in an open-addressing table of (k-mer << 32 | position) entries.
+        const EMPTY: u64 = u64::MAX;
+        let n_k = t.len() + 1 - K;
+        let bits = (2 * n_k).next_power_of_two().trailing_zeros().max(4);
+        let tmask = (1usize << bits) - 1;
+        let slot = |kmer: u64| (kmer.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - bits)) as usize;
+        tk.clear();
+        tk.resize(1 << bits, EMPTY);
         let (mut h, mut l) = (0u64, 0usize);
         for (i, &c) in t.iter().enumerate() {
             if c > 3 { l = 0; h = 0; continue; }
             h = ((h << 2) | c as u64) & mask;
             l += 1;
-            if l >= K { tk.push(h << 32 | (i + 1 - K) as u64); }
+            if l >= K {
+                let mut j = slot(h);
+                while tk[j] != EMPTY { j = (j + 1) & tmask; }
+                tk[j] = h << 32 | (i + 1 - K) as u64;
+            }
         }
-        crate::align::sort::radix_sort_u64(tk); // distinct keys (position in the low bits)
         let (mut h, mut l) = (0u64, 0usize);
         for (i, &c) in q.iter().enumerate() {
             if c > 3 { l = 0; h = 0; continue; }
@@ -1517,12 +1527,17 @@ fn offband_only_kmers(q: &[u8], t: &[u8], w: i32) -> i32 {
             l += 1;
             if l < K || (i + 1 - K) % 4 != 0 { continue; }
             let qp = (i + 1 - K) as i32;
-            let lo = tk.partition_point(|&x| (x >> 32) < h);
+            // Nearest occurrence; at equal distance the lower target position (as when the
+            // occurrences were scanned in position order).
             let (mut nearest, mut nd) = (i32::MAX, 0i32);
-            for &x in &tk[lo..] {
-                if (x >> 32) != h { break; }
-                let d = (x & 0xffff_ffff) as i32 - qp;
-                if d.abs() < nearest { nearest = d.abs(); nd = d; }
+            let mut j = slot(h);
+            while tk[j] != EMPTY {
+                let x = tk[j];
+                if (x >> 32) == h {
+                    let d = (x & 0xffff_ffff) as i32 - qp;
+                    if d.abs() < nearest || (d.abs() == nearest && d < nd) { nearest = d.abs(); nd = d; }
+                }
+                j = (j + 1) & tmask;
             }
             if nearest == i32::MAX { continue; }
             if nearest <= w {
@@ -1535,7 +1550,7 @@ fn offband_only_kmers(q: &[u8], t: &[u8], w: i32) -> i32 {
         if off.len() < MIN_HITS {
             return 0;
         }
-        crate::align::sort::radix_sort_u64(off); // distinct keys (query position in the low bits)
+        off.sort_unstable();
         let mut need = 0i32;
         let mut i = 0;
         while i < off.len() {
