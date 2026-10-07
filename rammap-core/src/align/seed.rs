@@ -424,7 +424,11 @@ pub(crate) fn collect_seed_hits_with_occ(
         }
     }
 
-    crate::align::sort::radix_sort_128x(anchors);
+    if opt.seeding.stable_anchor_sort {
+        crate::align::sort::radix_sort_lsd(anchors);
+    } else {
+        crate::align::sort::radix_sort_128x(anchors);
+    }
 
     rep_len
 }

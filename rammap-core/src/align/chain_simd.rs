@@ -2143,7 +2143,7 @@ mod tests {
             rmq_rescue_ratio: 0.1,
             rmq_inner_dist: 1000,
             rmq_size_cap: 100000,
-            seg_rmq: false, rescue_join: false,
+            seg_rmq: false, rescue_join: false, rescue_subset: false,
         };
 
         let mut ctx_simd = ChainingBuffers::new();
@@ -2215,7 +2215,7 @@ mod tests {
             rmq_rescue_ratio: 0.1,
             rmq_inner_dist: 1000,
             rmq_size_cap: 100000,
-            seg_rmq: false, rescue_join: false,
+            seg_rmq: false, rescue_join: false, rescue_subset: false,
         };
 
         let mut ctx_simd = ChainingBuffers::new();
@@ -2286,7 +2286,7 @@ mod tests {
             rmq_rescue_ratio: 0.1,
             rmq_inner_dist: 1000,
             rmq_size_cap: 100000,
-            seg_rmq: false, rescue_join: false,
+            seg_rmq: false, rescue_join: false, rescue_subset: false,
         };
 
         let mut opt_noskip = opt_skip.clone();

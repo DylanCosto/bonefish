@@ -40,6 +40,7 @@ pub struct Reader<R> {
     buf: Vec<u8>,
     line_number: usize,
     done: bool,
+    keep_description: bool,
 }
 
 impl<R: BufRead> Reader<R> {
@@ -50,7 +51,51 @@ impl<R: BufRead> Reader<R> {
             buf: Vec::with_capacity(64 * 1024),
             line_number: 1,
             done: false,
+            keep_description: true,
         }
+    }
+
+    /// Whether FASTQ records keep their header comment (default true). Without it the comment
+    /// bytes (e.g. basecaller MM/ML tags, often most of the file) are skipped without copying.
+    pub fn set_keep_description(&mut self, keep: bool) {
+        self.keep_description = keep;
+    }
+
+    /// Read a FASTQ header line whose '@' is the next byte, returning the name only and skipping
+    /// the rest of the line in place. Returns None (consuming nothing) if the name holds a
+    /// non-ASCII byte, so the caller can take the general path (whose whitespace split is
+    /// Unicode-aware); Some(None) at EOF.
+    fn read_fastq_name_only(&mut self) -> Result<Option<Option<String>>, FastxError> {
+        // Peek: the whole name must be in the buffer to decide without consuming.
+        let (name, consumed, at_eol) = {
+            let b = self.reader.fill_buf()?;
+            if b.is_empty() { return Ok(Some(None)); }
+            debug_assert!(b[0] == b'@');
+            let mut i = 1;
+            while i < b.len() && !matches!(b[i], b'\t' | b'\n' | 0x0b | 0x0c | b'\r' | b' ') {
+                if b[i] >= 0x80 { return Ok(None); }
+                i += 1;
+            }
+            if i == b.len() { return Ok(None); } // name runs past the buffer: general path
+            // SAFETY: bytes 1..i are ASCII.
+            let name = unsafe { String::from_utf8_unchecked(b[1..i].to_vec()) };
+            (name, i, b[i] == b'\n')
+        };
+        self.reader.consume(consumed);
+        if at_eol {
+            self.reader.consume(1);
+        } else {
+            // Skip the rest of the line (the comment) without copying it.
+            loop {
+                let b = self.reader.fill_buf()?;
+                if b.is_empty() { break; }
+                match b.iter().position(|&c| c == b'\n') {
+                    Some(p) => { self.reader.consume(p + 1); break; }
+                    None => { let n = b.len(); self.reader.consume(n); }
+                }
+            }
+        }
+        Ok(Some(Some(name)))
     }
 
     /// `Ok(None)` = empty input (EOF before any byte): zero records
@@ -272,6 +317,18 @@ impl<R: BufRead> Reader<R> {
     
     fn read_next_fastq(&mut self) -> Result<Option<Record>, FastxError> {
         loop {
+            // Fast path: name only, comment skipped in place.
+            if !self.keep_description {
+                let peek = self.reader.fill_buf()?;
+                if peek.is_empty() { return Ok(None); }
+                if peek[0] == b'@' {
+                    if let Some(name) = self.read_fastq_name_only()? {
+                        let Some(name) = name else { return Ok(None); };
+                        self.line_number += 1;
+                        return self.read_fastq_body(name, None);
+                    }
+                }
+            }
             self.buf.clear();
             let n1 = self.reader.read_until(b'\n', &mut self.buf)?;
             if n1 == 0 { return Ok(None); }
@@ -286,32 +343,36 @@ impl<R: BufRead> Reader<R> {
             // Parse name/desc
             let mut parts = name_line.splitn(2, char::is_whitespace);
             let name = parts.next().unwrap_or("").to_string();
-            let desc = parts.next().map(|s| s.to_string());
-            
-            // Seq
-            self.buf.clear();
-            if self.reader.read_until(b'\n', &mut self.buf)? == 0 { return Ok(None); }
-            self.line_number += 1;
-            let s_end = trim_newline(&self.buf);
-            let mut seq = self.buf[..s_end].to_vec();
-            rna_to_dna_inplace(&mut seq);
-
-            // +
-            self.buf.clear();
-             if self.reader.read_until(b'\n', &mut self.buf)? == 0 { return Ok(None); }
-            self.line_number += 1;
-             
-             // Qual
-             self.buf.clear();
-             if self.reader.read_until(b'\n', &mut self.buf)? == 0 { return Ok(None); }
-            self.line_number += 1;
-            let q_end = trim_newline(&self.buf);
-            let qual = self.buf[..q_end].to_vec();
-            
-            return Ok(Some(Record::new(name, desc, seq, Some(qual))));
+            let desc = if self.keep_description { parts.next().map(|s| s.to_string()) } else { None };
+            return self.read_fastq_body(name, desc);
         }
     }
-    
+
+    /// Sequence, '+' and quality lines of a FASTQ record whose header has been read.
+    fn read_fastq_body(&mut self, name: String, desc: Option<String>) -> Result<Option<Record>, FastxError> {
+        // Seq
+        self.buf.clear();
+        if self.reader.read_until(b'\n', &mut self.buf)? == 0 { return Ok(None); }
+        self.line_number += 1;
+        let s_end = trim_newline(&self.buf);
+        let mut seq = self.buf[..s_end].to_vec();
+        rna_to_dna_inplace(&mut seq);
+
+        // +
+        self.buf.clear();
+        if self.reader.read_until(b'\n', &mut self.buf)? == 0 { return Ok(None); }
+        self.line_number += 1;
+
+        // Qual
+        self.buf.clear();
+        if self.reader.read_until(b'\n', &mut self.buf)? == 0 { return Ok(None); }
+        self.line_number += 1;
+        let q_end = trim_newline(&self.buf);
+        let qual = self.buf[..q_end].to_vec();
+
+        Ok(Some(Record::new(name, desc, seq, Some(qual))))
+    }
+
     fn read_next_fasta(&mut self) -> Result<Option<Record>, FastxError> {
         // We need a persistent buffer for the "next header" line in FASTA
         // because we read until '>' to finish current record.
@@ -418,11 +479,80 @@ pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Reader<Box<dyn BufRead + Send
     }
 
     let reader: Box<dyn BufRead + Send> = if is_gz_content {
-        Box::new(io::BufReader::new(MultiGzDecoder::new(buf_reader)))
+        #[cfg(not(target_arch = "wasm32"))]
+        { Box::new(ThreadedRead::new(MultiGzDecoder::new(buf_reader))) }
+        #[cfg(target_arch = "wasm32")]
+        { Box::new(io::BufReader::new(MultiGzDecoder::new(buf_reader))) }
     } else {
         Box::new(buf_reader)
     };
     Ok(Reader::new(reader))
+}
+
+/// Reads `inner` (e.g. a gzip decoder) on a worker thread in 1 MiB blocks, so decompression
+/// overlaps with parsing on the consuming thread.
+#[cfg(not(target_arch = "wasm32"))]
+struct ThreadedRead {
+    rx: std::sync::mpsc::Receiver<io::Result<Vec<u8>>>,
+    cur: Vec<u8>,
+    pos: usize,
+    eof: bool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl ThreadedRead {
+    fn new<R: io::Read + Send + 'static>(mut inner: R) -> Self {
+        const BLOCK: usize = 1 << 20;
+        let (tx, rx) = std::sync::mpsc::sync_channel::<io::Result<Vec<u8>>>(8);
+        std::thread::spawn(move || loop {
+            let mut b = vec![0u8; BLOCK];
+            let mut n = 0;
+            while n < BLOCK {
+                match inner.read(&mut b[n..]) {
+                    Ok(0) => break,
+                    Ok(k) => n += k,
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(e) => { let _ = tx.send(Err(e)); return; }
+                }
+            }
+            b.truncate(n);
+            let last = n == 0;
+            if tx.send(Ok(b)).is_err() || last { return; }
+        });
+        ThreadedRead { rx, cur: Vec::new(), pos: 0, eof: false }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl io::Read for ThreadedRead {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        let avail = self.fill_buf()?;
+        let n = avail.len().min(out.len());
+        out[..n].copy_from_slice(&avail[..n]);
+        self.consume(n);
+        Ok(n)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl BufRead for ThreadedRead {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        while self.pos >= self.cur.len() && !self.eof {
+            match self.rx.recv() {
+                Ok(Ok(b)) => {
+                    if b.is_empty() { self.eof = true; }
+                    self.cur = b;
+                    self.pos = 0;
+                }
+                Ok(Err(e)) => { self.eof = true; return Err(e); }
+                Err(_) => { self.eof = true; }
+            }
+        }
+        Ok(&self.cur[self.pos.min(self.cur.len())..])
+    }
+    fn consume(&mut self, n: usize) {
+        self.pos += n;
+    }
 }
 
 // ------ Memory-Mapped FASTA Reader for Index Building -----

@@ -59,7 +59,7 @@ struct AlignArgs {
     ///   lr:hq            — accurate long reads (<1% error) vs reference
     ///   lr:hq-balanced   — lr:hq with near-output-preserving DP savings (--gap-bw-margin 500 --ungapped-fill)
     ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-adaptive 64 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000 --seg-rmq --clean-dp --rescue-join)
-    ///   lr:hq-turbo      — lr:hq-fast plus --max-chain-skip 10 --gap-band-asym (faster; loses some SV support)
+    ///   lr:hq-turbo      — lr:hq-fast plus --max-chain-skip 10 --max-gap-ref 2000 --rescue-subset --ext-probe 1000,1000 --gap-bw-margin 300 --gap-band-asym --stable-anchor-sort (faster; loses some SV support)
     ///   lr:hqae          — HQ long-read assembly eval (k=25 w=51, RMQ)
     ///   asm5 / asm10 / asm20 — asm-to-ref ~0.1/1/5% divergence
     ///   ava-ont / ava-pb — all-vs-all Nanopore / PacBio read overlap
@@ -326,6 +326,14 @@ struct AlignArgs {
     /// k-mer evidence) [on in lr:hq-turbo; faster, loses some SV support]
     #[arg(long)]
     pub gap_band_asym: bool,
+
+    /// Stable LSD radix sort for anchors (ties keep seed order; not minimap2's order) [on in lr:hq-turbo]
+    #[arg(long)]
+    pub stable_anchor_sort: bool,
+
+    /// With --rescue-join, re-chain only the joinable chains and keep the others [on in lr:hq-turbo]
+    #[arg(long)]
+    pub rescue_subset: bool,
 
     /// Turn off --rescue-join (e.g. to undo it in lr:hq-fast)
     #[arg(long, conflicts_with = "rescue_join")]
@@ -700,6 +708,8 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.rescue_join { opt.chaining.rescue_join = true; }
     if cli.no_rescue_join { opt.chaining.rescue_join = false; }
     if cli.gap_band_asym { opt.alignment.gap_band_asym = true; }
+    if cli.stable_anchor_sort { opt.seeding.stable_anchor_sort = true; }
+    if cli.rescue_subset { opt.chaining.rescue_subset = true; }
     if cli.clean_dp { opt.alignment.clean_dp = true; }
     if let Some(v) = cli.ext_adaptive { opt.alignment.ext_adaptive = if v > 0 { Some(v) } else { None }; }
     if let Some(v) = cli.gap_bw_floor { opt.alignment.gap_bw_floor = Some(v); }
@@ -1383,8 +1393,10 @@ fn map_one_part(
         return Ok(AlignmentStats::default());
     }
 
-    let reader = rammap::fasta::open(query_path)
+    let mut reader = rammap::fasta::open(query_path)
         .map_err(|e| anyhow::anyhow!("Error reading query: {}", e))?;
+    // Single-end reads only need the header comment for -y; skip copying it otherwise.
+    if !pe_mode && !copy_comment { reader.set_keep_description(false); }
     let reader2 = if two_file_pe {
         let q2 = query2_path.unwrap();
         Some(rammap::fasta::open(q2)
@@ -1573,7 +1585,12 @@ fn map_one_part(
         #[cfg(feature = "parallel")]
         {
             type SeData = (String, Vec<u8>, Option<String>, Option<String>);
-            let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<SeData>>(2);
+            // Chunks the reader may run ahead: input decompression is steady but alignment speed
+            // varies with the reads, so a deeper queue absorbs fast stretches. About 800 Mbp of
+            // reads (~1.6 GB with qualities), 2 to 16 chunks; env RAMMAP_LOOKAHEAD overrides.
+            let lookahead: usize = std::env::var("RAMMAP_LOOKAHEAD").ok().and_then(|v| v.parse().ok())
+                .unwrap_or_else(|| (800_000_000 / mini_batch_size.max(1)).clamp(2, 16) as usize);
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<SeData>>(lookahead);
             let (tx_out, rx_out) = std::sync::mpsc::sync_channel::<Vec<(String, AlignmentStats)>>(2);
 
             total_stats = std::thread::scope(|s| -> anyhow::Result<AlignmentStats> {
@@ -1584,10 +1601,11 @@ fn map_one_part(
                         loop {
                             match record_iter.next() {
                                 Some(Ok(r)) => {
-                                    let q = r.quality().map(|qs| String::from_utf8_lossy(qs).to_string());
-                                    let c = if copy_comment { r.description().map(|s| s.to_string()) } else { None };
-                                    chunk_bases += r.sequence().len() as u64;
-                                    chunk_data.push((r.name().to_string(), r.sequence().to_vec(), q, c));
+                                    let (name, desc, seq, qual) = r.into_parts();
+                                    let q = qual.map(|v| String::from_utf8(v).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()));
+                                    let c = if copy_comment { desc } else { None };
+                                    chunk_bases += seq.len() as u64;
+                                    chunk_data.push((name, seq, q, c));
                                 },
                                 Some(Err(e)) => {
                                     eprintln!("Warning: Error reading record: {}", e);
@@ -1831,10 +1849,11 @@ fn map_one_part(
                 loop {
                     match record_iter.next() {
                         Some(Ok(r)) => {
-                            let q = r.quality().map(|qs| String::from_utf8_lossy(qs).to_string());
-                            let c = if copy_comment { r.description().map(|s| s.to_string()) } else { None };
-                            chunk_bases += r.sequence().len() as u64;
-                            chunk_data.push((r.name().to_string(), r.sequence().to_vec(), q, c));
+                            let (name, desc, seq, qual) = r.into_parts();
+                            let q = qual.map(|v| String::from_utf8(v).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()));
+                            let c = if copy_comment { desc } else { None };
+                            chunk_bases += seq.len() as u64;
+                            chunk_data.push((name, seq, q, c));
                         },
                         Some(Err(e)) => {
                             eprintln!("Warning: Error reading record: {}", e);

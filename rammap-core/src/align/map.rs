@@ -108,6 +108,9 @@ pub struct SeedingParams {
     pub q_occ_frac: f32,
     pub min_mid_occ: i32,
     pub max_mid_occ: i32,
+    /// Sort anchors with a stable LSD radix sort (lr:hq-turbo): equal reference positions keep
+    /// their seed order instead of minimap2's in-place MSD order, so output is not minimap2's.
+    pub stable_anchor_sort: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -136,6 +139,8 @@ pub struct ChainingParams {
     /// Run the RMQ rescue re-chain only when two first-pass chains could be joined
     /// (collinear, same strand, gaps within the long-join distance and bandwidth).
     pub rescue_join: bool,
+    /// With rescue_join: re-chain only the chains in a joinable pair, keep the others (lr:hq-turbo).
+    pub rescue_subset: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -235,6 +240,7 @@ impl Default for MapOptions {
                 q_occ_frac: 0.01,
                 min_mid_occ: 10,
                 max_mid_occ: 1000000,
+                stable_anchor_sort: false,
             },
             chaining: ChainingParams {
                 min_cnt: 3,
@@ -256,6 +262,7 @@ impl Default for MapOptions {
                 rmq_size_cap: 100000,
                 seg_rmq: false,
                 rescue_join: false,
+                rescue_subset: false,
             },
             scoring: ScoringParams {
                 match_score: 2,
@@ -1436,14 +1443,43 @@ pub fn map_query(
             let needs_rescue = ((qlen.saturating_sub(coverage) > opt.chaining.rmq_rescue_size as usize)
                 || (coverage > (qlen as f32 * opt.chaining.rmq_rescue_ratio) as usize))
                 && crate::align::env_flags::EXP_RESCUE_COVER.is_none_or(|f| (coverage as f32) < f * qlen as f32);
+            // Chains taking part in a joinable pair (computed when the join gate is on).
+            let mut members: Option<Vec<bool>> = None;
             let needs_rescue = needs_rescue && (!(opt.chaining.rescue_join || *crate::align::env_flags::EXP_RESCUE_JOIN) || {
                 let max_dist = opt.chaining.max_gap.max(opt.chaining.bandwidth_long);
-                let j = chains_joinable(&u, &chains, max_dist, opt.chaining.bandwidth_long);
+                let j = if opt.chaining.rescue_subset {
+                    members = joinable_members(&u, &chains, max_dist, opt.chaining.bandwidth_long);
+                    members.is_some()
+                } else {
+                    chains_joinable(&u, &chains, max_dist, opt.chaining.bandwidth_long)
+                };
                 if !j { PC_RESCUE_SKIP.fetch_add(1, Relaxed); }
                 j
             });
 
-            if needs_rescue {
+            if needs_rescue && opt.chaining.rescue_subset && let Some(members) = members.as_ref() {
+                // lr:hq-turbo: re-chain only the chains that could be joined; keep the rest.
+                PC_RESCUE_COUNT.fetch_add(1, Relaxed);
+                let mut sub: Vec<Minimizer> = Vec::new();
+                let (mut u_keep, mut keep): (Vec<u64>, Vec<Minimizer>) = (Vec::new(), Vec::new());
+                let mut off = 0usize;
+                let mut ci = 0usize;
+                for &v in u.iter() {
+                    let n = (v & 0xFFFFFFFF) as usize;
+                    if n == 0 { continue; }
+                    if members[ci] { sub.extend_from_slice(&chains[off..off + n]); } else { u_keep.push(v); keep.extend_from_slice(&chains[off..off + n]); }
+                    off += n;
+                    ci += 1;
+                }
+                PC_RESCUE_ANCHORS.fetch_add(sub.len() as u64, Relaxed);
+                radix_sort_128x(&mut sub);
+                let rescue_params = ChainingParams { bandwidth: opt.chaining.bandwidth_long, ..opt.chaining.clone() };
+                let (mut u2, mut chains2) = chain_anchors_rmq(&rescue_params, &mut sub, &mut ctx.chain_bufs);
+                u2.extend_from_slice(&u_keep);
+                chains2.extend_from_slice(&keep);
+                u = u2;
+                chains = chains2;
+            } else if needs_rescue {
                 PC_RESCUE_COUNT.fetch_add(1, Relaxed);
                 PC_RESCUE_ANCHORS.fetch_add(chains.len() as u64, Relaxed);
 
@@ -1897,24 +1933,48 @@ mod tests {
 /// the second starting after the first in both reference and query (overlap allowed) with
 /// both gaps within `max_dist` and the diagonal shift within `bw`.
 fn chains_joinable(u: &[u64], chains: &[Minimizer], max_dist: i32, bw: i32) -> bool {
-    let mut ext: Vec<(u64, i32, i32, i32, i32)> = Vec::with_capacity(u.len()); // (rid_strand, rs, re, qs, qe)
+    joinable_pairs(u, chains, max_dist, bw, true).is_some()
+}
+
+/// Per non-empty chain, whether it is in a joinable pair (as in `chains_joinable`); None if no
+/// pair is joinable.
+fn joinable_members(u: &[u64], chains: &[Minimizer], max_dist: i32, bw: i32) -> Option<Vec<bool>> {
+    joinable_pairs(u, chains, max_dist, bw, false)
+}
+
+/// Shared pair search: chains sorted by (reference/strand, start, chain index) so each chain is
+/// only compared with later-starting chains within `max_dist` of its end (the pair test needs
+/// the second chain to start after the first and within `max_dist` of its end). With `first`,
+/// returns as soon as one pair is found (the flags are then incomplete).
+fn joinable_pairs(u: &[u64], chains: &[Minimizer], max_dist: i32, bw: i32, first: bool) -> Option<Vec<bool>> {
+    let mut ext: Vec<(u64, i32, i32, i32, i32, usize)> = Vec::with_capacity(u.len()); // (rid_strand, rs, re, qs, qe, chain)
     let mut off = 0usize;
     for &v in u {
         let n = (v & 0xFFFFFFFF) as usize;
         if n == 0 { continue; }
         let (a0, a1) = (&chains[off], &chains[off + n - 1]);
-        ext.push((a0.ref_id_strand(), a0.ref_pos(), a1.ref_pos(), a0.query_pos(), a1.query_pos()));
+        ext.push((a0.ref_id_strand(), a0.ref_pos(), a1.ref_pos(), a0.query_pos(), a1.query_pos(), ext.len()));
         off += n;
     }
-    for (i, a) in ext.iter().enumerate() {
-        for b in ext[i + 1..].iter() {
-            if a.0 != b.0 { continue; }
-            let (f, s) = if a.1 <= b.1 { (a, b) } else { (b, a) };
+    let n = ext.len();
+    ext.sort_unstable_by_key(|e| (e.0, e.1, e.5));
+    let mut member = vec![false; n];
+    let mut any = false;
+    for i in 0..n {
+        let f = ext[i];
+        for s in &ext[i + 1..] {
+            // Sorted: same reference/strand and start >= f's start; later chains start no earlier.
+            if s.0 != f.0 || s.1 as i64 - f.2 as i64 > max_dist as i64 { break; }
             // s must start after f starts and end after f ends, in both reference and query.
             if !(s.3 > f.3 && s.2 > f.2 && s.4 > f.4) { continue; }
             let (dr, dq) = (s.1 - f.2, s.3 - f.4);
-            if dr <= max_dist && dq <= max_dist && (dr - dq).abs() <= bw { return true; }
+            if dr <= max_dist && dq <= max_dist && (dr - dq).abs() <= bw {
+                if first { return Some(member); }
+                member[f.5] = true;
+                member[s.5] = true;
+                any = true;
+            }
         }
     }
-    false
+    any.then_some(member)
 }

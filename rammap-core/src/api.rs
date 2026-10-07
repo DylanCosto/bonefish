@@ -802,7 +802,9 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.alignment.ungapped_fill = true;
         },
         // lr:hq-fast plus speed-for-SV-sensitivity trades (ont-aligner Round 7): fewer allowed
-        // non-improving predecessors in the main chaining pass and asymmetric gap-fill bands.
+        // non-improving predecessors and a 2 kb reference gap limit in the main chaining pass, the
+        // long-join rescue re-chaining only joinable chains, a 1 kb extension probe, narrower and
+        // asymmetric gap-fill bands, and a stable (not minimap2-order) anchor sort.
         // SNP/indel accuracy at lr:hq-fast level; loses some SV support (see the README).
         "lr:hq-turbo" => {
             *k = 19; *w = 19;
@@ -820,7 +822,12 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.alignment.clean_dp = true;
             opt.alignment.ungapped_fill = true;
             opt.chaining.max_chain_skip = 10;
+            opt.chaining.max_gap_ref = 2000;
+            opt.chaining.rescue_subset = true;
+            opt.alignment.ext_probe = Some((1000, 1000, 0));
+            opt.alignment.gap_bw_margin = Some(300);
             opt.alignment.gap_band_asym = true;
+            opt.seeding.stable_anchor_sort = true;
         },
         "map-hifi" | "map-ccs" => {
             *k = 19; *w = 19;

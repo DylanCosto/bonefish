@@ -17,6 +17,11 @@ impl Record {
     pub fn description(&self) -> Option<&str> { self.description.as_deref() }
     pub fn sequence(&self) -> &[u8] { &self.sequence }
     pub fn quality(&self) -> Option<&[u8]> { self.quality.as_deref() }
+
+    /// (name, description, sequence, quality), without copying.
+    pub fn into_parts(self) -> (String, Option<String>, Vec<u8>, Option<Vec<u8>>) {
+        (self.name, self.description, self.sequence, self.quality)
+    }
 }
 
 /// Zero-copy view of a record

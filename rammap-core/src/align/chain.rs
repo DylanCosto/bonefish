@@ -557,7 +557,7 @@ mod tests {
             rmq_rescue_ratio: 0.1,
             rmq_inner_dist: 1000,
             rmq_size_cap: 100000,
-            seg_rmq: false, rescue_join: false,
+            seg_rmq: false, rescue_join: false, rescue_subset: false,
         };
         let mut bufs = ChainingBuffers::new();
         let (u, _chains) = chain_anchors(
