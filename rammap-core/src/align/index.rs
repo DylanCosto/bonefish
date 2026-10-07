@@ -486,13 +486,6 @@ impl Index {
         // mmap user we rely on it not being truncated or rewritten while mapped.
         let map = std::sync::Arc::new(unsafe { memmap2::Mmap::map(&f)? });
         let _ = map.advise(memmap2::Advice::WillNeed);
-        // Map the index's pages in on a background thread while alignment starts (one cheap
-        // kernel pass for already-cached pages), so worker threads don't take first-touch faults.
-        #[cfg(target_os = "linux")]
-        if std::env::var_os("RAMMAP_NO_POPULATE").is_none() {
-            let m = map.clone();
-            std::thread::spawn(move || { let _ = m.advise(memmap2::Advice::PopulateRead); });
-        }
         let mut parts = Vec::new();
         let mut pos = 0u64;
         while pos < map.len() as u64 {
