@@ -321,6 +321,10 @@ struct AlignArgs {
     #[arg(long)]
     pub rescue_join: bool,
 
+    /// Turn off --rescue-join (e.g. to undo it in lr:hq-fast)
+    #[arg(long, conflicts_with = "rescue_join")]
+    pub no_rescue_join: bool,
+
     /// Score for ambiguous bases
     #[arg(long = "score-N")]
     pub score_n: Option<i32>,
@@ -688,6 +692,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.ext_rescue { opt.alignment.ext_rescue = true; }
     if cli.seg_rmq { opt.chaining.seg_rmq = true; }
     if cli.rescue_join { opt.chaining.rescue_join = true; }
+    if cli.no_rescue_join { opt.chaining.rescue_join = false; }
     if cli.clean_dp { opt.alignment.clean_dp = true; }
     if let Some(v) = cli.ext_adaptive { opt.alignment.ext_adaptive = if v > 0 { Some(v) } else { None }; }
     if let Some(v) = cli.gap_bw_floor { opt.alignment.gap_bw_floor = Some(v); }
