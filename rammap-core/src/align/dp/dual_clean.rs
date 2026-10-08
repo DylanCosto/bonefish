@@ -255,9 +255,10 @@ unsafe fn clean_impl<const APPROX: bool, const CIGAR: bool, const RIGHT: bool, c
 
         // Previous raw vectors (byte 31 carries into the next shift); the first carries the
         // left boundary.
-        let mut px = _mm256_insert_epi8(zero_, x1, 31);
-        let mut px2 = _mm256_insert_epi8(zero_, x21, 31);
-        let mut pv = _mm256_insert_epi8(zero_, v1, 31);
+        // The shift only reads byte 31 of the previous vector: a broadcast is enough.
+        let mut px = _mm256_set1_epi8(x1);
+        let mut px2 = _mm256_set1_epi8(x21);
+        let mut pv = _mm256_set1_epi8(v1);
         let qrr = qr.offset(query_len as isize - 1 - r as isize);
         let st = st0 as usize;
         let en = en0 as usize;
@@ -364,12 +365,15 @@ unsafe fn clean_impl<const APPROX: bool, const CIGAR: bool, const RIGHT: bool, c
         // The last vector may have written up to 31 cells right of en0; cells right of the band
         // must keep their initial values (the scalar kernel never touches them).
         let es = en + 1;
-        _mm256_storeu_si256(u.add(es) as *mut __m256i, neg_qe_);
-        _mm256_storeu_si256(v.add(es) as *mut __m256i, neg_qe_);
-        _mm256_storeu_si256(x.add(es) as *mut __m256i, neg_qe_);
-        _mm256_storeu_si256(y.add(es) as *mut __m256i, neg_qe_);
-        _mm256_storeu_si256(x2.add(es) as *mut __m256i, neg_q2e2_);
-        _mm256_storeu_si256(y2.add(es) as *mut __m256i, neg_q2e2_);
+        // Nothing was written past en0 when the band is a whole number of vectors.
+        if (en - st + 1) % 32 != 0 {
+            _mm256_storeu_si256(u.add(es) as *mut __m256i, neg_qe_);
+            _mm256_storeu_si256(v.add(es) as *mut __m256i, neg_qe_);
+            _mm256_storeu_si256(x.add(es) as *mut __m256i, neg_qe_);
+            _mm256_storeu_si256(y.add(es) as *mut __m256i, neg_qe_);
+            _mm256_storeu_si256(x2.add(es) as *mut __m256i, neg_q2e2_);
+            _mm256_storeu_si256(y2.add(es) as *mut __m256i, neg_q2e2_);
+        }
 
         if !approx_max {
             let mut max_h: i32;
