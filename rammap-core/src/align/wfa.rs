@@ -204,6 +204,163 @@ fn backtrace(w: &Wfs, p: &Penalties, s_end: i32, k_end: i32, n: i32, m: i32, qr:
     ops
 }
 
+
+// ---- Arena implementation (the one used for speed) -------------------------------------------
+
+const C_M: usize = 0;
+const C_I1: usize = 1;
+const C_D1: usize = 2;
+const C_I2: usize = 3;
+const C_D2: usize = 4;
+
+/// Per score: shared diagonal range and, per component, its start in `data` (u32::MAX = none).
+#[derive(Clone, Copy)]
+struct Meta { lo: i32, hi: i32, base: [u32; 5] }
+
+const NO_META: Meta = Meta { lo: 1, hi: 0, base: [u32::MAX; 5] };
+
+/// Reusable buffers for `align_fast`.
+#[derive(Default)]
+pub struct WfaBuf { meta: Vec<Meta>, data: Vec<i32>, qr: Vec<u8>, tr: Vec<u8> }
+
+#[inline(always)]
+fn aget(meta: &[Meta], data: &[i32], s: i32, c: usize, k: i32) -> i32 {
+    if s < 0 { return NONE; }
+    let m = &meta[s as usize];
+    let b = m.base[c];
+    if b == u32::MAX || k < m.lo || k > m.hi { return NONE; }
+    unsafe { *data.get_unchecked(b as usize + (k - m.lo) as usize) }
+}
+
+fn gcd(a: i32, b: i32) -> i32 { if b == 0 { a } else { gcd(b, a % b) } }
+
+/// As `align`, with flat reusable storage and penalties divided by their gcd.
+pub fn align_fast(q: &[u8], t: &[u8], p0: &Penalties, max_pen: i32, buf: &mut WfaBuf) -> Option<(i32, Vec<u32>)> {
+    let g = [p0.x, p0.o1, p0.e1, p0.o2, p0.e2].into_iter().fold(0, gcd).max(1);
+    let p = Penalties { x: p0.x / g, o1: p0.o1 / g, e1: p0.e1 / g, o2: p0.o2 / g, e2: p0.e2 / g };
+    let max_s = max_pen / g;
+    let (oe1, oe2) = (p.o1 + p.e1, p.o2 + p.e2);
+    buf.qr.clear(); buf.qr.extend(q.iter().rev());
+    buf.tr.clear(); buf.tr.extend(t.iter().rev());
+    let (qr, tr) = (&buf.qr[..], &buf.tr[..]);
+    let (n, m) = (qr.len() as i32, tr.len() as i32);
+    let k_end = m - n;
+    buf.meta.clear();
+    buf.data.clear();
+    let e0 = lcp(qr, tr) as i32;
+    buf.meta.push(Meta { lo: 0, hi: 0, base: [0, u32::MAX, u32::MAX, u32::MAX, u32::MAX] });
+    buf.data.push(e0);
+    let mut s_done = if k_end == 0 && e0 >= m { Some(0) } else { None };
+    let mut s = 0;
+    while s_done.is_none() {
+        s += 1;
+        if s > max_s { return None; }
+        let (meta, data) = (&buf.meta, &buf.data);
+        let has = |ss: i32, c: usize| ss >= 0 && meta[ss as usize].base[c] != u32::MAX;
+        let (sx, so1, se1, so2, se2) = (s - p.x, s - oe1, s - p.e1, s - oe2, s - p.e2);
+        let need_i1 = has(so1, C_M) || has(se1, C_I1);
+        let need_d1 = has(so1, C_M) || has(se1, C_D1);
+        let need_i2 = has(so2, C_M) || has(se2, C_I2);
+        let need_d2 = has(so2, C_M) || has(se2, C_D2);
+        let need_x = has(sx, C_M);
+        if !(need_i1 || need_d1 || need_i2 || need_d2 || need_x) {
+            buf.meta.push(NO_META);
+            continue;
+        }
+        let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+        for (ss, c) in [(sx, C_M), (so1, C_M), (se1, C_I1), (se1, C_D1), (so2, C_M), (se2, C_I2), (se2, C_D2)] {
+            if has(ss, c) { let mm = &meta[ss as usize]; lo = lo.min(mm.lo); hi = hi.max(mm.hi); }
+        }
+        let (lo, hi) = ((lo - 1).max(-n), (hi + 1).min(m));
+        let len = (hi - lo + 1).max(0) as usize;
+        let start = data.len() as u32;
+        let mut base = [u32::MAX; 5];
+        let mut nb = 0u32;
+        for (c, need) in [(C_M, true), (C_I1, need_i1), (C_D1, need_d1), (C_I2, need_i2), (C_D2, need_d2)] {
+            if need { base[c] = start + nb * len as u32; nb += 1; }
+        }
+        let total = start as usize + nb as usize * len;
+        buf.data.resize(total, NONE);
+        let (meta, data) = (&buf.meta[..], &mut buf.data[..]);
+        let mut done = false;
+        for k in lo..=hi {
+            let idx = (k - lo) as usize;
+            let v_ok = |h: i32| h > NONE && h <= m && h - k >= 0 && h - k <= n;
+            let mut best = NONE;
+            if need_i1 {
+                let h = aget(meta, data, so1, C_M, k + 1).max(aget(meta, data, se1, C_I1, k + 1));
+                let h = if v_ok(h) { h } else { NONE };
+                data[base[C_I1] as usize + idx] = h; best = best.max(h);
+            }
+            if need_i2 {
+                let h = aget(meta, data, so2, C_M, k + 1).max(aget(meta, data, se2, C_I2, k + 1));
+                let h = if v_ok(h) { h } else { NONE };
+                data[base[C_I2] as usize + idx] = h; best = best.max(h);
+            }
+            if need_d1 {
+                let h0 = aget(meta, data, so1, C_M, k - 1).max(aget(meta, data, se1, C_D1, k - 1));
+                let h = if h0 > NONE && v_ok(h0 + 1) { h0 + 1 } else { NONE };
+                data[base[C_D1] as usize + idx] = h; best = best.max(h);
+            }
+            if need_d2 {
+                let h0 = aget(meta, data, so2, C_M, k - 1).max(aget(meta, data, se2, C_D2, k - 1));
+                let h = if h0 > NONE && v_ok(h0 + 1) { h0 + 1 } else { NONE };
+                data[base[C_D2] as usize + idx] = h; best = best.max(h);
+            }
+            if need_x {
+                let h0 = aget(meta, data, sx, C_M, k);
+                if h0 > NONE && v_ok(h0 + 1) { best = best.max(h0 + 1); }
+            }
+            if best > NONE {
+                let v = best - k;
+                best += lcp(&qr[v as usize..], &tr[best as usize..]) as i32;
+            }
+            data[base[C_M] as usize + idx] = best;
+            if k == k_end && best >= m { done = true; }
+        }
+        buf.meta.push(Meta { lo, hi, base });
+        if done { s_done = Some(s); }
+    }
+    let s_end = s_done.unwrap();
+    // Backtrace (as in `backtrace`, on the arena).
+    let (meta, data) = (&buf.meta[..], &buf.data[..]);
+    let get = |s: i32, c: usize, k: i32| aget(meta, data, s, c, k);
+    let mut ops: Vec<u32> = Vec::new();
+    let push = |ops: &mut Vec<u32>, op: u32, len: u32| {
+        if len == 0 { return; }
+        if let Some(last) = ops.last_mut() && (*last & 0xf) == op { *last += len << 4; return; }
+        ops.push(len << 4 | op);
+    };
+    let (mut s, mut k, mut c, mut h) = (s_end, k_end, C_M, m);
+    loop {
+        if c == C_M {
+            let fx = { let x = get(s - p.x, C_M, k); if x > NONE && x + 1 <= m && x + 1 - k <= n { x + 1 } else { NONE } };
+            let (i1, i2, d1, d2) = (get(s, C_I1, k), get(s, C_I2, k), get(s, C_D1, k), get(s, C_D2, k));
+            let src = fx.max(i1).max(i2).max(d1).max(d2);
+            if s == 0 || src <= NONE { push(&mut ops, 0, h as u32); break; }
+            push(&mut ops, 0, (h - src) as u32);
+            h = src;
+            if src == d1 { c = C_D1; } else if src == d2 { c = C_D2; }
+            else if src == i1 { c = C_I1; } else if src == i2 { c = C_I2; }
+            else { push(&mut ops, 0, 1); h -= 1; s -= p.x; }
+        } else if c == C_I1 || c == C_I2 {
+            let (oe, e) = if c == C_I1 { (oe1, p.e1) } else { (oe2, p.e2) };
+            push(&mut ops, 1, 1);
+            let ext = get(s - e, c, k + 1);
+            k += 1;
+            if ext > NONE && ext == h { s -= e; } else { s -= oe; c = C_M; }
+        } else {
+            let (oe, e) = if c == C_D1 { (oe1, p.e1) } else { (oe2, p.e2) };
+            push(&mut ops, 2, 1);
+            let ext = get(s - e, c, k - 1);
+            k -= 1;
+            h -= 1;
+            if ext > NONE && ext == h { s -= e; } else { s -= oe; c = C_M; }
+        }
+    }
+    Some((s_end * g, ops))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,6 +431,10 @@ mod tests {
             let got = (a * (q.len() + t.len()) as i32 - pen) / 2;
             assert_eq!(got, want, "case {case}: penalty-derived score");
             assert_eq!(cigar_score(&cig, &q, &t, a, b, go, ge, go2, ge2), want, "case {case}: cigar score");
+            let mut buf = WfaBuf::default();
+            let (pen2, cig2) = align_fast(&q, &t, &p, i32::MAX / 4, &mut buf).expect("no limit");
+            assert_eq!(pen2, pen, "case {case}: arena penalty");
+            assert_eq!(cigar_score(&cig2, &q, &t, a, b, go, ge, go2, ge2), want, "case {case}: arena cigar score");
         }
     }
 }
@@ -322,7 +483,8 @@ mod vs_ksw2 {
         let t_dp = t0.elapsed();
         let t1 = std::time::Instant::now();
         let mut wfa_res = Vec::new();
-        for (q, t) in &cases { wfa_res.push(align(q, t, &p, 1000)); }
+        let mut buf = WfaBuf::default();
+        for (q, t) in &cases { wfa_res.push(align_fast(q, t, &p, 1000, &mut buf)); }
         let t_wfa = t1.elapsed();
         for ((q, t), (ez, w)) in cases.iter().zip(dp_res.iter().zip(wfa_res.iter())) {
             n += 1;
@@ -333,5 +495,22 @@ mod vs_ksw2 {
         }
         eprintln!("{n} gaps: dp {:.1} us/gap, wfa {:.1} us/gap; same score {same_score}, same cigar {same_cigar}, wfa gave up {wfa_none}",
                   t_dp.as_secs_f64() * 1e6 / n as f64, t_wfa.as_secs_f64() * 1e6 / n as f64);
+        // Per divergence class (rate index = case % 5), WFA capped at penalty 100 vs the DP.
+        for cls in 0..5 {
+            let sel: Vec<usize> = (0..cases.len()).filter(|i| i % 5 == cls).collect();
+            let t2 = std::time::Instant::now();
+            let mut solved = 0;
+            for &i in &sel { if align_fast(&cases[i].0, &cases[i].1, &p, 100, &mut buf).is_some() { solved += 1; } }
+            let tw = t2.elapsed().as_secs_f64() * 1e6 / sel.len() as f64;
+            let t3 = std::time::Instant::now();
+            for &i in &sel {
+                let (q, t) = &cases[i];
+                let nb = (t.len() as i32 - q.len() as i32).abs() + 32;
+                let mut ez = DpResult::default();
+                dp::extend_dual_affine_dispatch(q, t, 5, &mat, go, ge, go2, ge2, nb, 400, -1, dp::APPROX_MAX, &mut ez);
+            }
+            let td = t3.elapsed().as_secs_f64() * 1e6 / sel.len() as f64;
+            eprintln!("  class {cls}: wfa(cap 100) {tw:.1} us/gap, solved {solved}/{}, dp {td:.1} us/gap", sel.len());
+        }
     }
 }

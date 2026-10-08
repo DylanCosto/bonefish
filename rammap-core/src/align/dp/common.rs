@@ -598,10 +598,23 @@ pub(super) unsafe fn traceback_dual_affine(
             _ => (0u32, 1, 1),
         };
 
-        push_cigar(&mut cigar, op, 1);
-
         i -= di;
         j -= dj;
+        let mut run = 1u32;
+        if state == 0 {
+            // Fast path along a run of matches: the next cell stays M iff it is in the band and
+            // its traceback byte has no direction bits (the general step would pick state 0).
+            while i >= 0 && j >= 0 {
+                let r = i + j;
+                let off_r = *band_offset_ptr.add(r as usize);
+                if i < off_r || i > *band_offset_end_ptr.add(r as usize) { break; }
+                if *p_ptr.add(r as usize * stride + (i - off_r) as usize) & 7 != 0 { break; }
+                run += 1;
+                i -= 1;
+                j -= 1;
+            }
+        }
+        push_cigar(&mut cigar, op, run);
     }
 
     // Handle remaining
