@@ -1358,6 +1358,12 @@ pub fn map_query(
     let t0 = Instant::now();
     ctx.minimizers.clear();
     sketch_sequence(qseq, qlen, mi.window_size, mi.kmer_size, 0, mi.homopolymer_compressed, &mut ctx.minimizers);
+    let qsub_min: usize = std::env::var("RAMMAP_EXP_QSUB_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    if let Some(f) = *crate::align::env_flags::EXP_QSUB && qlen >= qsub_min {
+        // Keep 1/f of the minimizer hash space (deterministic, as if the index were sparser).
+        let f = f.max(1) as u64;
+        ctx.minimizers.retain(|m| ((m.x >> 8).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % f == 0);
+    }
 
     // Drop query minimizers that appear too many times in the query itself.
     if opt.seeding.q_occ_frac > 0.0 && opt.seeding.mid_occ > 0 && ctx.minimizers.len() > opt.seeding.mid_occ {
