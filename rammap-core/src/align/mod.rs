@@ -47,6 +47,7 @@ pub mod sort;
 pub mod split;
 pub mod strobemer;
 pub mod syncmer;
+pub mod wfa;
 pub mod stats;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_lib;

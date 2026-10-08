@@ -1433,6 +1433,134 @@ pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 /// 15-mer that matches the target only off it; the result is kept unless it z-drops or its path
 /// comes within `EDGE` cells of the band edge (then the regular band `bw1`).
 #[allow(clippy::too_many_arguments)]
+/// Gap fill: `gap_dual`, or for long gaps with `subanchor` (lr:hq-turbo) the sub-anchored fill.
+#[allow(clippy::too_many_arguments)]
+fn gap_fill(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
+            asym: bool, subanchor: bool, zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
+    let sub_min_len: usize = std::env::var("RAMMAP_SUB_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(800);
+    if subanchor && qs.len().max(ts.len()) >= sub_min_len
+        && let Some(r) = gap_subanchored(qs, ts, mat, q, e, q2, e2, bw1, narrow.unwrap_or(32), asym, zdrop, end_bonus, flag) {
+        GAP_SUB_USED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        *ez = r;
+        return;
+    }
+    gap_dual(qs, ts, mat, q, e, q2, e2, bw1, narrow, asym, zdrop, end_bonus, flag, ez);
+}
+
+pub static GAP_SUB_USED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Sub-anchored fill of a long gap (lr:hq-turbo): exact 15-mer matches unique in both sides
+/// are chained collinearly (longest increasing subsequence), merged into exact segments, and
+/// only the pieces between segments are aligned (narrow bands). Turns one wide-band DP over
+/// kilobases into a few small ones; None if there is too little to anchor on.
+#[allow(clippy::too_many_arguments)]
+fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, m: i32,
+                   asym: bool, zdrop: i32, end_bonus: i32, flag: i32) -> Option<DpResult> {
+    const K: usize = 15;
+    const MIN_SEG: usize = 20;
+    if qs.len() < K || ts.len() < K { return None; }
+    let mask: u64 = (1u64 << (2 * K)) - 1;
+    let kmers = |s: &[u8]| -> Vec<(u32, u32)> { // (k-mer, start), N-free k-mers only
+        let mut v = Vec::with_capacity(s.len());
+        let (mut h, mut l) = (0u64, 0usize);
+        for (i, &c) in s.iter().enumerate() {
+            if c > 3 { l = 0; h = 0; continue; }
+            h = ((h << 2) | c as u64) & mask;
+            l += 1;
+            if l >= K { v.push((h as u32, (i + 1 - K) as u32)); }
+        }
+        v
+    };
+    // k-mers occurring exactly once on each side
+    let unique = |mut v: Vec<(u32, u32)>| -> Vec<(u32, u32)> {
+        v.sort_unstable();
+        let mut out = Vec::with_capacity(v.len());
+        let mut i = 0;
+        while i < v.len() {
+            let mut j = i + 1;
+            while j < v.len() && v[j].0 == v[i].0 { j += 1; }
+            if j == i + 1 { out.push(v[i]); }
+            i = j;
+        }
+        out
+    };
+    let (tu, qu) = (unique(kmers(ts)), unique(kmers(qs)));
+    // matches (qpos, tpos), by merge of the two sorted lists
+    let mut hits: Vec<(u32, u32)> = Vec::new();
+    let (mut a, mut b) = (0, 0);
+    while a < qu.len() && b < tu.len() {
+        match qu[a].0.cmp(&tu[b].0) {
+            std::cmp::Ordering::Less => a += 1,
+            std::cmp::Ordering::Greater => b += 1,
+            std::cmp::Ordering::Equal => { hits.push((qu[a].1, tu[b].1)); a += 1; b += 1; }
+        }
+    }
+    if hits.len() < 2 { return None; }
+    hits.sort_unstable();
+    // Longest chain increasing in both coordinates (patience sorting on tpos).
+    let mut tails: Vec<usize> = Vec::new(); // index of the hit ending a chain of each length
+    let mut prev = vec![usize::MAX; hits.len()];
+    for (i, h) in hits.iter().enumerate() {
+        let pos = tails.partition_point(|&j| hits[j].1 < h.1);
+        if pos > 0 { prev[i] = tails[pos - 1]; }
+        if pos == tails.len() { tails.push(i); } else { tails[pos] = i; }
+    }
+    let mut chain = Vec::with_capacity(tails.len());
+    let mut c = *tails.last()?;
+    while c != usize::MAX { chain.push(hits[c]); c = prev[c]; }
+    chain.reverse();
+    // Merge into exact segments [q0, q1) x [t0, t1) on one diagonal, non-overlapping.
+    let mut segs: Vec<(usize, usize, usize)> = Vec::new(); // (q0, t0, len)
+    for &(hq, ht) in &chain {
+        let (hq, ht) = (hq as usize, ht as usize);
+        if let Some(last) = segs.last_mut() && hq - last.0 == ht - last.1 && hq <= last.0 + last.2 {
+            last.2 = last.2.max(hq + K - last.0);
+            continue;
+        }
+        let (mut q0, mut t0, mut len) = (hq, ht, K);
+        if let Some(&(pq, pt, pl)) = segs.last() {
+            let d = (pq + pl).saturating_sub(q0).max((pt + pl).saturating_sub(t0));
+            if d >= len { continue; }
+            q0 += d; t0 += d; len -= d;
+        }
+        segs.push((q0, t0, len));
+    }
+    segs.retain(|s| s.2 >= MIN_SEG);
+    if segs.is_empty() { return None; }
+    // Align the pieces between segments; concatenate.
+    let mut out = DpResult::default();
+    let mut cigar: Vec<u32> = Vec::new();
+    let mut score = 0i32;
+    let (mut qp, mut tp) = (0usize, 0usize);
+    let piece = |q0: usize, q1: usize, t0: usize, t1: usize, cigar: &mut Vec<u32>, score: &mut i32| -> bool {
+        let (ql, tl) = (q1 - q0, t1 - t0);
+        let gap_cost = |l: i32| (q as i32 + e as i32 * l).min(q2 as i32 + e2 as i32 * l);
+        if ql == 0 && tl == 0 { return true; }
+        if ql == 0 { append_cigar(cigar, &[(tl as u32) << 4 | 2]); *score -= gap_cost(tl as i32); return true; }
+        if tl == 0 { append_cigar(cigar, &[(ql as u32) << 4 | 1]); *score -= gap_cost(ql as i32); return true; }
+        let d = (tl as i32 - ql as i32).abs();
+        let bw = bw1.min(d + 300).max(64);
+        let narrow = if 2 * (d + m) < (ql.min(tl) as i32) { Some(m) } else { None };
+        let mut ez = DpResult::default();
+        gap_dual(&qs[q0..q1], &ts[t0..t1], mat, q, e, q2, e2, bw, narrow, asym, zdrop, end_bonus, flag, &mut ez);
+        if ez.zdropped != 0 || ez.cigar.is_empty() { return false; }
+        append_cigar(cigar, &ez.cigar);
+        *score += ez.score;
+        true
+    };
+    for &(q0, t0, len) in &segs {
+        if !piece(qp, q0, tp, t0, &mut cigar, &mut score) { return None; }
+        append_cigar(&mut cigar, &[(len as u32) << 4]);
+        score += mat[0] as i32 * len as i32;
+        qp = q0 + len;
+        tp = t0 + len;
+    }
+    if !piece(qp, qs.len(), tp, ts.len(), &mut cigar, &mut score) { return None; }
+    out.cigar = cigar;
+    out.score = score;
+    Some(out)
+}
+
 fn gap_dual(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
             asym: bool, zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
     use std::sync::atomic::Ordering::Relaxed;
@@ -2175,7 +2303,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            gap_dual(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_band_asym, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_band_asym, opt.alignment.gap_subanchor, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                     }
                     // Z-drop test applies to both paths
@@ -2208,7 +2336,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            gap_dual(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_band_asym, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_band_asym, opt.alignment.gap_subanchor, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                         #[cfg(feature = "census")]
                         dp::census::finish(census_t0, dp::census::Kind::Gap, q_sub, t_sub,

@@ -335,6 +335,10 @@ struct AlignArgs {
     #[arg(long)]
     pub rescue_subset: bool,
 
+    /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between) [lr:hq-turbo]
+    #[arg(long)]
+    pub gap_subanchor: bool,
+
     /// Turn off --rescue-join (e.g. to undo it in lr:hq-fast)
     #[arg(long, conflicts_with = "rescue_join")]
     pub no_rescue_join: bool,
@@ -710,6 +714,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.gap_band_asym { opt.alignment.gap_band_asym = true; }
     if cli.stable_anchor_sort { opt.seeding.stable_anchor_sort = true; }
     if cli.rescue_subset { opt.chaining.rescue_subset = true; }
+    if cli.gap_subanchor { opt.alignment.gap_subanchor = true; }
     if cli.clean_dp { opt.alignment.clean_dp = true; }
     if let Some(v) = cli.ext_adaptive { opt.alignment.ext_adaptive = if v > 0 { Some(v) } else { None }; }
     if let Some(v) = cli.gap_bw_floor { opt.alignment.gap_bw_floor = Some(v); }

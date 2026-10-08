@@ -31,6 +31,7 @@ pub fn print_post_chain_breakdown() {
     eprintln!("  Div+strand:      {:.3}s", PC_DIVEST_NS.load(Relaxed) as f64 / 1e9);
     eprintln!("  Squeezed+bounds: {:.3}s", PC_SQUEEZED_NS.load(Relaxed) as f64 / 1e9);
     eprintln!("  Extension probe stops: {}", crate::align::extend::PROBE_STOPS.load(Relaxed));
+    eprintln!("  Sub-anchored long gaps: {}", crate::align::extend::GAP_SUB_USED.load(Relaxed));
     eprintln!("  Narrow gap band: {} used ({} widened), {} too wide, {} edge fallbacks",
         crate::align::extend::GAP_NARROW_USED.load(Relaxed), crate::align::extend::GAP_NARROW_WIDENED.load(Relaxed),
         crate::align::extend::GAP_NARROW_KMER.load(Relaxed), crate::align::extend::GAP_NARROW_EDGE.load(Relaxed));
@@ -168,6 +169,8 @@ pub struct AlignmentParams {
     pub min_dp_len: i32,
     /// Asymmetric gap-fill bands (lr:hq-turbo; see `extend::gap_dual_asym`).
     pub gap_band_asym: bool,
+    /// Sub-anchored fill of long gaps (lr:hq-turbo; see `extend::gap_subanchored`).
+    pub gap_subanchor: bool,
     pub anchor_ext_len: i32,
     pub anchor_ext_shift: i32,
     pub max_clip_ratio: f32,
@@ -285,6 +288,7 @@ impl Default for MapOptions {
                 min_dp_max: 80, // min_chain_score * a = 40 * 2
                 min_dp_len: 200,
                 gap_band_asym: false,
+                gap_subanchor: false,
                 anchor_ext_len: 20,
                 anchor_ext_shift: 6,
                 max_clip_ratio: 1.0,
