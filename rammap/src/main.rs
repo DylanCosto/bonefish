@@ -58,7 +58,7 @@ struct AlignArgs {
     ///   map-iclr-prerender — ICLR pre-render variant
     ///   lr:hq            — accurate long reads (<1% error) vs reference
     ///   lr:hq-balanced   — lr:hq with near-output-preserving DP savings (--gap-bw-margin 500 --ungapped-fill)
-    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-adaptive 64 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000 --seg-rmq --clean-dp --rescue-join)
+    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-adaptive 64 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000 --seg-rmq --clean-dp --rescue-join --gap-subanchor)
     ///   lr:hq-turbo      — lr:hq-fast plus --max-chain-skip 10 --max-gap-ref 2000 --rescue-subset --ext-probe 1000,1000 --gap-bw-margin 300 --gap-band-asym --stable-anchor-sort (faster; loses some SV support)
     ///   lr:hqae          — HQ long-read assembly eval (k=25 w=51, RMQ)
     ///   asm5 / asm10 / asm20 — asm-to-ref ~0.1/1/5% divergence
@@ -335,7 +335,7 @@ struct AlignArgs {
     #[arg(long)]
     pub rescue_subset: bool,
 
-    /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between) [lr:hq-turbo]
+    /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between) [on in lr:hq-fast, lr:hq-turbo]
     #[arg(long)]
     pub gap_subanchor: bool,
 

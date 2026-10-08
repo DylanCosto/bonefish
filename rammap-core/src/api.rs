@@ -784,7 +784,7 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
         // main chaining pass (the long-join rescue keeps -g), segment-tree RMQ and the clean DP
         // kernel (exact band boundaries instead of minimap2's SSE behaviour). ~3x faster than
         // minimap2 on HG002 R10.4.1 sup with SNP, indel and SV accuracy at baseline level on chr20
-        // and chr22; output differs from minimap2.
+        // and chr22; output differs from minimap2. Long gaps are sub-anchored on unique 15-mers.
         "lr:hq-fast" => {
             *k = 19; *w = 19;
             opt.chaining.max_gap = 10000;
@@ -800,6 +800,7 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.alignment.ext_adaptive = Some(64);
             opt.alignment.clean_dp = true;
             opt.alignment.ungapped_fill = true;
+            opt.alignment.gap_subanchor = true;
         },
         // lr:hq-fast plus speed-for-SV-sensitivity trades (ont-aligner Round 7): fewer allowed
         // non-improving predecessors and a 2 kb reference gap limit in the main chaining pass, the
@@ -828,6 +829,7 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.alignment.gap_bw_margin = Some(300);
             opt.alignment.gap_band_asym = true;
             opt.seeding.stable_anchor_sort = true;
+            opt.alignment.gap_subanchor = true;
         },
         "map-hifi" | "map-ccs" => {
             *k = 19; *w = 19;
