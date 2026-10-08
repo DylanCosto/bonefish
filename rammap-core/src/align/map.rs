@@ -109,6 +109,9 @@ pub struct SeedingParams {
     pub q_occ_frac: f32,
     pub min_mid_occ: i32,
     pub max_mid_occ: i32,
+    /// Keep 1/f of the query minimizer hash space for reads of at least min_len bp
+    /// (`--query-subsample f[,min_len]`): fewer anchors, faster, loses some SV support.
+    pub query_subsample: Option<(u32, u32)>,
     /// Sort anchors with a stable LSD radix sort (lr:hq-turbo): equal reference positions keep
     /// their seed order instead of minimap2's in-place MSD order, so output is not minimap2's.
     pub stable_anchor_sort: bool,
@@ -244,6 +247,7 @@ impl Default for MapOptions {
                 min_mid_occ: 10,
                 max_mid_occ: 1000000,
                 stable_anchor_sort: false,
+                query_subsample: None,
             },
             chaining: ChainingParams {
                 min_cnt: 3,
@@ -1358,8 +1362,9 @@ pub fn map_query(
     let t0 = Instant::now();
     ctx.minimizers.clear();
     sketch_sequence(qseq, qlen, mi.window_size, mi.kmer_size, 0, mi.homopolymer_compressed, &mut ctx.minimizers);
-    let qsub_min: usize = std::env::var("RAMMAP_EXP_QSUB_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-    if let Some(f) = *crate::align::env_flags::EXP_QSUB && qlen >= qsub_min {
+    let qsub = opt.seeding.query_subsample.or_else(|| crate::align::env_flags::EXP_QSUB.map(|f| (f.max(1) as u32,
+        std::env::var("RAMMAP_EXP_QSUB_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(0))));
+    if let Some((f, qsub_min)) = qsub && qlen >= qsub_min as usize {
         // Keep 1/f of the minimizer hash space (deterministic, as if the index were sparser).
         let f = f.max(1) as u64;
         ctx.minimizers.retain(|m| ((m.x >> 8).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 32) % f == 0);

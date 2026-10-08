@@ -339,6 +339,11 @@ struct AlignArgs {
     #[arg(long)]
     pub gap_subanchor: bool,
 
+    /// Keep 1/F of the query minimizers (by hash) for reads of at least MIN_LEN bp [default 8000]:
+    /// fewer anchors, much faster, loses some SV support (e.g. -x lr:hq-turbo --query-subsample 2)
+    #[arg(long, value_name = "F[,MIN_LEN]")]
+    pub query_subsample: Option<String>,
+
     /// Turn off --rescue-join (e.g. to undo it in lr:hq-fast)
     #[arg(long, conflicts_with = "rescue_join")]
     pub no_rescue_join: bool,
@@ -715,6 +720,14 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.stable_anchor_sort { opt.seeding.stable_anchor_sort = true; }
     if cli.rescue_subset { opt.chaining.rescue_subset = true; }
     if cli.gap_subanchor { opt.alignment.gap_subanchor = true; }
+    if let Some(sv) = &cli.query_subsample {
+        let v: Vec<u32> = sv.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+        match v.as_slice() {
+            [f] if *f >= 1 => opt.seeding.query_subsample = Some((*f, 8000)),
+            [f, m] if *f >= 1 => opt.seeding.query_subsample = Some((*f, *m)),
+            _ => eprintln!("Warning: --query-subsample expects F[,MIN_LEN]"),
+        }
+    }
     if cli.clean_dp { opt.alignment.clean_dp = true; }
     if let Some(v) = cli.ext_adaptive { opt.alignment.ext_adaptive = if v > 0 { Some(v) } else { None }; }
     if let Some(v) = cli.gap_bw_floor { opt.alignment.gap_bw_floor = Some(v); }
