@@ -158,7 +158,11 @@ fn write_ubam(fq_gz: &Path, out: &Path) {
         raw.extend_from_slice(&(r.len() as i32).to_le_bytes());
         raw.extend_from_slice(&r);
     }
-    // BGZF: deflate blocks of < 64 KiB, each with the BC extra field, then the EOF block.
+    write_bgzf(&raw, out);
+}
+
+/// BGZF: deflate blocks of < 64 KiB, each with the BC extra field, then the EOF block.
+fn write_bgzf(raw: &[u8], out: &Path) {
     let mut f = std::fs::File::create(out).unwrap();
     for chunk in raw.chunks(60_000) {
         let mut enc = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::fast());
@@ -187,6 +191,23 @@ fn bam_input_gives_same_output() {
         let from_fq = run(&["-ax", preset, "-t", "2", reference.to_str().unwrap(), reads.to_str().unwrap()]);
         let from_bam = run(&["-ax", preset, "-t", "2", reference.to_str().unwrap(), bam.to_str().unwrap()]);
         assert!(from_fq == from_bam, "{}: BAM input output differs from FASTQ input", preset);
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn bgzipped_fastq_gives_same_output() {
+    let dir = tmp_dir("bgzf");
+    let mut fq = String::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(data("reads.fq.gz")).unwrap()).read_to_string(&mut fq).unwrap();
+    let bgz = dir.join("reads.fq.bgz.gz");
+    write_bgzf(fq.as_bytes(), &bgz);
+    let reference = data("ref.fa.gz");
+    let reads = data("reads.fq.gz");
+    for preset in ["lr:hq", "lr:hq-fast"] {
+        let a = run(&["-ax", preset, "-t", "2", reference.to_str().unwrap(), reads.to_str().unwrap()]);
+        let b = run(&["-ax", preset, "-t", "2", reference.to_str().unwrap(), bgz.to_str().unwrap()]);
+        assert!(a == b, "{}: bgzipped FASTQ output differs from gzipped", preset);
     }
     std::fs::remove_dir_all(&dir).ok();
 }

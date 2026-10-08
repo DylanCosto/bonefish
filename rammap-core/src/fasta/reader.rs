@@ -479,8 +479,13 @@ pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Reader<Box<dyn BufRead + Send
     }
 
     let reader: Box<dyn BufRead + Send> = if is_gz_content {
+        // bgzip output (independent blocks) decompresses on several threads; plain gzip on one.
         #[cfg(not(target_arch = "wasm32"))]
-        { Box::new(ThreadedRead::new(MultiGzDecoder::new(buf_reader))) }
+        if super::bam::looks_like_bgzf(buf_reader.fill_buf()?) {
+            Box::new(super::bam::BgzfParallel::new(buf_reader, 3))
+        } else {
+            Box::new(ThreadedRead::new(MultiGzDecoder::new(buf_reader)))
+        }
         #[cfg(target_arch = "wasm32")]
         { Box::new(io::BufReader::new(MultiGzDecoder::new(buf_reader))) }
     } else {

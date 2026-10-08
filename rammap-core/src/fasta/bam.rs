@@ -401,3 +401,123 @@ fn append_tags(mut aux: &[u8], out: &mut Vec<u8>) -> Result<(), ()> {
     }
     Ok(())
 }
+
+/// BGZF decompression on several threads, as a `BufRead` of the decompressed stream (for
+/// bgzipped FASTQ/FASTA). A splitter thread cuts the file into batches of whole blocks (~1 MiB
+/// compressed), `workers` threads decompress them with libdeflate, and the reader puts them
+/// back in file order.
+pub struct BgzfParallel {
+    rx: std::sync::mpsc::Receiver<(u64, io::Result<Vec<u8>>)>,
+    pending: std::collections::BTreeMap<u64, io::Result<Vec<u8>>>,
+    next: u64,
+    cur: Vec<u8>,
+    pos: usize,
+    eof: bool,
+}
+
+/// Whether `head` starts with a BGZF block (gzip with the `BC` extra subfield).
+pub fn looks_like_bgzf(head: &[u8]) -> bool {
+    head.len() >= 18 && head[0] == 0x1f && head[1] == 0x8b && head[2] == 8 && head[3] & 4 != 0
+        && bgzf_block_size(head).is_some()
+}
+
+impl BgzfParallel {
+    pub fn new<R: Read + Send + 'static>(mut inner: R, workers: usize) -> Self {
+        const BATCH: usize = 1 << 20;
+        let workers = workers.max(1);
+        let (job_tx, job_rx) = std::sync::mpsc::sync_channel::<(u64, io::Result<Vec<u8>>)>(2 * workers);
+        let job_rx = std::sync::Arc::new(std::sync::Mutex::new(job_rx));
+        let (res_tx, res_rx) = std::sync::mpsc::sync_channel::<(u64, io::Result<Vec<u8>>)>(2 * workers);
+        // Splitter: whole blocks into batches.
+        std::thread::spawn(move || {
+            let mut seq = 0u64;
+            let mut batch: Vec<u8> = Vec::with_capacity(BATCH + 65536);
+            loop {
+                let mut head = [0u8; 18];
+                let got = match read_full(&mut inner, &mut head) { Ok(g) => g, Err(e) => { let _ = job_tx.send((seq, Err(e))); return; } };
+                if got == 0 { break; }
+                let bsize = if got == 18 { bgzf_block_size(&head) } else { None };
+                let Some(bsize) = bsize else {
+                    let _ = job_tx.send((seq, Err(io::Error::new(io::ErrorKind::InvalidData, "not a BGZF block (missing BC field)"))));
+                    return;
+                };
+                let start = batch.len();
+                batch.extend_from_slice(&head);
+                batch.resize(start + bsize, 0);
+                match read_full(&mut inner, &mut batch[start + 18..]) {
+                    Ok(n) if n == bsize - 18 => {}
+                    Ok(_) => { let _ = job_tx.send((seq, Err(io::Error::new(io::ErrorKind::UnexpectedEof, "truncated BGZF block")))); return; }
+                    Err(e) => { let _ = job_tx.send((seq, Err(e))); return; }
+                }
+                if batch.len() >= BATCH {
+                    if job_tx.send((seq, Ok(std::mem::take(&mut batch)))).is_err() { return; }
+                    batch.reserve(BATCH + 65536);
+                    seq += 1;
+                }
+            }
+            if !batch.is_empty() { let _ = job_tx.send((seq, Ok(batch))); }
+        });
+        for _ in 0..workers {
+            let job_rx = std::sync::Arc::clone(&job_rx);
+            let res_tx = res_tx.clone();
+            std::thread::spawn(move || {
+                let mut dec = libdeflater::Decompressor::new();
+                loop {
+                    let job = { let rx = job_rx.lock().unwrap(); rx.recv() };
+                    let Ok((seq, job)) = job else { return; };
+                    let out = job.and_then(|b| {
+                        let mut out: Vec<u8> = Vec::with_capacity(4 * b.len());
+                        let mut i = 0;
+                        while i < b.len() {
+                            let bsize = bgzf_block_size(&b[i..]).unwrap_or(b.len() - i);
+                            let blk = &b[i..i + bsize];
+                            let isize = u32::from_le_bytes(blk[bsize - 4..].try_into().unwrap()) as usize;
+                            let start = out.len();
+                            out.reserve(isize);
+                            // SAFETY: decompress into reserved spare capacity; length set from the result.
+                            let spare = unsafe { std::slice::from_raw_parts_mut(out.as_mut_ptr().add(start), isize) };
+                            let n = dec.gzip_decompress(blk, spare)
+                                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("BGZF decompression failed: {e:?}")))?;
+                            unsafe { out.set_len(start + n) };
+                            i += bsize;
+                        }
+                        Ok(out)
+                    });
+                    if res_tx.send((seq, out)).is_err() { return; }
+                }
+            });
+        }
+        BgzfParallel { rx: res_rx, pending: Default::default(), next: 0, cur: Vec::new(), pos: 0, eof: false }
+    }
+}
+
+impl io::Read for BgzfParallel {
+    fn read(&mut self, out: &mut [u8]) -> io::Result<usize> {
+        let avail = io::BufRead::fill_buf(self)?;
+        let n = avail.len().min(out.len());
+        out[..n].copy_from_slice(&avail[..n]);
+        io::BufRead::consume(self, n);
+        Ok(n)
+    }
+}
+
+impl io::BufRead for BgzfParallel {
+    fn fill_buf(&mut self) -> io::Result<&[u8]> {
+        while self.pos >= self.cur.len() && !self.eof {
+            if let Some(r) = self.pending.remove(&self.next) {
+                self.next += 1;
+                self.cur = r?;
+                self.pos = 0;
+                continue;
+            }
+            match self.rx.recv() {
+                Ok((seq, r)) => { self.pending.insert(seq, r); }
+                Err(_) => { self.eof = true; }
+            }
+        }
+        Ok(&self.cur[self.pos.min(self.cur.len())..])
+    }
+    fn consume(&mut self, n: usize) {
+        self.pos += n;
+    }
+}
