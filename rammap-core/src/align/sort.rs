@@ -55,10 +55,10 @@ fn rs_sort<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
     let mut bb = [0usize; 256];
     let mut be = [0usize; 256];
 
-    // Count elements per bucket
+    // Count elements per bucket (byte < 256 = be.len())
     for item in arr.iter() {
         let byte = ((item.radix_key() >> s) & m) as usize;
-        be[byte] += 1;
+        unsafe { *be.get_unchecked_mut(byte) += 1; }
     }
 
     // Prefix sums: be[i] = cumulative end, bb[i] = start of bucket i
@@ -78,34 +78,41 @@ fn rs_sort<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
         return;
     }
 
-    // In-place cyclic permutation (American Flag sort)
+    // In-place cyclic permutation (American Flag sort).
+    // SAFETY: bucket ids are < 256 (masked), and bb[c] < be[c] <= arr.len() whenever an element
+    // of bucket c remains to be placed, so every arr index is in bounds.
+    let a = arr.as_mut_ptr();
     let mut k = 0usize;
-    while k < size {
-        if bb[k] < be[k] {
-            let l = ((arr[bb[k]].radix_key() >> s) & m) as usize;
-            if l != k {
-                // Element at k's front belongs to bucket l — start swap cycle
-                let mut tmp = arr[bb[k]];
-                let mut cur = l;
-                loop {
-                    // Place tmp into bucket cur, pick up what was there
-                    std::mem::swap(&mut tmp, &mut arr[bb[cur]]);
-                    bb[cur] += 1;
-                    // Where does the picked-up element belong?
-                    cur = ((tmp.radix_key() >> s) & m) as usize;
-                    if cur == k {
-                        break;
+    unsafe {
+        while k < size {
+            let bk = *bb.get_unchecked(k);
+            if bk < *be.get_unchecked(k) {
+                let l = (((*a.add(bk)).radix_key() >> s) & m) as usize;
+                if l != k {
+                    // Element at k's front belongs to bucket l — start swap cycle
+                    let mut tmp = *a.add(bk);
+                    let mut cur = l;
+                    loop {
+                        // Place tmp into bucket cur, pick up what was there
+                        let p = a.add(*bb.get_unchecked(cur));
+                        std::mem::swap(&mut tmp, &mut *p);
+                        *bb.get_unchecked_mut(cur) += 1;
+                        // Where does the picked-up element belong?
+                        cur = ((tmp.radix_key() >> s) & m) as usize;
+                        if cur == k {
+                            break;
+                        }
                     }
+                    // Place the final element (belonging to bucket k) at k's front
+                    *a.add(*bb.get_unchecked(k)) = tmp;
+                    *bb.get_unchecked_mut(k) += 1;
+                } else {
+                    // Element already in correct bucket
+                    *bb.get_unchecked_mut(k) += 1;
                 }
-                // Place the final element (belonging to bucket k) at k's front
-                arr[bb[k]] = tmp;
-                bb[k] += 1;
             } else {
-                // Element already in correct bucket
-                bb[k] += 1;
+                k += 1;
             }
-        } else {
-            k += 1;
         }
     }
 
