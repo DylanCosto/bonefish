@@ -70,6 +70,10 @@ pub struct SortedBamWriter {
     header_done: bool,
     batch: Batch,
     spill_tx: Option<SyncSender<(Batch, PathBuf)>>,
+    /// Batches back from the spill thread (to reuse their buffers); `false`: spill aborted.
+    back_rx: Receiver<(Batch, bool)>,
+    /// Set by `finish`: abandon a spill in progress, its batch is merged from memory instead.
+    abort: std::sync::Arc<std::sync::atomic::AtomicBool>,
     spill_thread: Option<JoinHandle<io::Result<()>>>,
     runs: Vec<PathBuf>,
     scratch: Vec<u32>,
@@ -79,18 +83,24 @@ impl SortedBamWriter {
     pub fn new(out_path: &str, cfg: SortConfig) -> io::Result<Self> {
         // Fail early if the output can't be created.
         File::create(out_path)?;
-        let (tx, rx) = mpsc::sync_channel::<(Batch, PathBuf)>(1);
+        // Rendezvous: at most one batch filling and one being spilled.
+        let (tx, rx) = mpsc::sync_channel::<(Batch, PathBuf)>(0);
+        let (back_tx, back_rx) = mpsc::channel::<(Batch, bool)>();
+        let abort = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let spill_threads = (cfg.threads / 4).max(1);
+        let ab = abort.clone();
         let spill_thread = std::thread::Builder::new().name("sort-spill".into()).spawn(move || -> io::Result<()> {
             while let Ok((batch, path)) = rx.recv() {
-                write_run(&batch, &path, spill_threads)?;
+                let done = write_run(&batch, &path, spill_threads, &ab)?;
+                if !done { let _ = std::fs::remove_file(&path); }
+                if back_tx.send((batch, done)).is_err() { break; }
             }
             Ok(())
         })?;
         Ok(SortedBamWriter {
             cfg, out_path: out_path.to_string(), partial: Vec::new(), header: String::new(),
             name2tid: HashMap::new(), refs: Vec::new(), header_done: false, batch: Batch::default(),
-            spill_tx: Some(tx), spill_thread: Some(spill_thread), runs: Vec::new(), scratch: Vec::new(),
+            spill_tx: Some(tx), back_rx, abort, spill_thread: Some(spill_thread), runs: Vec::new(), scratch: Vec::new(),
         })
     }
 
@@ -130,7 +140,12 @@ impl SortedBamWriter {
     }
 
     fn spill(&mut self) -> io::Result<()> {
-        let mut b = std::mem::take(&mut self.batch);
+        // Next batch: reuse a spilled batch's buffers if one is back (no 2 GB regrowth).
+        let next = match self.back_rx.try_recv() {
+            Ok((mut b, _)) => { b.data.clear(); b.ents.clear(); b }
+            Err(_) => Batch { data: Vec::with_capacity(self.batch.data.capacity()), ents: Vec::with_capacity(self.batch.ents.capacity()) },
+        };
+        let mut b = std::mem::replace(&mut self.batch, next);
         b.sort();
         let path = PathBuf::from(format!("{}.{:04}.run", self.cfg.tmp_prefix, self.runs.len()));
         self.runs.push(path.clone());
@@ -155,10 +170,25 @@ impl SortedBamWriter {
             let p = std::mem::take(&mut self.partial);
             self.line(&p)?;
         }
+        let t0 = std::time::Instant::now();
+        // A spill still being written is abandoned: its batch is still in memory.
+        self.abort.store(true, std::sync::atomic::Ordering::Relaxed);
         self.join_spill()?;
+        let mut mem_batches: Vec<Batch> = Vec::new();
+        while let Ok((b, done)) = self.back_rx.try_recv() {
+            if !done {
+                self.runs.pop(); // the abandoned run was the last one started
+                mem_batches.push(b);
+            }
+        }
+        let t1 = std::time::Instant::now();
         let mut last = std::mem::take(&mut self.batch);
         last.sort();
-        let res = merge_and_write(&self.out_path, &self.header, &self.refs, &self.runs, last, &self.cfg);
+        mem_batches.push(last);
+        let res = merge_and_write(&self.out_path, &self.header, &self.refs, &self.runs, mem_batches, &self.cfg);
+        if std::env::var_os("RAMMAP_SORT_TIMING").is_some() {
+            eprintln!("[sort] wait for last spill {:.2}s, merge+write {:.2}s, {} runs", (t1 - t0).as_secs_f64(), t1.elapsed().as_secs_f64(), self.runs.len());
+        }
         for r in &self.runs { let _ = std::fs::remove_file(r); }
         res
     }
@@ -166,6 +196,7 @@ impl SortedBamWriter {
 
 impl Drop for SortedBamWriter {
     fn drop(&mut self) {
+        self.abort.store(true, std::sync::atomic::Ordering::Relaxed);
         let _ = self.join_spill();
         for r in &self.runs { let _ = std::fs::remove_file(r); }
     }
@@ -200,6 +231,10 @@ impl Write for SharedSink {
     }
     fn flush(&mut self) -> io::Result<()> { Ok(()) }
 }
+
+struct Guard<F: FnMut()>(F);
+impl<F: FnMut()> Drop for Guard<F> { fn drop(&mut self) { (self.0)() } }
+fn scopeguard<F: FnMut()>(f: F) -> Guard<F> { Guard(f) }
 
 fn bad(msg: &str) -> io::Error { io::Error::new(io::ErrorKind::InvalidData, msg.to_string()) }
 
@@ -385,25 +420,33 @@ fn encode_aux(tag: &[u8], out: &mut Vec<u8>) -> io::Result<()> {
 // ───────────────────────── temporary runs ─────────────────────────
 
 /// Write a sorted batch as a run: chunks of whole records, each `[raw_len u32][comp_len u32][deflate]`.
-fn write_run(b: &Batch, path: &PathBuf, threads: usize) -> io::Result<()> {
-    // Cut the sorted record stream into chunks.
-    let mut chunks: Vec<Vec<u8>> = Vec::new();
+/// Returns false (file incomplete) if `abort` was set meanwhile.
+fn write_run(b: &Batch, path: &PathBuf, threads: usize, abort: &std::sync::atomic::AtomicBool) -> io::Result<bool> {
+    let mut w = BufWriter::with_capacity(1 << 20, File::create(path)?);
+    let mut group: Vec<Vec<u8>> = Vec::new();
     let mut cur = Vec::with_capacity(RUN_CHUNK + 65536);
+    let flush = |group: &mut Vec<Vec<u8>>, w: &mut BufWriter<File>| -> io::Result<bool> {
+        if abort.load(std::sync::atomic::Ordering::Relaxed) { return Ok(false); }
+        let comp = compress_all(group, 1, threads);
+        for (raw, c) in group.iter().zip(&comp) {
+            w.write_all(&(raw.len() as u32).to_le_bytes())?;
+            w.write_all(&(c.len() as u32).to_le_bytes())?;
+            w.write_all(c)?;
+        }
+        group.clear();
+        Ok(true)
+    };
     for &(_, off) in &b.ents {
         cur.extend_from_slice(b.record(off));
         if cur.len() >= RUN_CHUNK {
-            chunks.push(std::mem::replace(&mut cur, Vec::with_capacity(RUN_CHUNK + 65536)));
+            group.push(std::mem::replace(&mut cur, Vec::with_capacity(RUN_CHUNK + 65536)));
+            if group.len() >= 4 * threads && !flush(&mut group, &mut w)? { return Ok(false); }
         }
     }
-    if !cur.is_empty() { chunks.push(cur); }
-    let comp = compress_all(&chunks, 1, threads);
-    let mut w = BufWriter::with_capacity(1 << 20, File::create(path)?);
-    for (raw, c) in chunks.iter().zip(&comp) {
-        w.write_all(&(raw.len() as u32).to_le_bytes())?;
-        w.write_all(&(c.len() as u32).to_le_bytes())?;
-        w.write_all(c)?;
-    }
-    w.flush()
+    if !cur.is_empty() { group.push(cur); }
+    if !group.is_empty() && !flush(&mut group, &mut w)? { return Ok(false); }
+    w.flush()?;
+    Ok(true)
 }
 
 /// Deflate every buffer (level `lvl`) on up to `threads` threads, in order.
@@ -426,37 +469,58 @@ fn compress_all(bufs: &[Vec<u8>], lvl: i32, threads: usize) -> Vec<Vec<u8>> {
     out
 }
 
+static RUN_WAIT_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RUN_READ_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RUN_DEC_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Reads a run back, decompressing chunks on a prefetch thread.
 struct RunReader {
-    rx: Receiver<io::Result<Vec<u8>>>,
+    rx: Receiver<Receiver<io::Result<Vec<u8>>>>,
     buf: Vec<u8>,
     /// Current record: buf[cur.0..cur.1].
     cur: (usize, usize),
 }
 
 impl RunReader {
-    fn open(path: &PathBuf) -> io::Result<RunReader> {
+    /// `dec` threads decompress chunks (in order) ahead of the merge.
+    fn open(path: &PathBuf, dec: usize) -> io::Result<RunReader> {
         let mut r = BufReader::with_capacity(1 << 20, File::open(path)?);
-        let (tx, rx) = mpsc::sync_channel::<io::Result<Vec<u8>>>(2);
+        let dec = dec.max(1);
+        // In-order futures: the feeder sends each chunk's result receiver, decoders fill them.
+        let (tx, rx) = mpsc::sync_channel::<Receiver<io::Result<Vec<u8>>>>(2 * dec);
+        let (job_tx, job_rx) = mpsc::sync_channel::<(Vec<u8>, usize, SyncSender<io::Result<Vec<u8>>>)>(dec);
+        let job_rx = std::sync::Arc::new(std::sync::Mutex::new(job_rx));
+        for _ in 0..dec {
+            let jr = job_rx.clone();
+            std::thread::Builder::new().name("sort-dec".into()).spawn(move || {
+                let mut d = libdeflater::Decompressor::new();
+                loop {
+                    let job = jr.lock().unwrap().recv();
+                    let Ok((c, raw, done)) = job else { break };
+                    let td = std::time::Instant::now();
+                    let mut out = vec![0u8; raw];
+                    let res = d.deflate_decompress(&c, &mut out).map(|_| out).map_err(|_| bad("corrupt temporary run"));
+                    RUN_DEC_NS.fetch_add(td.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+                    let _ = done.send(res);
+                }
+            })?;
+        }
         std::thread::Builder::new().name("sort-run".into()).spawn(move || {
-            let mut d = libdeflater::Decompressor::new();
             let mut hdr = [0u8; 8];
             loop {
+                let tr = std::time::Instant::now();
                 match r.read_exact(&mut hdr) {
                     Ok(()) => {}
                     Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
-                    Err(e) => { let _ = tx.send(Err(e)); break; }
+                    Err(e) => { let (t, f) = mpsc::sync_channel(1); let _ = t.send(Err(e)); let _ = tx.send(f); break; }
                 }
                 let raw = u32::from_le_bytes(hdr[..4].try_into().unwrap()) as usize;
                 let cl = u32::from_le_bytes(hdr[4..].try_into().unwrap()) as usize;
                 let mut c = vec![0u8; cl];
-                let res = r.read_exact(&mut c).and_then(|_| {
-                    let mut out = vec![0u8; raw];
-                    d.deflate_decompress(&c, &mut out).map_err(|_| bad("corrupt temporary run"))?;
-                    Ok(out)
-                });
-                let stop = res.is_err();
-                if tx.send(res).is_err() || stop { break; }
+                if let Err(e) = r.read_exact(&mut c) { let (t, f) = mpsc::sync_channel(1); let _ = t.send(Err(e)); let _ = tx.send(f); break; }
+                RUN_READ_NS.fetch_add(tr.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+                let (t, f) = mpsc::sync_channel(1);
+                if tx.send(f).is_err() || job_tx.send((c, raw, t)).is_err() { break; }
             }
         })?;
         Ok(RunReader { rx, buf: Vec::new(), cur: (0, 0) })
@@ -465,10 +529,15 @@ impl RunReader {
     /// Move to the next record; returns its sort key, or None at the end.
     fn advance(&mut self) -> io::Result<Option<u64>> {
         if self.cur.1 >= self.buf.len() {
-            match self.rx.recv() {
-                Ok(chunk) => { self.buf = chunk?; self.cur = (0, 0); }
+            let tw = std::time::Instant::now();
+            let got = self.rx.recv();
+            let chunk = match got {
+                Ok(fut) => fut.recv().map_err(|_| bad("run decoder stopped"))?,
                 Err(_) => return Ok(None),
-            }
+            };
+            RUN_WAIT_NS.fetch_add(tw.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+            self.buf = chunk?;
+            self.cur = (0, 0);
         }
         let o = self.cur.1;
         let n = u32::from_le_bytes(self.buf[o..o + 4].try_into().unwrap()) as usize;
@@ -603,7 +672,7 @@ impl Indexer {
 /// A compression job: raw BGZF blocks (numbered from `first_block`) and the records they hold.
 struct Job { seq: u64, blocks: Vec<Vec<u8>>, metas: Vec<RecMeta> }
 
-fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &[PathBuf], last: Batch, cfg: &SortConfig) -> io::Result<u64> {
+fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &[PathBuf], mem: Vec<Batch>, cfg: &SortConfig) -> io::Result<u64> {
     let threads = cfg.threads.max(1);
     let level = cfg.level;
     let (job_tx, job_rx) = mpsc::sync_channel::<Job>(threads * 2);
@@ -679,7 +748,11 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
     let mut metas: Vec<RecMeta> = Vec::new();
     let mut cur: Vec<u8> = Vec::with_capacity(BLOCK);
     let mut block_no: u64 = 0;
+    let t_merge_start = std::time::Instant::now();
+    let send_blocked = std::cell::Cell::new(std::time::Duration::ZERO);
     let send = |seq: &mut u64, blocks: &mut Vec<Vec<u8>>, metas: &mut Vec<RecMeta>| -> io::Result<()> {
+        let ts = std::time::Instant::now();
+        let _g = scopeguard(|| send_blocked.set(send_blocked.get() + ts.elapsed()));
         job_tx.send(Job { seq: *seq, blocks: std::mem::take(blocks), metas: std::mem::take(metas) }).map_err(|_| bad("compressor stopped"))?;
         *seq += 1;
         Ok(())
@@ -698,20 +771,25 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
     }
     for c in h.chunks(BLOCK) { blocks.push(c.to_vec()); block_no += 1; }
 
-    // Sources: runs in creation order, then the last batch (ties go to the earliest source).
-    let mut readers: Vec<RunReader> = runs.iter().map(RunReader::open).collect::<io::Result<_>>()?;
-    let n_src = readers.len() + 1;
-    let mut last_i = 0usize;
+    // Sources in input order: runs (creation order), then the in-memory batches; ties go to the
+    // earliest source, so equal keys keep input order.
+    let dec = (threads / runs.len().max(1)).clamp(1, 4);
+    let mut readers: Vec<RunReader> = runs.iter().map(|p| RunReader::open(p, dec)).collect::<io::Result<_>>()?;
+    let n_runs = readers.len();
+    let mut mem_i = vec![0usize; mem.len()];
     let mut heap: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
     for (s, r) in readers.iter_mut().enumerate() {
         if let Some(k) = r.advance()? { heap.push(Reverse((k, s))); }
     }
-    if let Some(&(k, _)) = last.ents.first() { heap.push(Reverse((k, n_src - 1))); }
+    for (m, b) in mem.iter().enumerate() {
+        if let Some(&(k, _)) = b.ents.first() { heap.push(Reverse((k, n_runs + m))); }
+    }
     let mut n_rec = 0u64;
     while let Some(Reverse((_, s))) = heap.pop() {
-        let rec: &[u8] = if s == n_src - 1 {
-            last_i += 1;
-            last.record(last.ents[last_i - 1].1)
+        let rec: &[u8] = if s >= n_runs {
+            let m = s - n_runs;
+            mem_i[m] += 1;
+            mem[m].record(mem[m].ents[mem_i[m] - 1].1)
         } else {
             readers[s].current()
         };
@@ -734,8 +812,9 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
         }
         metas.push(rec_meta(rec, sb, so, block_no, cur.len() as u32));
         // Refill source s.
-        if s == n_src - 1 {
-            if let Some(&(k, _)) = last.ents.get(last_i) { heap.push(Reverse((k, s))); }
+        if s >= n_runs {
+            let m = s - n_runs;
+            if let Some(&(k, _)) = mem[m].ents.get(mem_i[m]) { heap.push(Reverse((k, s))); }
         } else if let Some(k) = readers[s].advance()? {
             heap.push(Reverse((k, s)));
         }
@@ -744,9 +823,14 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
     }
     if !cur.is_empty() { blocks.push(cur); }
     if !blocks.is_empty() || !metas.is_empty() { send(&mut seq, &mut blocks, &mut metas)?; }
+    let t_merge_end = std::time::Instant::now();
+    let merge_busy = (t_merge_end - t_merge_start).saturating_sub(send_blocked.get());
     drop(job_tx);
     for h in workers { h.join().map_err(|_| bad("compressor panicked"))?; }
     writer.join().map_err(|_| bad("writer panicked"))??;
+    if std::env::var_os("RAMMAP_SORT_TIMING").is_some() {
+        eprintln!("[sort] merge loop done {:.2}s before compressors+writer finished; merge thread busy {:.2}s (of which waiting for runs {:.2}s); run readers: file reads {:.2}s, decompression {:.2}s", t_merge_end.elapsed().as_secs_f64(), merge_busy.as_secs_f64(), RUN_WAIT_NS.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, RUN_READ_NS.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, RUN_DEC_NS.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9);
+    }
     Ok(n_rec)
 }
 
