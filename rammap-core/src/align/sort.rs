@@ -55,11 +55,26 @@ fn rs_sort<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
     let mut bb = [0usize; 256];
     let mut be = [0usize; 256];
 
-    // Count elements per bucket (byte < 256 = be.len())
+    // Count elements per bucket (byte < 256 = be.len()); `diff` collects the bits in which keys
+    // differ, so bytes shared by every key can be skipped below.
+    let k0 = arr[0].radix_key();
+    let mut diff = 0u64;
     for item in arr.iter() {
-        let byte = ((item.radix_key() >> s) & m) as usize;
+        let k = item.radix_key();
+        diff |= k ^ k0;
+        let byte = ((k >> s) & m) as usize;
         unsafe { *be.get_unchecked_mut(byte) += 1; }
     }
+    // Next byte to sort on: the next lower byte in which some keys differ (a byte shared by
+    // every key of the array is shared within each bucket, and sorting on it moves nothing).
+    let next_varying = |from: u32| -> Option<u32> {
+        let mut t = from;
+        loop {
+            if t == 0 { return None; }
+            t = t.saturating_sub(n_bits);
+            if (diff >> t) & m != 0 { return Some(t); }
+        }
+    };
 
     // Prefix sums: be[i] = cumulative end, bb[i] = start of bucket i
     #[allow(clippy::manual_memcpy)] // can't use copy_from_slice: be is modified in the same loop
@@ -70,10 +85,10 @@ fn rs_sort<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
 
     // A byte shared by every key leaves the array as it is: go straight to the next byte
     // (exactly what the permutation + recursion below would amount to).
-    let b0 = ((arr[0].radix_key() >> s) & m) as usize;
+    let b0 = ((k0 >> s) & m) as usize;
     if be[b0] - bb[b0] == arr.len() {
-        if s > 0 {
-            rs_sort(arr, n_bits, s.saturating_sub(n_bits));
+        if let Some(t) = next_varying(s) {
+            rs_sort(arr, n_bits, t);
         }
         return;
     }
@@ -121,8 +136,7 @@ fn rs_sort<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
     bb[1..size].copy_from_slice(&be[..(size - 1)]);
 
     // Recurse on sub-buckets
-    if s > 0 {
-        let next_s = s.saturating_sub(n_bits);
+    if let Some(next_s) = next_varying(s) {
         for i in 0..size {
             let len = be[i] - bb[i];
             if len > RS_MIN_SIZE {
