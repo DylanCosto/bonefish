@@ -233,6 +233,66 @@ unsafe fn compute_chain_scores_batch_avx2(
     }
 }}
 
+/// Predecessors of anchor i only score when their diagonal (ref - query position) is within
+/// `bw` of i's; the rest of the DP chaining window is a no-op scan (most of it in repeats:
+/// ~86% of candidates genome-wide, ~97% in tandem-repeat reads). Anchors are grouped into
+/// diagonal buckets of width 2^shift >= bw, so i's in-band predecessors all lie in buckets
+/// key-1..=key+1. Merging those buckets' anchor lists from the back visits the same in-band
+/// predecessors in the same (descending) order as the full scan, and the side effects of the
+/// scan (best predecessor, skip count, `visited` marks) only happen for in-band ones, so the
+/// result is identical.
+#[derive(Default)]
+pub struct DiagBuckets {
+    /// Bucket id and diagonal of each anchor.
+    id: Vec<u32>,
+    diag: Vec<i64>,
+    /// Per bucket id: ids of buckets key-1, key, key+1 (u32::MAX if absent).
+    nbr: Vec<[u32; 3]>,
+    /// Per bucket: indices of the anchors processed so far, ascending.
+    lists: Vec<Vec<u32>>,
+    map: std::collections::HashMap<i64, u32>,
+    keys: Vec<i64>,
+    g_idx: Vec<u32>,
+    g_ref: Vec<i32>,
+    g_qry: Vec<i32>,
+    g_span: Vec<i32>,
+    g_rid: Vec<u32>,
+    g_sc: Vec<i32>,
+}
+
+/// Build the buckets for reads with at least this many anchors; below it the scan is cheap.
+const DIAG_BUCKET_MIN_N: usize = 1024;
+/// Use the buckets for anchors whose window holds more than this many predecessors.
+const DIAG_BUCKET_MIN_WINDOW: usize = 128;
+
+impl DiagBuckets {
+    fn build(&mut self, ref_pos: &[i32], query_pos: &[i32], bw: i32) {
+        let n = ref_pos.len();
+        let shift = if bw > 1 { 32 - ((bw - 1) as u32).leading_zeros() } else { 0 };
+        self.map.clear();
+        self.keys.clear();
+        self.id.clear();
+        self.diag.clear();
+        for j in 0..n {
+            let d = ref_pos[j] as i64 - query_pos[j] as i64;
+            self.diag.push(d);
+            let key = d >> shift;
+            let next = self.keys.len() as u32;
+            let id = *self.map.entry(key).or_insert(next);
+            if id == next { self.keys.push(key); }
+            self.id.push(id);
+        }
+        let nb = self.keys.len();
+        if self.lists.len() < nb { self.lists.resize_with(nb, Vec::new); }
+        for l in &mut self.lists[..nb] { l.clear(); }
+        self.nbr.clear();
+        for &key in &self.keys {
+            let get = |k: i64| self.map.get(&k).copied().unwrap_or(u32::MAX);
+            self.nbr.push([get(key - 1), get(key), get(key + 1)]);
+        }
+    }
+}
+
 /// AVX2 SIMD-optimized chaining.
 /// Phase 1: Batch-compute scores with SIMD. Phase 2: Scalar skip/visited logic.
 /// Produces bit-exact output matching `chain_anchors_scalar`.
@@ -298,6 +358,10 @@ pub(crate) unsafe fn chain_anchors_avx2(
     let mut window_start: usize = 0;
     let mut best_anchor_idx: i64 = -1;
 
+    let mut bk = std::mem::take(&mut ctx.diag_buckets);
+    let use_buckets = !no_chain_skip && n >= DIAG_BUCKET_MIN_N;
+    if use_buckets { bk.build(&soa_ref_pos, &soa_query_pos, bw); }
+
     for i in 0..n {
         let mut best_predecessor: i64 = -1;
         let mut best_score = a[i].query_span();
@@ -336,6 +400,87 @@ pub(crate) unsafe fn chain_anchors_avx2(
                 if sc == i32::MIN { continue; }
                 let total_sc = sc + scores[j];
                 if total_sc > best_score { best_score = total_sc; best_predecessor = j as i64; }
+            }
+        } else if use_buckets && i - window_start > DIAG_BUCKET_MIN_WINDOW {
+            // In-band predecessors only, merged from the three diagonal buckets, descending.
+            const CHUNK_SIZE: usize = 64;
+            let nb = bk.nbr[bk.id[i] as usize];
+            // Merge cursors: list base pointers and remaining lengths (empty for absent buckets).
+            let mut lp: [*const u32; 3] = [std::ptr::null(); 3];
+            let mut cur = [0usize; 3];
+            for t in 0..3 {
+                if nb[t] != u32::MAX { let l = &bk.lists[nb[t] as usize]; lp[t] = l.as_ptr(); cur[t] = l.len(); }
+            }
+            let tail = |t: usize, c: usize| -> i64 { if c > 0 { *lp[t].add(c - 1) as i64 } else { -1 } };
+            let (mut v0, mut v1, mut v2) = (tail(0, cur[0]), tail(1, cur[1]), tail(2, cur[2]));
+            let (di, dg) = (bk.diag[i], bk.diag.as_ptr());
+            let ws = window_start as i64;
+            let mut skip_fired = false;
+            let mut exhausted = false;
+            loop {
+                bk.g_idx.clear();
+                while bk.g_idx.len() < CHUNK_SIZE {
+                    // Largest remaining index across the three buckets.
+                    let t = if v0 >= v1 && v0 >= v2 { 0 } else if v1 >= v2 { 1 } else { 2 };
+                    let j = [v0, v1, v2][t];
+                    if j < ws { exhausted = true; break; }
+                    cur[t] -= 1;
+                    match t { 0 => v0 = tail(0, cur[0]), 1 => v1 = tail(1, cur[1]), _ => v2 = tail(2, cur[2]) }
+                    // Out of band (|diagonal difference| > bw) scores i32::MIN: skip it here.
+                    if (*dg.add(j as usize) - di).abs() > bw as i64 { continue; }
+                    bk.g_idx.push(j as u32);
+                }
+                let m = bk.g_idx.len();
+                if m == 0 { break; }
+                bk.g_ref.clear(); bk.g_qry.clear(); bk.g_span.clear(); bk.g_rid.clear();
+                for &j in &bk.g_idx {
+                    let j = j as usize;
+                    bk.g_ref.push(soa_ref_pos[j]); bk.g_qry.push(soa_query_pos[j]);
+                    bk.g_span.push(soa_query_span[j]); bk.g_rid.push(soa_rid_strand[j]);
+                }
+                bk.g_sc.resize(m, 0);
+                compute_chain_scores_batch_avx2(
+                    soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
+                    &bk.g_ref, &bk.g_qry, &bk.g_span, &bk.g_rid,
+                    max_dist_x, max_dist_y, bw,
+                    opt.chn_pen_gap, opt.chn_pen_skip,
+                    &mut bk.g_sc, 0, m,
+                );
+                for t in 0..m {
+                    let sc = bk.g_sc[t];
+                    if sc == i32::MIN { continue; }
+                    let j = bk.g_idx[t] as usize;
+                    let total_sc = sc + scores[j];
+                    if total_sc > best_score {
+                        best_score = total_sc; best_predecessor = j as i64;
+                        if skip_count > 0 { skip_count -= 1; }
+                    } else if visited[j] == i as i32 {
+                        skip_count += 1;
+                        if skip_count > opt.max_chain_skip { end_j = j as i64; skip_fired = true; break; }
+                    }
+                    let p = predecessors[j];
+                    if p >= 0 { visited[p as usize] = i as i32; }
+                }
+                if skip_fired || exhausted { break; }
+            }
+
+            if best_anchor_idx < 0 || a[i].x - a[best_anchor_idx as usize].x > max_dist_x as u64 {
+                let mut best = i32::MIN; best_anchor_idx = -1;
+                for j in (window_start..i).rev() {
+                    let sj = *scores.get_unchecked(j);
+                    let better = best < sj;
+                    best_anchor_idx = if better { j as i64 } else { best_anchor_idx };
+                    best = if better { sj } else { best };
+                }
+            }
+
+            if best_anchor_idx >= 0 && best_anchor_idx < end_j {
+                let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
+                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip, false, 1);
+                if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
+                    best_score = sc + scores[best_anchor_idx as usize];
+                    best_predecessor = best_anchor_idx;
+                }
             }
         } else {
             // Chunked reverse scan with early termination
@@ -414,7 +559,9 @@ pub(crate) unsafe fn chain_anchors_avx2(
         if global_max_score < best_score {
             global_max_score = best_score;
         }
+        if use_buckets { bk.lists[bk.id[i] as usize].push(i as u32); }
     }
+    ctx.diag_buckets = bk;
 
 
     // --- Backtrack and compact (identical to scalar) ---
@@ -2235,6 +2382,52 @@ mod tests {
         for (i, (as_, ac)) in chains_simd.iter().zip(chains_scalar.iter()).enumerate() {
             assert_eq!(as_.x, ac.x, "anchor {} x mismatch", i);
             assert_eq!(as_.y, ac.y, "anchor {} y mismatch", i);
+        }
+    }
+
+    /// Dense tandem-repeat-like anchors (> DIAG_BUCKET_MIN_N, windows > DIAG_BUCKET_MIN_WINDOW):
+    /// the diagonal-bucket scan must give exactly the scalar chainer's output.
+    #[test]
+    fn test_chain_simd_diag_buckets_dense() {
+        if !is_x86_feature_detected!("avx2") {
+            return;
+        }
+        let k = 19u64;
+        let span_mask = k << 32;
+        let mut seed: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut rnd = |m: u64| { seed ^= seed << 13; seed ^= seed >> 7; seed ^= seed << 17; seed % m };
+        let mut anchors: Vec<Minimizer> = Vec::new();
+        // Read of 20 kb over a tandem array (unit 37 bp, 400 copies) plus a 900 bp-shifted copy
+        // and random hits; each query minimizer hits many shifted copies.
+        let base = 1_000_000u64;
+        let mut q = 0u64;
+        while q < 20_000 {
+            for _ in 0..30u64 {
+                let shift = rnd(400) * 37;
+                let x = base + q + shift;
+                anchors.push(Minimizer { x, y: span_mask | q });
+            }
+            if rnd(4) == 0 { anchors.push(Minimizer { x: base + q + 900, y: span_mask | q }); }
+            if rnd(3) == 0 { anchors.push(Minimizer { x: base + rnd(40_000), y: span_mask | q }); }
+            q += 7 + rnd(6);
+        }
+        anchors.sort_by_key(|a| (a.x, a.y));
+        anchors.dedup();
+        assert!(anchors.len() > 4 * DIAG_BUCKET_MIN_N);
+        for (bw, skip) in [(500, 25), (100, 10), (5000, 25)] {
+            let opt = ChainingParams {
+                min_cnt: 3, min_chain_score: 40, max_gap: 5000, max_gap_ref: -1,
+                max_dist_x: 5000, max_dist_y: 5000, bandwidth: bw, bandwidth_long: 20000,
+                max_chain_skip: skip, max_chain_iter: 5000, chn_pen_gap: 0.152, chn_pen_skip: 0.0,
+                chain_gap_scale: 0.8, rmq_rescue_size: 1000, rmq_rescue_ratio: 0.1, rmq_inner_dist: 1000,
+                rmq_size_cap: 100000, seg_rmq: false, rescue_join: false, rescue_subset: false,
+            };
+            let (mut a1, mut a2) = (anchors.clone(), anchors.clone());
+            let (mut c1, mut c2) = (ChainingBuffers::new(), ChainingBuffers::new());
+            let (u1, ch1) = unsafe { chain_anchors_avx2(&opt, 5000, 5000, &mut a1, &mut c1) };
+            let (u2, ch2) = chain_anchors_scalar(&opt, false, 1, 5000, 5000, &mut a2, &mut c2);
+            assert_eq!(u1, u2, "bw {bw}: chains differ");
+            assert!(ch1.iter().zip(&ch2).all(|(x, y)| x.x == y.x && x.y == y.y) && ch1.len() == ch2.len(), "bw {bw}: anchors differ");
         }
     }
 
