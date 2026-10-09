@@ -145,6 +145,9 @@ pub struct ChainingParams {
     pub rescue_join: bool,
     /// With rescue_join: re-chain only the chains in a joinable pair, keep the others (lr:hq-turbo).
     pub rescue_subset: bool,
+    /// Skip the RMQ long-join rescue for reads with at least this many anchors per query base
+    /// (tandem-repeat/satellite reads; 0 = never skip).
+    pub rescue_max_density: u32,
 }
 
 #[derive(Debug, Clone)]
@@ -270,6 +273,7 @@ impl Default for MapOptions {
                 seg_rmq: false,
                 rescue_join: false,
                 rescue_subset: false,
+                rescue_max_density: 0,
             },
             scoring: ScoringParams {
                 match_score: 2,
@@ -1460,7 +1464,8 @@ pub fn map_query(
             // RMQ rescue: check if covered range is small or anchors span long query region
             let needs_rescue = ((qlen.saturating_sub(coverage) > opt.chaining.rmq_rescue_size as usize)
                 || (coverage > (qlen as f32 * opt.chaining.rmq_rescue_ratio) as usize))
-                && crate::align::env_flags::EXP_RESCUE_COVER.is_none_or(|f| (coverage as f32) < f * qlen as f32);
+                && crate::align::env_flags::EXP_RESCUE_COVER.is_none_or(|f| (coverage as f32) < f * qlen as f32)
+                && (opt.chaining.rescue_max_density == 0 || ctx.anchors.len() < opt.chaining.rescue_max_density as usize * qlen);
             // Chains taking part in a joinable pair (computed when the join gate is on).
             let mut members: Option<Vec<bool>> = None;
             let needs_rescue = needs_rescue && (!(opt.chaining.rescue_join || *crate::align::env_flags::EXP_RESCUE_JOIN) || {

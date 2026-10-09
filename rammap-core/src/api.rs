@@ -791,6 +791,7 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.chaining.max_gap_ref = 5000;
             opt.chaining.seg_rmq = true;
             opt.chaining.rescue_join = true;
+            opt.chaining.rescue_max_density = 2;
             opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
             opt.alignment.ext_bw = Some(200);
             opt.alignment.ext_rescue = true;
@@ -813,6 +814,7 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.chaining.max_gap_ref = 5000;
             opt.chaining.seg_rmq = true;
             opt.chaining.rescue_join = true;
+            opt.chaining.rescue_max_density = 2;
             opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
             opt.alignment.ext_bw = Some(200);
             opt.alignment.ext_rescue = true;

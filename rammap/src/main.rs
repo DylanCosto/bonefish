@@ -58,7 +58,7 @@ struct AlignArgs {
     ///   map-iclr-prerender — ICLR pre-render variant
     ///   lr:hq            — accurate long reads (<1% error) vs reference
     ///   lr:hq-balanced   — lr:hq with near-output-preserving DP savings (--gap-bw-margin 500 --ungapped-fill)
-    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-adaptive 64 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000 --seg-rmq --clean-dp --rescue-join --gap-subanchor)
+    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-adaptive 64 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000 --seg-rmq --clean-dp --rescue-join --rescue-max-density 2 --gap-subanchor)
     ///   lr:hq-turbo      — lr:hq-fast plus --max-chain-skip 10 --max-gap-ref 2000 --rescue-subset --ext-probe 1000,1000 --gap-bw-margin 300 --gap-band-asym --stable-anchor-sort (faster; loses some SV support)
     ///   lr:hqae          — HQ long-read assembly eval (k=25 w=51, RMQ)
     ///   asm5 / asm10 / asm20 — asm-to-ref ~0.1/1/5% divergence
@@ -350,6 +350,10 @@ struct AlignArgs {
     /// With --rescue-join, re-chain only the joinable chains and keep the others [on in lr:hq-turbo]
     #[arg(long)]
     pub rescue_subset: bool,
+
+    /// Skip the long-join rescue for reads with >= INT anchors per query base (0 = never) [2 in lr:hq-fast, lr:hq-turbo]
+    #[arg(long, value_name = "INT")]
+    pub rescue_max_density: Option<u32>,
 
     /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between) [on in lr:hq-fast, lr:hq-turbo]
     #[arg(long)]
@@ -735,6 +739,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.gap_band_asym { opt.alignment.gap_band_asym = true; }
     if cli.stable_anchor_sort { opt.seeding.stable_anchor_sort = true; }
     if cli.rescue_subset { opt.chaining.rescue_subset = true; }
+    if let Some(d) = cli.rescue_max_density { opt.chaining.rescue_max_density = d; }
     if cli.gap_subanchor { opt.alignment.gap_subanchor = true; }
     if let Some(sv) = &cli.query_subsample {
         let v: Vec<u32> = sv.split(',').filter_map(|x| x.trim().parse().ok()).collect();
