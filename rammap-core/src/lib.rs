@@ -1,6 +1,8 @@
 pub mod align;
 pub mod api;
 pub mod fasta;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod sorted_bam;
 
 // Convenience re-exports for library users
 pub use api::{Aligner, Mapping, MapResult, MapOpts, Preset, Strand, CigarOp};

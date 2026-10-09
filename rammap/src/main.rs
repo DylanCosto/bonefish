@@ -230,6 +230,22 @@ struct AlignArgs {
     #[arg(short = 'o')]
     pub output: Option<String>,
 
+    /// With -a and -o FILE.bam: write a coordinate-sorted BAM and FILE.bam.bai (as `| samtools sort --write-index`)
+    #[arg(long)]
+    pub sort: bool,
+
+    /// --sort: memory for record batches (two are alive at a time) [4G]
+    #[arg(long, value_name = "NUM")]
+    pub sort_mem: Option<String>,
+
+    /// --sort: prefix of temporary run files [the output path]
+    #[arg(long, value_name = "PREFIX")]
+    pub sort_tmp: Option<String>,
+
+    /// --sort: BGZF compression level of the BAM [6]
+    #[arg(long, value_name = "INT", default_value_t = 6)]
+    pub sort_level: i32,
+
     /// Write CIGAR with >65535 ops at CG tag
     #[arg(short = 'L')]
     pub long_cigar: bool,
@@ -900,7 +916,24 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
         None
     };
     let stdout = std::io::stdout();
-    let mut handle: Box<dyn Write + Send> = if let Some(f) = output_file {
+    let sorted_out = if cli.sort {
+        let path = cli.output.as_deref().filter(|p| p.ends_with(".bam"))
+            .ok_or_else(|| anyhow::anyhow!("--sort needs -o FILE.bam"))?;
+        if !cli.output_sam { anyhow::bail!("--sort needs SAM output (-a)"); }
+        let cfg = rammap::sorted_bam::SortConfig {
+            mem: cli.sort_mem.as_deref().map(|m| parse_num(m) as usize).unwrap_or(4 << 30),
+            tmp_prefix: cli.sort_tmp.clone().unwrap_or_else(|| format!("{}.tmp", path)),
+            threads: cli.align_threads.max(1),
+            level: cli.sort_level,
+        };
+        Some(std::sync::Arc::new(std::sync::Mutex::new(Some(rammap::sorted_bam::SortedBamWriter::new(path, cfg)?))))
+    } else {
+        None
+    };
+    let mut handle: Box<dyn Write + Send> = if let Some(w) = &sorted_out {
+        drop(output_file);
+        Box::new(rammap::sorted_bam::SharedSink(w.clone()))
+    } else if let Some(f) = output_file {
         Box::new(std::io::BufWriter::new(f))
     } else {
         Box::new(std::io::BufWriter::new(stdout))
@@ -1276,6 +1309,15 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
             &merge_cfg, &opt, &out_cfg, &mut *handle,
         )?;
         total_stats = total_stats + merge_stats;
+    }
+
+    drop(handle);
+    if let Some(w) = sorted_out {
+        let t_sort = Instant::now();
+        let w = std::sync::Arc::try_unwrap(w).map_err(|_| anyhow::anyhow!("sorted output still in use"))?
+            .into_inner().unwrap().unwrap();
+        let n = w.finish()?;
+        eprintln!("[*] Sorted BAM: {} records, merged and written in {:.3}s after mapping", n, t_sort.elapsed().as_secs_f64());
     }
 
     if no_query {

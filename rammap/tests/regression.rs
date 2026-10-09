@@ -211,3 +211,52 @@ fn bgzipped_fastq_gives_same_output() {
     }
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// `--sort -o x.bam`: same records as the SAM output, in samtools sort's coordinate order
+/// (reference id with unmapped last, position, reverse strand after forward, ties in input
+/// order), plus a BAI index.
+#[test]
+fn sorted_bam_output() {
+    let dir = tmp_dir("sort");
+    let bam = dir.join("out.bam");
+    let reference = data("ref.fa.gz");
+    let reads = data("reads.fq.gz");
+    let (reference, reads) = (reference.to_str().unwrap(), reads.to_str().unwrap());
+    for preset in ["lr:hq", "lr:hq-fast"] {
+        let sam = run(&["-ax", preset, "-t", "2", reference, reads]);
+        let names: Vec<&str> = sam.lines().filter(|l| l.starts_with("@SQ")).map(|l| &l.split('\t').nth(1).unwrap()[3..]).collect();
+        let tid = |n: &str| if n == "*" { u32::MAX } else { names.iter().position(|&x| x == n).unwrap() as u32 };
+        let mut expect: Vec<(u64, String, u16)> = sam.lines().filter(|l| !l.starts_with('@')).map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            let flag: u16 = f[1].parse().unwrap();
+            let pos: i64 = f[3].parse::<i64>().unwrap() - 1;
+            ((tid(f[2]) as u64) << 32 | ((pos + 1) as u64) << 1 | ((flag >> 4) & 1) as u64, f[0].to_string(), flag)
+        }).collect();
+        expect.sort_by_key(|e| e.0);
+
+        run(&["-ax", preset, "-t", "2", "--sort", "--sort-mem", "100K", "-o", bam.to_str().unwrap(), reference, reads]);
+        let mut raw = Vec::new();
+        flate2::read::MultiGzDecoder::new(std::fs::File::open(&bam).unwrap()).read_to_end(&mut raw).unwrap();
+        assert_eq!(&raw[..4], b"BAM\x01");
+        let l_text = i32::from_le_bytes(raw[4..8].try_into().unwrap()) as usize;
+        let mut p = 8 + l_text;
+        let n_ref = i32::from_le_bytes(raw[p..p + 4].try_into().unwrap()) as usize;
+        p += 4;
+        for _ in 0..n_ref { p += 4 + i32::from_le_bytes(raw[p..p + 4].try_into().unwrap()) as usize + 4; }
+        let mut got: Vec<(u64, String, u16)> = Vec::new();
+        while p < raw.len() {
+            let n = u32::from_le_bytes(raw[p..p + 4].try_into().unwrap()) as usize;
+            let r = &raw[p + 4..p + 4 + n];
+            let tid = i32::from_le_bytes(r[0..4].try_into().unwrap()) as u32;
+            let pos = i32::from_le_bytes(r[4..8].try_into().unwrap()) as i64;
+            let flag = u16::from_le_bytes(r[14..16].try_into().unwrap());
+            let name = String::from_utf8(r[32..32 + r[8] as usize - 1].to_vec()).unwrap();
+            got.push(((tid as u64) << 32 | ((pos + 1) as u64) << 1 | ((flag >> 4) & 1) as u64, name, flag));
+            p += 4 + n;
+        }
+        assert_eq!(got, expect, "{}: sorted BAM records differ from the sorted SAM output", preset);
+        let bai = std::fs::read(dir.join("out.bam.bai")).unwrap();
+        assert_eq!(&bai[..4], b"BAI\x01");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
