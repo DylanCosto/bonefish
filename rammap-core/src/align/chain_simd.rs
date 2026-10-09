@@ -260,8 +260,11 @@ pub struct DiagBuckets {
     g_sc: Vec<i32>,
 }
 
-/// Build the buckets for reads with at least this many anchors; below it the scan is cheap.
+/// Build the buckets for reads with at least this many anchors and at least
+/// DIAG_BUCKET_MIN_DENSITY anchors per query base (repeat-dense reads; typical reads have
+/// ~0.4 and a mostly in-band window, where the contiguous SIMD scan is cheaper).
 const DIAG_BUCKET_MIN_N: usize = 1024;
+const DIAG_BUCKET_MIN_DENSITY: usize = 2;
 /// Use the buckets for anchors whose window holds more than this many predecessors.
 const DIAG_BUCKET_MIN_WINDOW: usize = 128;
 
@@ -359,7 +362,10 @@ pub(crate) unsafe fn chain_anchors_avx2(
     let mut best_anchor_idx: i64 = -1;
 
     let mut bk = std::mem::take(&mut ctx.diag_buckets);
-    let use_buckets = !no_chain_skip && n >= DIAG_BUCKET_MIN_N;
+    let use_buckets = !no_chain_skip && n >= DIAG_BUCKET_MIN_N && {
+        let (lo, hi) = soa_query_pos.iter().fold((i32::MAX, i32::MIN), |(l, h), &q| (l.min(q), h.max(q)));
+        n >= DIAG_BUCKET_MIN_DENSITY * (hi - lo + 1).max(1) as usize
+    };
     if use_buckets { bk.build(&soa_ref_pos, &soa_query_pos, bw); }
 
     for i in 0..n {
@@ -2290,7 +2296,7 @@ mod tests {
             rmq_rescue_ratio: 0.1,
             rmq_inner_dist: 1000,
             rmq_size_cap: 100000,
-            seg_rmq: false, rescue_join: false, rescue_subset: false,
+            seg_rmq: false, rescue_join: false, rescue_subset: false, rescue_gain: None,
         };
 
         let mut ctx_simd = ChainingBuffers::new();
@@ -2362,7 +2368,7 @@ mod tests {
             rmq_rescue_ratio: 0.1,
             rmq_inner_dist: 1000,
             rmq_size_cap: 100000,
-            seg_rmq: false, rescue_join: false, rescue_subset: false,
+            seg_rmq: false, rescue_join: false, rescue_subset: false, rescue_gain: None,
         };
 
         let mut ctx_simd = ChainingBuffers::new();
@@ -2420,7 +2426,7 @@ mod tests {
                 max_dist_x: 5000, max_dist_y: 5000, bandwidth: bw, bandwidth_long: 20000,
                 max_chain_skip: skip, max_chain_iter: 5000, chn_pen_gap: 0.152, chn_pen_skip: 0.0,
                 chain_gap_scale: 0.8, rmq_rescue_size: 1000, rmq_rescue_ratio: 0.1, rmq_inner_dist: 1000,
-                rmq_size_cap: 100000, seg_rmq: false, rescue_join: false, rescue_subset: false,
+                rmq_size_cap: 100000, seg_rmq: false, rescue_join: false, rescue_subset: false, rescue_gain: None,
             };
             let (mut a1, mut a2) = (anchors.clone(), anchors.clone());
             let (mut c1, mut c2) = (ChainingBuffers::new(), ChainingBuffers::new());
@@ -2479,7 +2485,7 @@ mod tests {
             rmq_rescue_ratio: 0.1,
             rmq_inner_dist: 1000,
             rmq_size_cap: 100000,
-            seg_rmq: false, rescue_join: false, rescue_subset: false,
+            seg_rmq: false, rescue_join: false, rescue_subset: false, rescue_gain: None,
         };
 
         let mut opt_noskip = opt_skip.clone();
