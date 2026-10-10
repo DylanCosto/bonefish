@@ -510,9 +510,27 @@ pub(crate) unsafe fn chain_anchors_avx2(
 
                 // SAFETY: j < i < n and predecessors[j] < j, all within the n-sized buffers.
                 let (scb, scr, vis, pre) = (soa_sc_buf.as_ptr(), scores.as_ptr(), visited.as_mut_ptr(), predecessors.as_ptr());
-                for j in (chunk_start..chunk_end).rev() {
+                // Bit b set: candidate chunk_start + b scored (invalid ones, mostly off the band,
+                // are no-ops below), so only those are visited, in the same descending order.
+                let len = chunk_end - chunk_start;
+                let min_v = _mm256_set1_epi32(i32::MIN);
+                let mut valid: u64 = 0;
+                let mut g = 0usize;
+                while g + 8 <= len {
+                    let v = _mm256_loadu_si256(scb.add(chunk_start + g) as *const __m256i);
+                    let inval = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(v, min_v))) as u32;
+                    valid |= ((!inval & 0xff) as u64) << g;
+                    g += 8;
+                }
+                while g < len {
+                    if *scb.add(chunk_start + g) != i32::MIN { valid |= 1u64 << g; }
+                    g += 1;
+                }
+                while valid != 0 {
+                    let b = 63 - valid.leading_zeros() as usize;
+                    valid &= !(1u64 << b);
+                    let j = chunk_start + b;
                     let sc = *scb.add(j);
-                    if sc == i32::MIN { continue; }
                     let total_sc = sc + *scr.add(j);
                     if total_sc > best_score {
                         best_score = total_sc; best_predecessor = j as i64;
