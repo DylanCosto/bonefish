@@ -489,12 +489,16 @@ pub(crate) unsafe fn chain_anchors_avx2(
                 }
             }
         } else {
-            // Chunked reverse scan with early termination
+            // Chunked reverse scan with early termination. The skip test usually stops the scan
+            // within a few dozen candidates, so the first chunk is smaller (32: -1% CPU vs 64).
             const CHUNK_SIZE: usize = 64;
+            const FIRST_CHUNK: usize = 32;
             let mut chunk_end = i;
             let mut skip_fired = false;
+            let mut csize = FIRST_CHUNK;
             while chunk_end > window_start {
-                let chunk_start = if chunk_end >= window_start + CHUNK_SIZE { chunk_end - CHUNK_SIZE } else { window_start };
+                let chunk_start = if chunk_end >= window_start + csize { chunk_end - csize } else { window_start };
+                csize = CHUNK_SIZE;
 
                 compute_chain_scores_batch_avx2(
                     soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
