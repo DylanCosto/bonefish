@@ -138,6 +138,13 @@ unsafe fn compute_chain_scores_batch_avx2(
         // Also check: n_seg > 1 case — ref_diff > max_dist_y
         // Not needed here since we only enter SIMD for n_seg==1, !is_cdna
 
+        // No valid lane (usually: off the band): the scores are all i32::MIN.
+        if _mm256_testz_si256(valid, valid) != 0 {
+            _mm256_storeu_si256(sc_buf.as_mut_ptr().add(j) as *mut __m256i, min_val_v);
+            j += 8;
+            continue;
+        }
+
         // --- Score computation ---
         // min_diff = min(ref_diff, query_diff)
         let min_diff = _mm256_min_epi32(rdiff, qdiff);
