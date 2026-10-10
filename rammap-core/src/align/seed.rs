@@ -346,6 +346,36 @@ pub(crate) fn collect_seed_hits_with_occ(
 
     let matched_seeds = &scratch.matched_seeds;
 
+    if !do_skip && !f_qstrand {
+        // Common case (no self-mapping skips, no qstrand): per-seed y values computed once, hits
+        // written without branches (same anchors as the general loop below).
+        // SAFETY: each seed's hits are checked to fit the reserved capacity (n_a, the total hit
+        // count of matched_seeds) before they are written; every slot below w is written.
+        let out = anchors.as_mut_ptr();
+        let mut w = 0usize;
+        for (si, seed) in matched_seeds.iter().enumerate() {
+            if si + 1 < matched_seeds.len() {
+                mi.prefetch_positions(matched_seeds[si + 1].entry_range);
+            }
+            let m = &q_minimizers[seed.mi_idx];
+            let q_span = seed.q_span as u64;
+            let q_pos = ((m.y as u32) >> 1) as u64;
+            let flags = if seed.is_tandem { seed_tandem } else { 0 } | seed.seg_id << SEED_SEG_SHIFT;
+            let y_fwd = q_span << 32 | q_pos | flags;
+            let y_rev = q_span << 32 | (qlen as u64).wrapping_sub(q_pos).wrapping_add(q_span).wrapping_sub(2) | flags;
+            let q_strand = m.y & 1;
+            let hits = mi.get_by_range(seed.entry_range);
+            assert!(w + hits.len() <= anchors.capacity());
+            for &r in hits {
+                let rev = (r ^ q_strand) & 1;
+                let x = (r & 0xFFFF_FFFF_0000_0000) | ((r as u32) >> 1) as u64 | rev << 63;
+                let y = if rev != 0 { y_rev } else { y_fwd };
+                unsafe { out.add(w).write(Minimizer { x, y }); }
+                w += 1;
+            }
+        }
+        unsafe { anchors.set_len(w); }
+    } else {
     for (si, seed) in matched_seeds.iter().enumerate() {
         // Prefetch positions for the next seed
         if si + 1 < matched_seeds.len() {
@@ -422,6 +452,7 @@ pub(crate) fn collect_seed_hits_with_occ(
                 anchors.push(Minimizer { x, y });
             }
         }
+    }
     }
 
     if opt.seeding.stable_anchor_sort {
