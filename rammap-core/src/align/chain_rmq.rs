@@ -584,8 +584,11 @@ impl SegRmq {
             p >>= 1;
             // Child index by arithmetic, not a (mispredicting) branch.
             let c = 2 * p + (self.pri[2 * p + 1] < self.pri[2 * p]) as usize;
-            self.pri[p] = self.pri[c];
-            self.idx[p] = self.idx[c];
+            let (np, ni) = (self.pri[c], self.idx[c]);
+            // Unchanged node: its ancestors (functions of their children only) are unchanged too.
+            if np.to_bits() == self.pri[p].to_bits() && ni == self.idx[p] { break; }
+            self.pri[p] = np;
+            self.idx[p] = ni;
         }
     }
 
