@@ -1050,7 +1050,7 @@ mod bench_gap {
         set_clean_dual(true);
         let only = std::env::var("BENCH_ONLY").ok();
         for (name, flags, nb) in [("cigar nb=|D|+32", APPROX_MAX, (t.len() as i32 - q.len() as i32).abs() + 32), ("cigar nb=31", APPROX_MAX, 31),
-                                  ("score-only nb=|D|+32", APPROX_MAX | SCORE_ONLY, (t.len() as i32 - q.len() as i32).abs() + 32)] {
+                                  ("score-only nb=|D|+32", APPROX_MAX | SCORE_ONLY, (t.len() as i32 - q.len() as i32).abs() + 32), ("score-only nb=31", APPROX_MAX | SCORE_ONLY, 31)] {
             if only.as_deref().is_some_and(|o| !name.contains(o)) { continue; }
             let mut ez = DpResult::default();
             let n = 200_000;
