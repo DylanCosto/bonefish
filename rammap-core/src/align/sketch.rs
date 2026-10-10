@@ -209,6 +209,141 @@ fn sketch_sequence_impl(
   is_hpc: bool,
   p: &mut Vec<Minimizer>,
 ) {
+    #[cfg(target_arch = "x86_64")]
+    if !is_hpc && len > 0 && w > 0 && w < 256 && k > 0 && k <= 28 && is_x86_feature_detected!("avx2") && !*SKETCH_SCALAR {
+        unsafe { sketch_chunked_avx2(seq, len, w, k, rid, p) };
+        return;
+    }
+    sketch_sequence_scalar(seq, len, w, k, rid, is_hpc, p);
+}
+
+/// RAMMAP_SKETCH_SCALAR=1: always use the one-pass sketcher (comparisons).
+static SKETCH_SCALAR: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("RAMMAP_SKETCH_SCALAR").is_ok_and(|v| v != "0"));
+
+/// Non-HPC sketching in chunks: (1) roll the k-mers and record, per position that the one-pass
+/// loop would process (symmetric k-mers are skipped there too), the canonical k-mer, strand,
+/// span and k-mer count `l`; (2) hash the chunk's k-mers in one tight loop (vectorised);
+/// (3) run the one-pass loop's window logic on those values. Same minimizers, same order.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn sketch_chunked_avx2(seq: &[u8], len: usize, w: usize, k: usize, rid: usize, p: &mut Vec<Minimizer>) { unsafe {
+    const CH: usize = 512;
+    let shift1 = 2 * (k - 1);
+    let mask = (1u64 << (2 * k)) - 1;
+    let mut kmer: [u64; 2] = [0, 0];
+    let mut l: usize = 0;
+    let mut buf_pos: usize = 0;
+    let mut min_pos: usize = 0;
+    let mut buf: [Minimizer; 256] = [Minimizer { x: 0, y: 0 }; 256];
+    let mut min: Minimizer = Minimizer { x: u64::MAX, y: u64::MAX };
+    // Per event of the chunk: canonical k-mer (hashed in place), y, span, l; valid = l >= k.
+    let mut ek = [0u64; CH];
+    let mut ey = [0u64; CH];
+    let mut esp = [0u8; CH];
+    let mut el = [0u32; CH];
+    let mut i = 0usize;
+    while i < len {
+        let end = (i + CH).min(len);
+        let mut n = 0usize;
+        // (1) serial roll
+        while i < end {
+            let c = encode_base(*seq.get_unchecked(i));
+            if c < 4 {
+                let span = if l + 1 < k { l + 1 } else { k };
+                kmer[0] = (kmer[0] << 2 | c as u64) & mask;
+                kmer[1] = (kmer[1] >> 2) | (3u64 ^ c as u64) << shift1;
+                if kmer[0] != kmer[1] {
+                    let z = (kmer[0] >= kmer[1]) as usize;
+                    l += 1;
+                    *ek.get_unchecked_mut(n) = kmer[z];
+                    *ey.get_unchecked_mut(n) = (rid as u64) << 32 | (i as u64) << 1 | z as u64;
+                    *esp.get_unchecked_mut(n) = span as u8;
+                    *el.get_unchecked_mut(n) = l as u32;
+                    n += 1;
+                }
+            } else {
+                l = 0;
+                *el.get_unchecked_mut(n) = 0;
+                *esp.get_unchecked_mut(n) = 0;
+                n += 1;
+            }
+            i += 1;
+        }
+        // (2) hashes
+        for j in 0..n {
+            let mut bits = *ek.get_unchecked(j);
+            bits = (!bits).wrapping_add(bits << 21) & mask;
+            bits = bits ^ (bits >> 24);
+            bits = (bits.wrapping_add(bits << 3)).wrapping_add(bits << 8) & mask;
+            bits = bits ^ (bits >> 14);
+            bits = (bits.wrapping_add(bits << 2)).wrapping_add(bits << 4) & mask;
+            bits = bits ^ (bits >> 28);
+            *ek.get_unchecked_mut(j) = bits.wrapping_add(bits << 31) & mask;
+        }
+        // (3) window logic, as in sketch_sequence_scalar
+        for j in 0..n {
+            let lj = *el.get_unchecked(j) as usize;
+            let info = if lj >= k {
+                Minimizer { x: *ek.get_unchecked(j) << 8 | *esp.get_unchecked(j) as u64, y: *ey.get_unchecked(j) }
+            } else {
+                Minimizer { x: u64::MAX, y: u64::MAX }
+            };
+            *buf.get_unchecked_mut(buf_pos) = info;
+            if lj == (w + k - 1) && min.x != u64::MAX {
+                for item in &buf[(buf_pos + 1)..w] {
+                    if min.x == item.x && item.y != min.y { p.push(*item); }
+                }
+                for item in &buf[..buf_pos] {
+                    if min.x == item.x && item.y != min.y { p.push(*item); }
+                }
+            }
+            if info.x <= min.x {
+                if lj >= (w + k) && min.x != u64::MAX { p.push(min); }
+                min = info;
+                min_pos = buf_pos;
+            } else if buf_pos == min_pos {
+                if lj >= (w + k - 1) && min.x != u64::MAX { p.push(min); }
+                min.x = u64::MAX;
+                for (jj, item) in buf[(buf_pos + 1)..w].iter().enumerate() {
+                    if min.x == u64::MAX || min.x >= item.x { min = *item; min_pos = buf_pos + 1 + jj; }
+                }
+                for (jj, item) in buf[..=buf_pos].iter().enumerate() {
+                    if min.x == u64::MAX || min.x >= item.x { min = *item; min_pos = jj; }
+                }
+                if lj >= (w + k - 1) && min.x != u64::MAX {
+                    for item in &buf[(buf_pos + 1)..w] {
+                        if min.x == item.x && min.y != item.y { p.push(*item); }
+                    }
+                    for item in &buf[..=buf_pos] {
+                        if min.x == item.x && min.y != item.y { p.push(*item); }
+                    }
+                }
+            }
+            if buf_pos + 1 == w { buf_pos = 0; } else { buf_pos += 1; }
+        }
+    }
+    if min.x != u64::MAX {
+        p.push(min);
+    }
+}}
+
+/// The one-pass sketcher (for comparisons with the chunked path).
+pub fn sketch_sequence_reference(seq: &[u8], len: usize, w: usize, k: usize, rid: usize, is_hpc: bool, p: &mut Vec<Minimizer>) {
+    p.clear();
+    sketch_sequence_scalar(seq, len, w, k, rid, is_hpc, p);
+}
+
+/// One-pass sketcher (all modes; reference for the chunked path).
+fn sketch_sequence_scalar(
+  seq: &[u8],
+  len: usize,
+  w: usize,
+  k: usize,
+  rid: usize,
+  is_hpc: bool,
+  p: &mut Vec<Minimizer>,
+) {
     if len == 0 {
         return;
     }
@@ -319,6 +454,28 @@ mod tests {
         let mut mins = Vec::new();
         sketch_sequence(seq.as_bytes(), seq.len(), 10, 15, 0, false, &mut mins);
         assert!(mins.len() > 0);
+    }
+
+    /// The chunked path must give exactly the one-pass sketcher's minimizers.
+    #[test]
+    fn chunked_sketch_matches_one_pass() {
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        let mut rnd = move || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for case in 0..3000 {
+            let len = (rnd() % 3000) as usize;
+            let mut seq: Vec<u8> = (0..len).map(|_| b"ACGT"[(rnd() & 3) as usize]).collect();
+            // N runs, lowercase, low-complexity stretches and palindromes (symmetric k-mers)
+            if case % 3 == 0 && len > 10 { let s = (rnd() as usize) % len; for c in seq[s..(s + 1 + (rnd() % 40) as usize).min(len)].iter_mut() { *c = b'N'; } }
+            if case % 5 == 0 && len > 10 { let s = (rnd() as usize) % len; for c in seq[s..(s + 60).min(len)].iter_mut() { *c = b'A'; } }
+            if case % 7 == 0 && len > 40 { for j in 0..20 { seq[j] = b"ACGT"[j % 4]; seq[39 - j] = match seq[j] { b'A' => b'T', b'C' => b'G', b'G' => b'C', _ => b'A' }; } }
+            if case % 11 == 0 { for c in seq.iter_mut().step_by(3) { *c = c.to_ascii_lowercase(); } }
+            let k = [15usize, 17, 19, 21, 28, 5][(rnd() % 6) as usize];
+            let w = [1usize, 2, 10, 19, 50, 255][(rnd() % 6) as usize];
+            sketch_sequence(&seq, len, w, k, (case % 3) as usize, false, &mut a);
+            sketch_sequence_reference(&seq, len, w, k, (case % 3) as usize, false, &mut b);
+            assert_eq!(a, b, "case {case}: len {len} k {k} w {w}");
+        }
     }
 
     #[test]
