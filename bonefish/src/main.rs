@@ -19,8 +19,6 @@ use bonefish::align::index::Index;
 use bonefish::align::map::{MapOptions, AlignFlags};
 use bonefish::align::pipeline::{OutputConfig, ReadInfo};
 use bonefish::align::stats::AlignmentStats;
-use bonefish::align::junc::{self, JunctionDb};
-use bonefish::align::jump::JumpDb;
 use bonefish::align::split;
 
 // ─── CLI definition ───
@@ -67,9 +65,6 @@ struct AlignArgs {
     #[arg(short = 'w')]
     pub w: Option<usize>,
 
-    /// Use homopolymer-compressed k-mer
-    #[arg(short = 'H')]
-    pub is_hpc: bool,
 
     /// Bandwidth used for chaining and long-join. Format: bw,bw_long
     #[arg(short = 'r', long)]
@@ -175,13 +170,7 @@ struct AlignArgs {
     #[arg(short = 'U')]
     pub mid_occ_range: Option<String>,
 
-    /// Max fragment length for paired-end
-    #[arg(short = 'F')]
-    pub max_frag_len: Option<i32>,
 
-    /// Max intron length (sets max_gap_ref + bw for splice)
-    #[arg(short = 'G')]
-    pub max_intron_len: Option<i32>,
 
     /// Only map to forward strand
     #[arg(long)]
@@ -203,17 +192,8 @@ struct AlignArgs {
     #[arg(short = 'b')]
     pub transition: Option<i32>,
 
-    /// Cost of non-canonical splicing
-    #[arg(short = 'C')]
-    pub noncan: Option<i32>,
 
-    /// Splice model: 0=original, 1=miniprot [1]
-    #[arg(short = 'J')]
-    pub splice_model: Option<i32>,
 
-    /// Splice site direction: f=forward, r=reverse, b=both, n=none
-    #[arg(short = 'u')]
-    pub splice_direction: Option<String>,
 
     /// Output to file instead of stdout
     #[arg(short = 'o')]
@@ -404,25 +384,10 @@ struct AlignArgs {
     #[arg(long)]
     pub q_occ_frac: Option<f32>,
 
-    /// Splice junction bonus
-    #[arg(long)]
-    pub junc_bonus: Option<i32>,
 
-    /// Splice junction penalty
-    #[arg(long)]
-    pub junc_pen: Option<i32>,
 
-    /// BED file with splice junction annotations
-    #[arg(long)]
-    pub junc_bed: Option<String>,
 
-    /// Splice score file
-    #[arg(long)]
-    pub spsc: Option<String>,
 
-    /// Scale factor for SPSC scores (default: 0.7)
-    #[arg(long)]
-    pub spsc_scale: Option<f32>,
 
     /// Output unmapped reads in PAF
     #[arg(long)]
@@ -465,17 +430,11 @@ struct AlignArgs {
     #[arg(long)]
     pub idx_raw: bool,
 
-    /// Pairing mode: no, weak, or strong [determined by preset]
-    #[arg(long)]
-    pub pairing: Option<String>,
 
     /// Don't use query name in read hash
     #[arg(long)]
     pub no_hash_name: bool,
 
-    /// Write junction BED instead of SAM/PAF
-    #[arg(long)]
-    pub write_junc: bool,
 
     /// Query-strand alignment mode (for SV detection)
     #[arg(long)]
@@ -485,37 +444,13 @@ struct AlignArgs {
     #[arg(long)]
     pub par_chain: bool,
 
-    /// Enable splice alignment mode
-    #[arg(long)]
-    pub splice: bool,
 
-    /// Short-read mode: dna, rna, or no
-    #[arg(long, num_args = 0..=1, default_missing_value = "dna")]
-    pub sr: Option<String>,
 
-    /// Fragment mode (yes/no)
-    #[arg(long)]
-    pub frag: Option<String>,
 
-    /// Splice flank scoring (yes/no)
-    #[arg(long)]
-    pub splice_flank: Option<String>,
 
-    /// Heap-based seed sorting (yes/no)
-    #[arg(long)]
-    pub heap_sort: Option<String>,
 
-    /// BED12 junction file for jump extension
-    #[arg(short = 'j', long = "junc-jump")]
-    pub junc_jump: Option<String>,
 
-    /// BED12 pass1 rescue junctions
-    #[arg(long = "pass1")]
-    pub pass1: Option<String>,
 
-    /// Minimum matching bases for jump extension [3]
-    #[arg(long)]
-    pub jump_min_match: Option<i32>,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -592,7 +527,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     }
     let cs_is_none = cs_mode == Some("none");
     let cs_long = cs_mode == Some("long");
-    let do_cigar = cli.output_cigar || cli.output_sam || cli.cs.is_some() || cli.output_md || do_ds || cli.write_junc;
+    let do_cigar = cli.output_cigar || cli.output_sam || cli.cs.is_some() || cli.output_md || do_ds;
     let do_cs = cli.cs.is_some() && !cs_is_none;
     let do_md = cli.output_md;
     let rg_id: Option<String> = if let Some(rg_line) = &cli.sam_rg {
@@ -632,7 +567,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
 
     let mut k = 15;
     let mut w = 10;
-    let mut is_hpc = cli.is_hpc;
+    let mut is_hpc = false;
     let mut opt = MapOptions::default();
 
     apply_preset(&mut opt, &mut k, &mut w, &mut is_hpc, cli.preset.as_deref().unwrap_or("dna"))?;
@@ -682,22 +617,12 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
         if let Ok(v) = parts[0].parse() { opt.seeding.min_mid_occ = v; }
         if parts.len() > 1 && let Ok(v) = parts[1].parse() { opt.seeding.max_mid_occ = v; }
     }
-    if let Some(v) = cli.max_frag_len { opt.pairing.max_frag_len = v; }
-    if let Some(v) = cli.max_intron_len {
-        opt.chaining.max_gap_ref = v;
-        opt.chaining.bandwidth = v; opt.chaining.bandwidth_long = v;
-    }
     if cli.for_only { opt.flags.insert(AlignFlags::FOR_ONLY); }
     if cli.rev_only { opt.flags.insert(AlignFlags::REV_ONLY); }
     if cli.no_long_join { opt.flags.insert(AlignFlags::NO_LJOIN); }
     if cli.all_chains { opt.flags.insert(AlignFlags::ALL_CHAINS); }
     if let Some(v) = cli.min_dp_max { opt.alignment.min_dp_max = v; }
     if let Some(v) = cli.transition { opt.scoring.transition = v; }
-    if let Some(v) = cli.noncan { opt.scoring.noncanon_penalty = v; }
-    if let Some(j) = cli.splice_model {
-        if j == 0 { opt.flags.insert(AlignFlags::SPLICE_OLD); }
-        else { opt.flags.remove(AlignFlags::SPLICE_OLD); }
-    }
     if let Some(v) = cli.score_n { opt.scoring.ambig_penalty = v; }
     if let Some(v) = cli.end_bonus { opt.alignment.end_bonus = v; }
     if let Some(v) = cli.end_seed_pen { opt.alignment.anchor_ext_shift = v; }
@@ -744,51 +669,9 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if let Some(v) = cli.seed { opt.filtering.seed = v; }
     if let Some(v) = cli.alt_drop { opt.filtering.alt_drop = v; }
     if let Some(v) = cli.max_qlen { opt.filtering.max_qlen = v; }
-    if let Some(s) = &cli.pairing {
-        match s.as_str() {
-            "no" => { opt.flags.insert(AlignFlags::INDEPEND_SEG); }
-            "weak" => { opt.flags.insert(AlignFlags::WEAK_PAIRING); opt.flags.remove(AlignFlags::INDEPEND_SEG); }
-            "strong" => { opt.flags.remove(AlignFlags::INDEPEND_SEG | AlignFlags::WEAK_PAIRING); }
-            _ => { eprintln!("[WARNING] unrecognized argument for --pairing; assuming 'strong'."); opt.flags.remove(AlignFlags::INDEPEND_SEG | AlignFlags::WEAK_PAIRING); }
-        }
-    }
     if cli.no_hash_name { opt.flags.insert(AlignFlags::NO_HASH_NAME); }
-    if cli.write_junc { opt.flags.insert(AlignFlags::OUT_JUNC); }
     if cli.qstrand { opt.flags.insert(AlignFlags::QSTRAND | AlignFlags::NO_INV); }
     if cli.par_chain { opt.flags.insert(AlignFlags::PAR_CHAIN); }
-    if cli.splice { opt.flags.insert(AlignFlags::SPLICE); }
-    if let Some(ref val) = cli.sr {
-        match val.as_str() {
-            "dna" => { opt.flags.insert(AlignFlags::SHORT_READ); }
-            "rna" => { opt.flags.insert(AlignFlags::SR_RNA); }
-            "no" => { opt.flags.remove(AlignFlags::SHORT_READ | AlignFlags::SR_RNA); }
-            v => { opt.flags.insert(AlignFlags::SHORT_READ); eprintln!("[WARNING] --sr only takes 'dna' or 'rna'. Invalid value '{}' assumed to be 'dna'.", v); }
-        }
-    }
-    if let Some(ref s) = cli.frag {
-        match s.as_str() {
-            "yes" => { opt.flags.insert(AlignFlags::FRAG_MODE); }
-            "no" => { opt.flags.remove(AlignFlags::FRAG_MODE); }
-            _ => { eprintln!("[WARNING] --frag only takes 'yes' or 'no'."); }
-        }
-    }
-    if let Some(ref s) = cli.splice_flank {
-        match s.as_str() {
-            "yes" => { opt.flags.insert(AlignFlags::SPLICE_FLANK); }
-            "no" => { opt.flags.remove(AlignFlags::SPLICE_FLANK); }
-            _ => { eprintln!("[WARNING] --splice-flank only takes 'yes' or 'no'."); }
-        }
-    }
-    if let Some(ref s) = cli.heap_sort {
-        match s.as_str() {
-            "yes" => { opt.flags.insert(AlignFlags::HEAP_SORT); }
-            "no" => { opt.flags.remove(AlignFlags::HEAP_SORT); }
-            _ => { eprintln!("[WARNING] --heap-sort only takes 'yes' or 'no'."); }
-        }
-    }
-    if let Some(v) = cli.jump_min_match { opt.filtering.jump_min_match = v; }
-    if let Some(v) = cli.junc_bonus { opt.scoring.junc_bonus = v; }
-    if let Some(v) = cli.junc_pen { opt.scoring.junc_pen = v; }
     if let Some(v) = cli.rmq_inner { opt.chaining.rmq_inner_dist = v; }
     if cli.no_diag { opt.flags.insert(AlignFlags::NO_DIAG); }
     if cli.hard_mask_level { opt.flags.insert(AlignFlags::HARD_MASK_LEVEL); }
@@ -821,18 +704,6 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
             _ => { eprintln!("Warning: --dual must be 'yes' or 'no'"); }
         }
     }
-    if let Some(s) = &cli.splice_direction {
-        // Clear existing splice direction flags, then set based on user choice
-        opt.flags.remove(AlignFlags::SPLICE_FOR | AlignFlags::SPLICE_REV);
-        match s.as_str() {
-            "f" => { opt.flags.insert(AlignFlags::SPLICE_FOR); }
-            "r" => { opt.flags.insert(AlignFlags::SPLICE_REV); }
-            "b" => { opt.flags.insert(AlignFlags::SPLICE_FOR | AlignFlags::SPLICE_REV); }
-            "n" => { /* both cleared above */ }
-            _ => { eprintln!("Warning: -u must be f, r, b, or n"); }
-        }
-    }
-
     if let Some(v) = cli.chain_skip_scale {
         opt.filtering.chain_skip_scale = v;
     }
@@ -845,41 +716,26 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
         .map(|s| parse_num(s) as u64)
         .unwrap_or(8_000_000_000); // 8G default
 
-    // -K: overrides opt.mini_batch_size set by preset (defaults: 500M, 50M for sr/short, 100M for splice:sr)
+    // -K: overrides opt.mini_batch_size (default 500M)
     if let Some(s) = cli.mini_batch_size.as_ref() {
         opt.mini_batch_size = parse_num(s);
     }
 
     // Parse query files from positional args
-    let frag_mode = opt.flags.contains(AlignFlags::FRAG_MODE);
     let no_query = cli.queries.is_empty() && cli.dump_index.is_some();
-    let (query_files, query2_path, two_file_pe): (Vec<String>, Option<String>, bool) = {
-        if cli.queries.is_empty() {
-            if cli.dump_index.is_some() {
-                // -d with no query files → index-only mode (build/dump and exit)
-                (vec![], None, false)
-            } else {
-                // No query files, no -d → read from stdin.
-                (vec!["-".to_string()], None, false)
-            }
-        } else if cli.queries.len() == 2 && frag_mode {
-            // Exactly 2 files with frag_mode (sr preset) → two-file paired-end
-            (vec![cli.queries[0].clone()], Some(cli.queries[1].clone()), true)
-        } else {
-            // Single or multiple independent query files
-            (cli.queries.clone(), None, false)
-        }
+    let query_files: Vec<String> = if cli.queries.is_empty() {
+        // -d with no query files → index-only mode (build/dump and exit); otherwise stdin.
+        if cli.dump_index.is_some() { vec![] } else { vec!["-".to_string()] }
+    } else {
+        // One or more query files, mapped one after another.
+        cli.queries.clone()
     };
-    let pe_mode = two_file_pe || frag_mode;
 
     // Validate query file existence
     for qf in &query_files {
         if qf != "-" && !std::path::Path::new(qf).exists() {
             anyhow::bail!("Input file '{}' not found.", qf);
         }
-    }
-    if let Some(ref q2) = query2_path && !std::path::Path::new(q2).exists() {
-        anyhow::bail!("Second query file '{}' not found.", q2);
     }
     let query_path = query_files.first().map(|s| s.as_str()).unwrap_or("-");
 
@@ -919,9 +775,6 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     let mid_occ_frac = cli.mid_occ_frac.unwrap_or(2e-4);
     let run_cfg = RunConfig {
         mid_occ_frac,
-        query2_path: query2_path.as_deref(),
-        pe_mode,
-        two_file_pe,
         copy_comment,
         cli: &cli,
         out_cfg: &out_cfg,
@@ -1261,23 +1114,13 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     // Merge split results if --split-prefix was used
     if let Some(ref prefix) = split_prefix && n_parts >= 1 {
         eprintln!("[*] Merging {} split parts...", n_parts);
-        let pe_flip = if pe_mode {
-            let pe_ori = opt.pairing.pe_ori;
-            Some(((pe_ori >> 1) & 1 != 0, pe_ori & 1 != 0))
-        } else {
-            None
-        };
         let merge_cfg = split::MergeConfig {
             prefix,
             n_parts,
             k: saved_k,
             w: saved_w,
             is_hpc: saved_is_hpc,
-            pe_mode,
-            pe_flip,
             query_path,
-            query2_path: query2_path.as_deref(),
-            two_file_pe,
             sam_rg: cli.sam_rg.as_deref(),
             copy_comment,
         };
@@ -1330,9 +1173,6 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
 struct RunConfig<'a> {
     mid_occ_frac: f32,
     cli: &'a AlignArgs,
-    query2_path: Option<&'a str>,
-    pe_mode: bool,
-    two_file_pe: bool,
     copy_comment: bool,
     out_cfg: &'a OutputConfig,
     split_out_cfg: &'a OutputConfig,
@@ -1351,9 +1191,6 @@ fn map_one_part(
 ) -> anyhow::Result<AlignmentStats> {
     let mid_occ_frac = run.mid_occ_frac;
     let cli = run.cli;
-    let query2_path = run.query2_path;
-    let pe_mode = run.pe_mode;
-    let two_file_pe = run.two_file_pe;
     let copy_comment = run.copy_comment;
     let out_cfg = run.out_cfg;
     let mini_batch_size = opt.mini_batch_size as u64;
@@ -1362,48 +1199,6 @@ fn map_one_part(
     if opt.seeding.mid_occ == 0 {
         opt.seeding.mid_occ = mi.cal_mid_occ(mid_occ_frac, opt.seeding.min_mid_occ, opt.seeding.max_mid_occ);
     }
-
-    // Load junction annotations per-part (rids are local to this part)
-    let junc_db: Option<JunctionDb> = if cli.junc_bed.is_some() || cli.spsc.is_some() {
-        let name_to_rid: std::collections::HashMap<String, usize> = mi.seqs.iter().enumerate()
-            .map(|(i, s)| (s.name.clone(), i)).collect();
-        if let Some(bed_path) = &cli.junc_bed {
-            Some(junc::load_bed_junctions(bed_path, &name_to_rid, mi.seqs.len())?)
-        } else if let Some(spsc_path) = &cli.spsc {
-            let max_sc = junc::max_spsc_bonus(opt.scoring.gap_open2, opt.scoring.gap_open);
-            let scale = cli.spsc_scale.unwrap_or(0.7);
-            let seq_lens: Vec<usize> = mi.seqs.iter().map(|s| s.len).collect();
-            Some(junc::load_spsc_scores(spsc_path, &name_to_rid, mi.seqs.len(), &seq_lens, max_sc, scale)?)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    // Load jump junction database (-j / --pass1) per-part
-    let jump_db: Option<JumpDb> = {
-        let mut db: Option<JumpDb> = None;
-        if let Some(ref path) = cli.junc_jump {
-            match JumpDb::load(mi, path, 0x1, -1) {
-                Ok(j) => db = Some(j),
-                Err(e) => eprintln!("[WARNING] failed to load jump BED file: {}", e),
-            }
-        }
-        if let Some(ref path) = cli.pass1 {
-            match JumpDb::load(mi, path, 0x2, 5) {
-                Ok(j) => {
-                    if let Some(existing) = &mut db {
-                        existing.merge(&j);
-                    } else {
-                        db = Some(j);
-                    }
-                }
-                Err(e) => eprintln!("[WARNING] failed to load pass1 BED file: {}", e),
-            }
-        }
-        db
-    };
 
     // SAM header: write once for single-part, or per-part for multi-part without split-prefix
     if cli.output_sam && !*sam_header_written {
@@ -1432,14 +1227,7 @@ fn map_one_part(
     let mut reader = bonefish::fasta::open(query_path)
         .map_err(|e| anyhow::anyhow!("Error reading query: {}", e))?;
     // Single-end reads only need the header comment for -y; skip copying it otherwise.
-    if !pe_mode && !copy_comment { reader.set_keep_description(false); }
-    let reader2 = if two_file_pe {
-        let q2 = query2_path.unwrap();
-        Some(bonefish::fasta::open(q2)
-            .map_err(|e| anyhow::anyhow!("Error reading query2: {}", e))?)
-    } else {
-        None
-    };
+    if !copy_comment { reader.set_keep_description(false); }
 
     // Parallel branches below assign `total_stats` unconditionally from the
     // thread::scope result; only the non-parallel accumulation path needs the
@@ -1449,172 +1237,8 @@ fn map_one_part(
     #[cfg(not(feature = "parallel"))]
     let mut total_stats = AlignmentStats::default();
     let mut record_iter = reader.records();
-    let mut record_iter2 = reader2.map(|r| r.records());
 
-    if pe_mode {
-        type PairData = (String, Vec<u8>, Option<String>, Option<String>, String, Vec<u8>, Option<String>, Option<String>);
-
-        // Three-stage pipeline: reader thread → worker pool → writer thread.
-        // sync_channel(1) gives reader 1 chunk lookahead. The writer thread
-        // runs on its own and consumes results so the worker pool isn't idle
-        // while output is serialized.
-        #[cfg(feature = "parallel")]
-        {
-            let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<PairData>>(1);
-            let (tx_out, rx_out) = std::sync::mpsc::sync_channel::<Vec<(String, AlignmentStats)>>(2);
-
-            total_stats = std::thread::scope(|s| -> anyhow::Result<AlignmentStats> {
-                s.spawn(move || {
-                    loop {
-                        let mut chunk_data: Vec<PairData> = Vec::new();
-                        let mut chunk_bases: u64 = 0;
-                        loop {
-                            let r1 = record_iter.next();
-                            let rec1 = match r1 {
-                                Some(Ok(r)) => r,
-                                Some(Err(e)) => { eprintln!("Warning: Error reading record: {}", e); continue; },
-                                None => break,
-                            };
-
-                            let r2 = if two_file_pe {
-                                record_iter2.as_mut().unwrap().next()
-                            } else {
-                                record_iter.next()
-                            };
-                            let rec2 = match r2 {
-                                Some(Ok(r)) => r,
-                                Some(Err(e)) => { eprintln!("Warning: Error reading R2 record: {}", e); continue; },
-                                None => {
-                                    eprintln!("Warning: Odd number of reads in PE mode, last read ignored");
-                                    break;
-                                }
-                            };
-
-                            let q1 = rec1.quality().map(|qs| String::from_utf8_lossy(qs).to_string());
-                            let c1 = if copy_comment { rec1.description().map(|s| s.to_string()) } else { None };
-                            let q2 = rec2.quality().map(|qs| String::from_utf8_lossy(qs).to_string());
-                            let c2 = if copy_comment { rec2.description().map(|s| s.to_string()) } else { None };
-                            chunk_bases += (rec1.sequence().len() + rec2.sequence().len()) as u64;
-                            chunk_data.push((
-                                rec1.name().to_string(), rec1.sequence().to_vec(), q1, c1,
-                                rec2.name().to_string(), rec2.sequence().to_vec(), q2, c2,
-                            ));
-                            if chunk_bases >= mini_batch_size { break; }
-                        }
-                        let done = chunk_data.is_empty();
-                        if tx.send(chunk_data).is_err() { break; }
-                        if done { break; }
-                    }
-                });
-
-                let writer_handle = s.spawn(move || -> anyhow::Result<AlignmentStats> {
-                    let mut acc = AlignmentStats::default();
-                    while let Ok(results) = rx_out.recv() {
-                        for (res, stats) in results {
-                            if !res.is_empty() {
-                                write!(handle, "{}", res)?;
-                            }
-                            acc = acc + stats;
-                        }
-                    }
-                    Ok(acc)
-                });
-
-                while let Ok(chunk_data) = rx.recv() {
-                    if chunk_data.is_empty() { break; }
-
-                    let results: Vec<(String, AlignmentStats)> = chunk_data.par_iter().map_init(
-                        || (bonefish::align::extend::AlignmentContext::new(), bonefish::align::map::MapContext::new()),
-                        |(ctx, map_ctx), (qname1, qseq1, qual1, comment1, qname2, qseq2, qual2, comment2)| {
-                            let r1 = ReadInfo { qname: qname1, qseq: qseq1, qual: qual1.as_deref(), comment: comment1.as_deref(), n_seg: 2, seg_idx: 0 };
-                            let r2 = ReadInfo { qname: qname2, qseq: qseq2, qual: qual2.as_deref(), comment: comment2.as_deref(), n_seg: 2, seg_idx: 1 };
-                            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                bonefish::align::pipeline::align_and_format_pair(
-                                    opt, mi, &r1, &r2,
-                                    ctx, map_ctx, junc_db.as_ref(), out_cfg,
-                                )
-                            })) {
-                                Ok(result) => result,
-                                Err(_) => {
-                                    eprintln!("[WARNING] alignment panicked for pair: {}/{}", qname1, qname2);
-                                    (String::new(), AlignmentStats::default())
-                                }
-                            }
-                        }
-                    ).collect();
-
-                    if tx_out.send(results).is_err() { break; }
-                }
-                drop(tx_out);
-                writer_handle.join().expect("writer thread panicked")
-            })?;
-        }
-
-        #[cfg(not(feature = "parallel"))]
-        {
-            loop {
-                let mut chunk_data: Vec<PairData> = Vec::new();
-                let mut chunk_bases: u64 = 0;
-                loop {
-                    let r1 = if two_file_pe {
-                        record_iter.next()
-                    } else {
-                        record_iter.next()
-                    };
-                    let rec1 = match r1 {
-                        Some(Ok(r)) => r,
-                        Some(Err(e)) => { eprintln!("Warning: Error reading record: {}", e); continue; },
-                        None => break,
-                    };
-
-                    let r2 = if two_file_pe {
-                        record_iter2.as_mut().unwrap().next()
-                    } else {
-                        record_iter.next()
-                    };
-                    let rec2 = match r2 {
-                        Some(Ok(r)) => r,
-                        Some(Err(e)) => { eprintln!("Warning: Error reading R2 record: {}", e); continue; },
-                        None => {
-                            eprintln!("Warning: Odd number of reads in PE mode, last read ignored");
-                            break;
-                        }
-                    };
-
-                    let q1 = rec1.quality().map(|qs| String::from_utf8_lossy(qs).to_string());
-                    let c1 = if copy_comment { rec1.description().map(|s| s.to_string()) } else { None };
-                    let q2 = rec2.quality().map(|qs| String::from_utf8_lossy(qs).to_string());
-                    let c2 = if copy_comment { rec2.description().map(|s| s.to_string()) } else { None };
-                    chunk_bases += (rec1.sequence().len() + rec2.sequence().len()) as u64;
-                    chunk_data.push((
-                        rec1.name().to_string(), rec1.sequence().to_vec(), q1, c1,
-                        rec2.name().to_string(), rec2.sequence().to_vec(), q2, c2,
-                    ));
-                    if chunk_bases >= mini_batch_size { break; }
-                }
-
-                if chunk_data.is_empty() { break; }
-
-                let results: Vec<(String, AlignmentStats)> = {
-                    let mut ctx = bonefish::align::extend::AlignmentContext::new();
-                    let mut map_ctx = bonefish::align::map::MapContext::new();
-                    chunk_data.iter().map(|(qname1, qseq1, qual1, comment1, qname2, qseq2, qual2, comment2)| {
-                        let r1 = ReadInfo { qname: qname1, qseq: qseq1, qual: qual1.as_deref(), comment: comment1.as_deref(), n_seg: 2, seg_idx: 0 };
-                        let r2 = ReadInfo { qname: qname2, qseq: qseq2, qual: qual2.as_deref(), comment: comment2.as_deref(), n_seg: 2, seg_idx: 1 };
-                        bonefish::align::pipeline::align_and_format_pair(
-                            opt, mi, &r1, &r2,
-                            &mut ctx, &mut map_ctx, junc_db.as_ref(), out_cfg,
-                        )
-                    }).collect()
-                };
-
-                for (res, stats) in results {
-                    write!(handle, "{}", res)?;
-                    total_stats = total_stats + stats;
-                }
-            }
-        }
-    } else {
+    {
         // Three-stage pipeline: reader thread → worker pool → writer thread.
         // Output is decoupled from the worker pool so cores stay saturated
         // through chunk transitions.
@@ -1690,12 +1314,11 @@ fn map_one_part(
                 let align_one = |ctx: &mut bonefish::align::extend::AlignmentContext,
                                  map_ctx: &mut bonefish::align::map::MapContext,
                                  (qname, qseq, qual, comment): &SeData, use_gpu: bool| {
-                    let ri = ReadInfo { qname, qseq, qual: qual.as_deref(), comment: comment.as_deref(), n_seg: 1, seg_idx: 0 };
+                    let ri = ReadInfo { qname, qseq, qual: qual.as_deref(), comment: comment.as_deref() };
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         #[allow(unused_mut)]
                         let mut run = || bonefish::align::pipeline::align_and_format_query(
-                            opt, mi, &ri, ctx, map_ctx, junc_db.as_ref(),
-                            jump_db.as_ref(), out_cfg,
+                            opt, mi, &ri, ctx, map_ctx, out_cfg,
                         );
                         #[cfg(feature = "gpu")]
                         if use_gpu { return bonefish::align::dp::gpu::retry_scope(run); }
@@ -1906,10 +1529,9 @@ fn map_one_part(
                     let mut ctx = bonefish::align::extend::AlignmentContext::new();
                     let mut map_ctx = bonefish::align::map::MapContext::new();
                     chunk_data.iter().map(|(qname, qseq, qual, comment)| {
-                        let ri = ReadInfo { qname, qseq, qual: qual.as_deref(), comment: comment.as_deref(), n_seg: 1, seg_idx: 0 };
+                        let ri = ReadInfo { qname, qseq, qual: qual.as_deref(), comment: comment.as_deref() };
                          bonefish::align::pipeline::align_and_format_query(
-                            opt, mi, &ri, &mut ctx, &mut map_ctx, junc_db.as_ref(),
-                            jump_db.as_ref(), out_cfg,
+                            opt, mi, &ri, &mut ctx, &mut map_ctx, out_cfg,
                         )
                     }).collect()
                 };
@@ -1935,62 +1557,15 @@ fn map_one_part_split(
     part_number: usize,  // 1-based
     split_writer: &mut std::io::BufWriter<std::fs::File>,
 ) -> anyhow::Result<AlignmentStats> {
-    use bonefish::align::pipeline::{process_query, process_query_from_regs};
-    use bonefish::align::map::{MapContext, map_query_multi};
-    use bonefish::align::extend::rev_comp;
+    use bonefish::align::pipeline::process_query;
+    use bonefish::align::map::MapContext;
     let mid_occ_frac = run.mid_occ_frac;
-    let cli = run.cli;
-    let query2_path = run.query2_path;
-    let pe_mode = run.pe_mode;
-    let two_file_pe = run.two_file_pe;
     let out_cfg = run.split_out_cfg;
 
     // mid_occ per-part: only calculate if still <= 0
     if opt.seeding.mid_occ == 0 {
         opt.seeding.mid_occ = mi.cal_mid_occ(mid_occ_frac, opt.seeding.min_mid_occ, opt.seeding.max_mid_occ);
     }
-
-    // Load junction annotations per-part
-    let junc_db: Option<JunctionDb> = if cli.junc_bed.is_some() || cli.spsc.is_some() {
-        let name_to_rid: std::collections::HashMap<String, usize> = mi.seqs.iter().enumerate()
-            .map(|(i, s)| (s.name.clone(), i)).collect();
-        if let Some(bed_path) = &cli.junc_bed {
-            Some(junc::load_bed_junctions(bed_path, &name_to_rid, mi.seqs.len())?)
-        } else if let Some(spsc_path) = &cli.spsc {
-            let max_sc = junc::max_spsc_bonus(opt.scoring.gap_open2, opt.scoring.gap_open);
-            let scale = cli.spsc_scale.unwrap_or(0.7);
-            let seq_lens: Vec<usize> = mi.seqs.iter().map(|s| s.len).collect();
-            Some(junc::load_spsc_scores(spsc_path, &name_to_rid, mi.seqs.len(), &seq_lens, max_sc, scale)?)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    // Load jump junction database (-j / --pass1) per-part
-    let jump_db: Option<JumpDb> = {
-        let mut db: Option<JumpDb> = None;
-        if let Some(ref path) = cli.junc_jump {
-            match JumpDb::load(mi, path, 0x1, -1) {
-                Ok(j) => db = Some(j),
-                Err(e) => eprintln!("[WARNING] failed to load jump BED file: {}", e),
-            }
-        }
-        if let Some(ref path) = cli.pass1 {
-            match JumpDb::load(mi, path, 0x2, 5) {
-                Ok(j) => {
-                    if let Some(existing) = &mut db {
-                        existing.merge(&j);
-                    } else {
-                        db = Some(j);
-                    }
-                }
-                Err(e) => eprintln!("[WARNING] failed to load pass1 BED file: {}", e),
-            }
-        }
-        db
-    };
 
     // stdin can't be re-read for subsequent parts
     if query_path == "-" && part_number > 1 {
@@ -1999,92 +1574,11 @@ fn map_one_part_split(
 
     let reader = bonefish::fasta::open(query_path)
         .map_err(|e| anyhow::anyhow!("Error reading query: {}", e))?;
-    let reader2 = if two_file_pe {
-        let q2 = query2_path.unwrap();
-        Some(bonefish::fasta::open(q2)
-            .map_err(|e| anyhow::anyhow!("Error reading query2: {}", e))?)
-    } else {
-        None
-    };
 
     let mut total_stats = AlignmentStats::default();
     let mut record_iter = reader.records();
-    let mut record_iter2 = reader2.map(|r| r.records());
-    let is_weak = opt.flags.contains(AlignFlags::WEAK_PAIRING);
-    let is_independ = opt.flags.contains(AlignFlags::INDEPEND_SEG);
-    let pe_ori = opt.pairing.pe_ori;
-    let flip_r1 = (pe_ori >> 1) & 1 != 0;
-    let flip_r2 = pe_ori & 1 != 0;
 
-    if pe_mode {
-        let mut ctx = bonefish::align::extend::AlignmentContext::new();
-        let mut map_ctx = MapContext::new();
-
-        loop {
-            let rec1 = match record_iter.next() {
-                Some(Ok(r)) => r,
-                Some(Err(e)) => { eprintln!("Warning: Error reading record: {}", e); continue; },
-                None => break,
-            };
-            let rec2 = if two_file_pe {
-                match record_iter2.as_mut().unwrap().next() {
-                    Some(Ok(r)) => r,
-                    Some(Err(e)) => { eprintln!("Warning: Error reading R2 record: {}", e); continue; },
-                    None => break,
-                }
-            } else {
-                match record_iter.next() {
-                    Some(Ok(r)) => r,
-                    Some(Err(e)) => { eprintln!("Warning: Error reading R2 record: {}", e); continue; },
-                    None => break,
-                }
-            };
-
-            let qname1 = rec1.name().to_string();
-            let qseq1 = rec1.sequence().to_vec();
-            let qname2 = rec2.name().to_string();
-            let qseq2 = rec2.sequence().to_vec();
-
-            let qseq1_work = if flip_r1 { rev_comp(&qseq1) } else { qseq1.clone() };
-            let qseq2_work = if flip_r2 { rev_comp(&qseq2) } else { qseq2.clone() };
-
-            let (pq1, pq2, frag_gap) = if is_independ {
-                let pq1 = process_query(opt, mi, &qname1, &qseq1_work, &mut ctx, &mut map_ctx,
-                    junc_db.as_ref(), out_cfg);
-                let pq2 = process_query(opt, mi, &qname2, &qseq2_work, &mut ctx, &mut map_ctx,
-                    junc_db.as_ref(), out_cfg);
-                (pq1, pq2, opt.chaining.max_gap_ref)
-            } else if is_weak {
-                let pq1 = process_query(opt, mi, &qname1, &qseq1_work, &mut ctx, &mut map_ctx,
-                    junc_db.as_ref(), out_cfg);
-                let pq2 = process_query(opt, mi, &qname1, &qseq2_work, &mut ctx, &mut map_ctx,
-                    junc_db.as_ref(), out_cfg);
-                (pq1, pq2, opt.chaining.max_gap_ref)
-            } else {
-                let seqs: Vec<&[u8]> = vec![&qseq1_work, &qseq2_work];
-                let qlens = vec![qseq1_work.len(), qseq2_work.len()];
-                let multi = map_query_multi(opt, mi, &qname1, &seqs, &qlens, &mut map_ctx);
-                let shared_rep_len = multi.rep_len;
-                let frag_gap = multi.frag_gap;
-                let mut per_seg = multi.per_seg;
-                let (regs2, _) = if per_seg.len() > 1 { per_seg.remove(1) } else { (Vec::new(), Vec::new()) };
-                let (regs1, _) = if !per_seg.is_empty() { per_seg.remove(0) } else { (Vec::new(), Vec::new()) };
-                let pq1 = process_query_from_regs(opt, mi, &qseq1_work, &mut ctx, &mut map_ctx,
-                    junc_db.as_ref(), out_cfg, regs1, shared_rep_len);
-                let pq2 = process_query_from_regs(opt, mi, &qseq2_work, &mut ctx, &mut map_ctx,
-                    junc_db.as_ref(), out_cfg, regs2, shared_rep_len);
-                (pq1, pq2, frag_gap)
-            };
-
-            // Write both segments to temp file
-            split::split_write_query(split_writer, &pq1.results, pq1.rep_len, frag_gap)
-                .map_err(|e| anyhow::anyhow!("Error writing split temp: {}", e))?;
-            split::split_write_query(split_writer, &pq2.results, pq2.rep_len, frag_gap)
-                .map_err(|e| anyhow::anyhow!("Error writing split temp: {}", e))?;
-
-            total_stats = total_stats + pq1.stats + pq2.stats;
-        }
-    } else {
+    {
         // Single-end split write
         let mut ctx = bonefish::align::extend::AlignmentContext::new();
         let mut map_ctx = MapContext::new();
@@ -2099,20 +1593,9 @@ fn map_one_part_split(
             let qname = rec.name().to_string();
             let qseq = rec.sequence().to_vec();
 
-            let mut pq = process_query(opt, mi, &qname, &qseq, &mut ctx, &mut map_ctx,
-                junc_db.as_ref(), out_cfg);
+            let pq = process_query(opt, mi, &qname, &qseq, &mut ctx, &mut map_ctx, out_cfg);
 
-            // Jump splice extension for single-end split.
-            if let Some(ref jdb) = jump_db {
-                let is_splice = opt.flags.contains(AlignFlags::SPLICE);
-                if is_splice {
-                    for r in pq.results.iter_mut() {
-                        bonefish::align::jump::jump_split(mi, opt, qseq.len(), &qseq, r, jdb);
-                    }
-                }
-            }
-
-            split::split_write_query(split_writer, &pq.results, pq.rep_len, 0)
+            split::split_write_query(split_writer, &pq.results, pq.rep_len)
                 .map_err(|e| anyhow::anyhow!("Error writing split temp: {}", e))?;
 
             total_stats = total_stats + pq.stats;

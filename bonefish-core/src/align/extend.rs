@@ -13,9 +13,8 @@
 
 use crate::align::sketch::Minimizer;
 use crate::align::dp::{self, DpResult, APPROX_MAX, RIGHT_ALIGN, EXTENSION_ONLY, REV_CIGAR,
-    GENERIC_SCORING, SPLICE_FORWARD, SPLICE_REVERSE, SPLICE_FLANK, SPLICE_COMPLEX, SPLICE_SCORE};
+    GENERIC_SCORING};
 use crate::align::index::Index;
-use crate::align::junc;
 use crate::align::map::{AlignFlags, MapOptions};
 use std::cmp;
 
@@ -56,95 +55,6 @@ const NT4_TO_UPPER: [u8; 5] = [b'A', b'C', b'G', b'T', b'N'];
 // Re-export anchor flags from sketch.rs (canonical home for Minimizer bit-fields)
 pub use crate::align::sketch::{SEED_IGNORE, SEED_LONG_JOIN, SEED_TANDEM};
 
-
-/// Maximum query length for short-read RNA heuristic.
-const MAX_QLEN_FLANK: usize = 100;
-
-use super::dp::{CIGAR_MATCH, CIGAR_INS, CIGAR_N_SKIP};
-
-/// Heuristic alignment for short-read RNA.
-///
-/// For gap-fill segments where the reference is longer than the query (potential intron),
-/// constructs a synthetic target: left_flank + N_padding + right_flank, aligns with exts2,
-/// and adjusts the intron length if exactly one intron is found.
-/// Returns true if the heuristic succeeded (ez is filled), false to fall through to normal alignment.
-fn align_short_read_rna(
-    q_sub: &[u8], t_sub: &[u8], mat: &[i8],
-    opt: &MapOptions, end_bonus: i32, dp_flag: i32,
-    junc: Option<&[u8]>, junc_bonus: i8, junc_pen: i8,
-    ez: &mut DpResult,
-) -> bool {
-    let q = opt.scoring.gap_open;
-    let e = opt.scoring.gap_extend;
-    let q2 = opt.scoring.gap_open2;
-    let noncan = opt.scoring.noncanon_penalty;
-    let zdrop = opt.alignment.zdrop;
-    let qlen = q_sub.len();
-    let tlen = t_sub.len();
-    let ilen = (q2 * 2) as usize;
-    let tlen2 = qlen * 2 + ilen;
-
-    // Guard conditions
-    if qlen > MAX_QLEN_FLANK || tlen2 > tlen { return false; }
-
-    // Count exact matches from left and right
-    // Note: counts ALL matching positions, not just consecutive from start
-    let mut ll = 0usize;
-    for i in 0..qlen {
-        if q_sub[i] == t_sub[i] && q_sub[i] < 4 { ll += 1; }
-    }
-    let mut lr = 0usize;
-    for i in 0..qlen {
-        if q_sub[qlen - 1 - i] == t_sub[tlen - 1 - i] && q_sub[qlen - 1 - i] < 4 { lr += 1; }
-    }
-    // Too many mismatches for this heuristic
-    if qlen as i32 - (ll as i32 + lr as i32) > 9 { return false; }
-
-    // Construct synthetic target: left_qlen_bases + N*ilen + right_qlen_bases
-    let mut tseq2 = vec![0u8; tlen2];
-    tseq2[..qlen].copy_from_slice(&t_sub[..qlen]);
-    tseq2[qlen..qlen + ilen].fill(4); // N padding
-    tseq2[qlen + ilen..].copy_from_slice(&t_sub[tlen - qlen..]);
-
-    // Construct synthetic junction array
-    let junc2 = if let Some(j) = junc {
-        let mut junc2 = vec![0u8; tlen2];
-        junc2[..qlen].copy_from_slice(&j[..qlen]);
-        // middle ilen bytes stay 0
-        junc2[qlen + ilen..].copy_from_slice(&j[tlen - qlen..]);
-        Some(junc2)
-    } else {
-        None
-    };
-
-    // Align against synthetic target
-    // Note: dp_flag already includes SPLICE_COMPLEX (or not) from the caller's
-    // splice_dp_flag already includes SPLICE_COMPLEX (or not) from the caller.
-    dp::extend_splice(q_sub, &tseq2, 5, mat, q as i8, e as i8, q2 as i8, noncan as i8, zdrop, end_bonus, junc_bonus, junc_pen, dp_flag, junc2.as_deref(), ez);
-
-    // Validate result
-    if ez.zdropped != 0 { return false; }
-    if ez.cigar.is_empty() { return false; }
-    if (ez.cigar[0] & 0xf) != CIGAR_MATCH { return false; }
-    if (ez.cigar[ez.cigar.len() - 1] & 0xf) != CIGAR_MATCH { return false; }
-
-    let mut nn = 0;
-    let mut n_ins = 0;
-    for &op in &ez.cigar {
-        if (op & 0xf) == CIGAR_N_SKIP { nn += 1; }
-        else if (op & 0xf) == CIGAR_INS { n_ins += 1; }
-    }
-    if nn != 1 || n_ins > 0 { return false; }
-
-    // Adjust intron length in CIGAR
-    let intron_adj = (tlen as i32 - tlen2 as i32) as u32;
-    for op in &mut ez.cigar {
-        if (*op & 0xf) == CIGAR_N_SKIP {
-            *op += intron_adj << 4;
-        }
-    }
-    true
-}
 
 #[cfg(any(target_arch = "aarch64", target_arch = "x86_64", target_arch = "wasm32"))]
 /// Encode a single ASCII base to nt4.
@@ -193,114 +103,6 @@ pub fn max_stretch(anchors: &[Minimizer]) -> (usize, usize) {
     (max_i, max_len)
 }
 
-/// Compute seed extension score.
-/// Extends anchor region by ext_len, aligns with lightweight DP to score match quality.
-fn compute_seed_extension_score(
-    qseq: &[u8],  // ASCII query on correct strand
-    tseq: &[u8],  // ASCII reference (region-relative)
-    anchor: &Minimizer,
-    ext_len: i32,
-    mat: &[i8],
-    gapo: i32,
-    gape: i32,
-    // (index, rid, rgn_start): when Some, fetch fresh forward-strand bytes from
-    // the index instead of slicing `tseq`. This matches mm2's
-    // `mm_seed_ext_score` behavior and avoids clipping the extension range to
-    // the chain's pre-extracted region. None for the qstrand+reverse path,
-    // where `tseq` already contains the full rev-comp'd chromosome.
-    extract: Option<(&crate::align::index::Index, usize, usize)>,
-) -> i32 {
-    let q_span = anchor.query_span();
-    let re_a = anchor.ref_pos() + 1;
-    let rs_a = re_a - q_span;
-    let qe_a = anchor.query_pos() + 1;
-    let qs_a = qe_a - q_span;
-
-    let qlen = qseq.len() as i32;
-
-    let qs = std::cmp::max(0, qs_a - ext_len) as usize;
-    let qe = std::cmp::min(qlen, qe_a + ext_len) as usize;
-
-    // Reference range: prefer fresh fetch from index (forward strand) so the
-    // window isn't bounded by the chain's pre-extracted region.
-    let mut owned_t: Vec<u8> = Vec::new();
-    let t_slice: &[u8] = if let Some((mi, rid, rgn_start)) = extract {
-        let chrom_len = mi.seqs[rid].len as i32;
-        // Anchor coords stored in `anchor` are region-relative; rebase to
-        // absolute chromosome coordinates for the index fetch.
-        let abs_re_a = re_a + rgn_start as i32;
-        let abs_rs_a = rs_a + rgn_start as i32;
-        let abs_rs = std::cmp::max(0, abs_rs_a - ext_len) as usize;
-        let abs_re = std::cmp::min(chrom_len, abs_re_a + ext_len) as usize;
-        if abs_re <= abs_rs { return 0; }
-        owned_t.resize(abs_re - abs_rs, 0);
-        mi.extract_nt4_into(rid, abs_rs, abs_re, &mut owned_t);
-        &owned_t[..]
-    } else {
-        // qstrand+reverse: `tseq` is the full rev-comp'd chromosome. Slicing
-        // by region-relative coords here is correct and not bounded by a
-        // smaller region.
-        let tlen = tseq.len() as i32;
-        let rs = std::cmp::max(0, rs_a - ext_len) as usize;
-        let re = std::cmp::min(tlen, re_a + ext_len) as usize;
-        if re <= rs { return 0; }
-        &tseq[rs..re]
-    };
-    if qe <= qs { return 0; }
-
-    let mut qp = dp::lightweight_profile_init((qe - qs) as i32, &qseq[qs..qe], 5, mat);
-    let (score, _q_off, _t_off) = dp::lightweight_align_i16(&mut qp, t_slice.len() as i32, t_slice, gapo, gape);
-    score
-}
-
-/// Fix bad boundary exons in splice chains.
-/// Trims first/last anchors if they are weakly supported across large gaps
-fn fix_bad_ends_splice(
-    anchors: &[Minimizer],
-    qseq: &[u8],
-    tseq: &[u8],
-    mat: &[i8],
-    anchor_ext_len: i32,
-    anchor_ext_shift: i32,
-    gapo: i32,
-    gape: i32,
-    extract: Option<(&crate::align::index::Index, usize, usize)>,
-) -> (usize, usize) {
-    let mut as1: usize = 0;
-    let mut cnt1 = anchors.len();
-    if anchors.len() < 3 { return (as1, cnt1); }
-
-    // Check first anchor
-    let gap_left = anchors[1].ref_pos() - anchors[0].ref_pos();
-    if gap_left > 0 {
-        let log_gap = (gap_left as f64).ln();
-        let span = anchors[0].query_span() as f64;
-        if span < log_gap + anchor_ext_shift as f64 {
-            let score = compute_seed_extension_score(qseq, tseq, &anchors[0], anchor_ext_len, mat, gapo, gape, extract);
-            if (score as f64) / (mat[0] as f64) < log_gap + anchor_ext_shift as f64 {
-                as1 += 1;
-                cnt1 -= 1;
-            }
-        }
-    }
-
-    // Check last anchor (using original indices)
-    let n = anchors.len();
-    let gap_right = anchors[n - 1].ref_pos() - anchors[n - 2].ref_pos();
-    if gap_right > 0 {
-        let log_gap = (gap_right as f64).ln();
-        let span = anchors[n - 1].query_span() as f64;
-        if span < log_gap + anchor_ext_shift as f64 {
-            let score = compute_seed_extension_score(qseq, tseq, &anchors[n - 1], anchor_ext_len, mat, gapo, gape, extract);
-            if (score as f64) / (mat[0] as f64) < log_gap + anchor_ext_shift as f64 {
-                cnt1 -= 1;
-            }
-        }
-    }
-
-    (as1, cnt1)
-}
-
 #[derive(Debug, Clone)]
 pub struct CigarOp {
     pub op: char,
@@ -338,26 +140,21 @@ impl AlignmentContext {
 /// Per-call context for align_anchors (values that vary per mapping).
 /// Context for a single [`align_anchors`] call. Carries per-chain metadata
 /// that doesn't belong in [`MapOptions`] (which is shared across all chains).
-pub struct AlignAnchorContext<'a> {
+pub struct AlignAnchorContext {
     /// (rs1, qs1, re1, qe1): nearby-seed bounds from the squeezed array.
     /// Used to compute left/right extension boundaries. Region-relative.
     pub seed_bounds: (i32, i32, i32, i32),
     /// Whether this chain is on the reverse strand.
     pub rev: bool,
-    /// Reference sequence ID (for junction db lookups).
+    /// Reference sequence ID.
     pub rid: usize,
-    /// Splice flags (SPLICE_FOR, SPLICE_REV) controlling intron orientation.
-    pub splice_flag: AlignFlags,
     /// Whether this chain was produced by a z-drop split (affects zdrop threshold).
     pub split_inv: bool,
     /// Whether the index was built with homopolymer compression.
     pub is_hpc: bool,
     /// K-mer size from the index.
     pub k: usize,
-    /// Optional junction database for splice-aware alignment.
-    pub junc_db: Option<&'a crate::align::junc::JunctionDb>,
     /// Offset from region-relative to absolute chromosome coordinates.
-    /// Added to all positions when calling junction db (which uses absolute coords).
     /// Set to `rgn_start` when tseq is a region extraction; 0 for full chromosome.
     pub ref_offset: usize,
 }
@@ -762,7 +559,7 @@ fn test_zdrop(
     // Test if there is an inversion in the most dropped region
     let q_len = pos[1][1] - pos[1][0];
     let t_len = pos[0][1] - pos[0][0];
-    if !flags.intersects(AlignFlags::SPLICE | AlignFlags::SHORT_READ | AlignFlags::FOR_ONLY | AlignFlags::REV_ONLY)
+    if !flags.intersects(AlignFlags::FOR_ONLY | AlignFlags::REV_ONLY)
         && max_zdrop > zdrop_inv
         && q_len < max_gap
         && t_len < max_gap
@@ -1280,94 +1077,62 @@ struct TrimResult {
     qe: i32,
 }
 
-/// Trim anchors and compute alignment coordinates.
-/// SR mode uses max_stretch; non-SR uses fix_bad_ends + filter_bad_seeds + hpc_adjust.
+/// Trim anchors and compute alignment coordinates (fix_bad_ends + filter_bad_seeds + hpc_adjust).
 /// Returns None if no valid anchors remain after trimming.
 fn trim_and_prepare_anchors(
     anchors: &mut [Minimizer],
     qseq: &[u8],
     tseq: &[u8],
-    mat: &[i8; 25],
     opt: &MapOptions,
     is_hpc: bool,
-    splice_flag: AlignFlags,
     k_half: i32,
-    extract: Option<(&crate::align::index::Index, usize, usize)>,
 ) -> Option<TrimResult> {
     let w = opt.chaining.bandwidth;
     let min_chain_score = opt.chaining.min_chain_score;
     let max_gap = opt.chaining.max_gap;
-    let is_splice = opt.filtering.is_splice;
-    let is_sr = opt.flags.contains(AlignFlags::SHORT_READ);
-    let anchor_ext_len = opt.alignment.anchor_ext_len;
-    let anchor_ext_shift = opt.alignment.anchor_ext_shift;
-    let q = opt.scoring.gap_open;
-    let e = opt.scoring.gap_extend;
-    if is_sr && !is_hpc {
-        // SR path: max_stretch replaces fix_bad_ends + filter + adjust
-        let (off, cnt) = max_stretch(anchors);
-        if cnt == 0 { return None; }
-        let work = anchors[off..off + cnt].to_vec();
-        let first = &work[0];
-        let last = &work[cnt - 1];
-        let q_span_first = first.query_span();
-        Some(TrimResult {
-            as1_offset: off,
-            cnt1: cnt,
-            rs: first.ref_pos() + 1 - q_span_first,
-            qs: first.query_pos() + 1 - q_span_first,
-            re: last.ref_pos() + 1,
-            qe: last.query_pos() + 1,
-            work_anchors: work,
-        })
+    let no_end_flt = opt.flags.contains(AlignFlags::NO_END_FLT);
+    let (off, cnt) = if no_end_flt {
+        (0, anchors.len())
     } else {
-        // Non-SR path
-        let no_end_flt = splice_flag.contains(AlignFlags::NO_END_FLT);
-        let (off, cnt) = if no_end_flt {
-            (0, anchors.len())
-        } else if !is_splice {
-            fix_bad_ends(anchors, w, min_chain_score * 2)
-        } else {
-            fix_bad_ends_splice(anchors, qseq, tseq, mat, anchor_ext_len, anchor_ext_shift, q, e, extract)
-        };
-        if cnt == 0 { return None; }
+        fix_bad_ends(anchors, w, min_chain_score * 2)
+    };
+    if cnt == 0 { return None; }
 
-        let mut wa = anchors[off..off + cnt].to_vec();
+    let mut wa = anchors[off..off + cnt].to_vec();
 
-        // Filter bad seeds
-        filter_bad_seeds(&mut wa, 10, 40, max_gap >> 1, 10);
-        filter_bad_seeds_alt(&mut wa, 30, max_gap >> 1);
+    // Filter bad seeds
+    filter_bad_seeds(&mut wa, 10, 40, max_gap >> 1, 10);
+    filter_bad_seeds_alt(&mut wa, 30, max_gap >> 1);
 
-        // Propagate SEED_IGNORE and SEED_LONG_JOIN flags back to original anchors
-        for i in 0..cnt {
-            let fl = wa[i].y & (SEED_IGNORE | SEED_LONG_JOIN);
-            if fl != 0 {
-                anchors[off + i].y |= fl;
-            }
+    // Propagate SEED_IGNORE and SEED_LONG_JOIN flags back to original anchors
+    for i in 0..cnt {
+        let fl = wa[i].y & (SEED_IGNORE | SEED_LONG_JOIN);
+        if fl != 0 {
+            anchors[off + i].y |= fl;
         }
-
-        // Adjust anchor coordinates (HPC or k-mer offset)
-        let first = &wa[0];
-        let last = &wa[cnt - 1];
-        let (rs, qs, re, qe) = if is_hpc {
-            (hpc_adjust_ref(tseq, first.ref_pos()),
-             hpc_adjust_query(qseq, first.query_pos()),
-             hpc_adjust_ref(tseq, last.ref_pos()),
-             hpc_adjust_query(qseq, last.query_pos()))
-        } else {
-            (first.ref_pos() - k_half,
-             first.query_pos() - k_half,
-             last.ref_pos() - k_half,
-             last.query_pos() - k_half)
-        };
-
-        Some(TrimResult {
-            as1_offset: off,
-            cnt1: cnt,
-            work_anchors: wa,
-            rs, qs, re, qe,
-        })
     }
+
+    // Adjust anchor coordinates (HPC or k-mer offset)
+    let first = &wa[0];
+    let last = &wa[cnt - 1];
+    let (rs, qs, re, qe) = if is_hpc {
+        (hpc_adjust_ref(tseq, first.ref_pos()),
+         hpc_adjust_query(qseq, first.query_pos()),
+         hpc_adjust_ref(tseq, last.ref_pos()),
+         hpc_adjust_query(qseq, last.query_pos()))
+    } else {
+        (first.ref_pos() - k_half,
+         first.query_pos() - k_half,
+         last.ref_pos() - k_half,
+         last.query_pos() - k_half)
+    };
+
+    Some(TrimResult {
+        as1_offset: off,
+        cnt1: cnt,
+        work_anchors: wa,
+        rs, qs, re, qe,
+    })
 }
 
 /// Dual-affine extension with the optional narrow band (`ext_bw`), wide-band rescue and
@@ -1926,7 +1691,6 @@ pub fn align_anchors(
     let zdrop = opt.alignment.zdrop;
     let zdrop_inv = opt.alignment.zdrop_inv;
     let end_bonus = opt.alignment.end_bonus;
-    let is_splice = opt.filtering.is_splice;
     let _k = call.k;
     let seed_bounds = call.seed_bounds;
     let min_cnt = opt.chaining.min_cnt;
@@ -1934,16 +1698,8 @@ pub fn align_anchors(
     let transition = opt.scoring.transition;
     let sc_ambi = opt.scoring.ambig_penalty;
     let is_hpc = call.is_hpc;
-    let noncan = opt.scoring.noncanon_penalty;
-    let splice_flag = call.splice_flag;
-    let rev = call.rev;
-    let flags = opt.flags;
     let min_dp_len = opt.alignment.min_dp_len;
-    let junc_db = call.junc_db;
-    let rid = call.rid;
     let ref_offset = call.ref_offset as i32;
-    let junc_bonus = opt.scoring.junc_bonus;
-    let junc_pen = opt.scoring.junc_pen;
     let split_inv = call.split_inv;
 
     // --- Function body (formerly align_anchors_full) ---
@@ -1973,47 +1729,22 @@ pub fn align_anchors(
     // Generic scoring flag: needed when transition != b (non-uniform mismatch penalties)
     let generic_sc_flag = if transition != 0 && transition != b { GENERIC_SCORING } else { 0 };
 
-    // Splice DP flags
-    let mut splice_dp_flag: i32 = 0;
-    if is_splice {
-        if splice_flag.contains(AlignFlags::SPLICE_FOR) {
-            splice_dp_flag |= if rev { SPLICE_REVERSE } else { SPLICE_FORWARD };
-        }
-        if splice_flag.contains(AlignFlags::SPLICE_REV) {
-            splice_dp_flag |= if rev { SPLICE_FORWARD } else { SPLICE_REVERSE };
-        }
-        if splice_flag.contains(AlignFlags::SPLICE_FLANK) {
-            splice_dp_flag |= SPLICE_FLANK;
-        }
-        if !flags.contains(AlignFlags::SPLICE_OLD) {
-            splice_dp_flag |= SPLICE_COMPLEX;
-        }
-        // Add SPLICE_SCORE flag for SPSC mode
-        if let Some(junc::JunctionDb::Spsc(_)) = junc_db {
-            splice_dp_flag |= SPLICE_SCORE;
-        }
-    }
-    // Compute is_rev_splice for junction lookup strand
-    let is_rev_splice = (splice_dp_flag & SPLICE_REVERSE) != 0;
-
     // --- Steps 1-3: Anchor trimming + coordinate computation ---
-    let is_sr = flags.contains(AlignFlags::SHORT_READ);
 
-    // Lazy fill: for non-HPC non-splice modes (e.g. asm/map-ont), `tseq`
-    // arrives uninitialized and we fill segments on demand before each DP
-    // call + once for the final alignment range before CIGAR finalization.
-    // HPC/splice/SR need `tseq` filled up front because the trim path reads
-    // it. When `lazy_extract` is `None` (qstrand+reverse path), the caller
-    // has already filled `tseq`.
-    let use_lazy = lazy_extract.is_some() && !is_hpc && !is_splice && !is_sr;
+    // Lazy fill: without HPC, `tseq` arrives uninitialized and we fill
+    // segments on demand before each DP call + once for the final alignment
+    // range before CIGAR finalization. HPC needs `tseq` filled up front because
+    // the trim path reads it. When `lazy_extract` is `None` (qstrand+reverse
+    // path), the caller has already filled `tseq`.
+    let use_lazy = lazy_extract.is_some() && !is_hpc;
     if let Some((mi, rid, rgn_start)) = lazy_extract && !use_lazy {
         let len = tseq.len();
         mi.extract_nt4_into(rid, rgn_start, rgn_start + len, tseq);
     }
 
     let trim = match trim_and_prepare_anchors(
-        anchors, qseq, tseq, &mat, opt,
-        is_hpc, splice_flag, k_half, lazy_extract,
+        anchors, qseq, tseq, opt,
+        is_hpc, k_half,
     ) {
         Some(t) => t,
         None => return empty,
@@ -2026,19 +1757,9 @@ pub fn align_anchors(
     let mut raw_cigar: Vec<u32> = Vec::new();
     let mut dp_score: i32 = 0;
 
-    // is_sr_rna = (flag & SR_RNA) && is_splice
-    let is_sr_rna = flags.contains(AlignFlags::SR_RNA) && is_splice;
-
     // --- Step 4: Compute extension boundaries ---
     let (rs0, qs0);
-    if is_sr {
-        // SR mode: force full query coverage
-        qs0 = 0;
-        let mut l = qs;
-        l += if l * a + end_bonus > q { (l * a + end_bonus - q) / e } else { 0 };
-        rs0 = cmp::max(0, rs - l);
-    } else {
-        // Non-SR mode
+    {
         let orig_first = &anchors[0];
         let (rs0_tmp, qs0_tmp) = compute_left_boundary(
             rs, qs,
@@ -2085,16 +1806,6 @@ pub fn align_anchors(
         q_rev.reverse();
         t_rev.reverse();
 
-        // Junction buffer for left extension: get, then reverse
-        let junc_left = if let Some(db) = junc_db {
-            let mut jbuf = vec![0u8; (rs - rs0) as usize];
-            junc::get_junc(db, rid, rs0 + ref_offset, rs + ref_offset, is_rev_splice, &mut jbuf);
-            jbuf.reverse();
-            Some(jbuf)
-        } else {
-            None
-        };
-
         // Left extension flags: EXTZ_ONLY | RIGHT | REV_CIGAR
         let flag = EXTENSION_ONLY | RIGHT_ALIGN | REV_CIGAR | generic_sc_flag;
 
@@ -2112,8 +1823,6 @@ pub fn align_anchors(
             ez.max_score_target_pos = -1;
             ez.max_query_end_target_pos = -1;
             ez.zdropped = 1;
-        } else if is_splice {
-            dp::extend_splice(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, q2 as i8, noncan as i8, left_zdrop, end_bonus, junc_bonus as i8, junc_pen as i8, splice_dp_flag | flag, junc_left.as_deref(), &mut ez);
         } else if q == q2 && e == e2 {
             dp::extend_single_affine(&q_rev, &t_rev, 5, &mat, q as i8, e as i8, bw, left_zdrop, end_bonus, flag, &mut ez);
         } else {
@@ -2143,19 +1852,13 @@ pub fn align_anchors(
     let mut split_offset_in_orig: Option<usize> = None;
     let mut split_inv_flag = false;
 
-    // SR gap-fill: single iteration from first to last anchor
-    let gap_fill_start = if is_sr { cnt1 - 1 } else { 1 };
-    for i in gap_fill_start..cnt1 {
+    for i in 1..cnt1 {
         if (work_anchors[i].y & (SEED_IGNORE | SEED_TANDEM)) != 0 && i != cnt1 - 1 {
             continue;
         }
 
         // Anchor coordinate computation
-        let (anchor_re, anchor_qe) = if is_sr && !is_hpc {
-            // SR non-HPC: pos + 1
-            (work_anchors[i].ref_pos() + 1,
-             work_anchors[i].query_pos() + 1)
-        } else if is_hpc {
+        let (anchor_re, anchor_qe) = if is_hpc {
             (hpc_adjust_ref(tseq, work_anchors[i].ref_pos()),
              hpc_adjust_query(qseq, work_anchors[i].query_pos()))
         } else {
@@ -2202,15 +1905,6 @@ pub fn align_anchors(
                 let q_sub = &qseq[q_start..q_end];
                 let t_sub = &tseq[t_start..t_end];
 
-                // Junction buffer for gap-fill
-                let junc_gap = if let Some(db) = junc_db {
-                    let mut jbuf = vec![0u8; t_sub.len()];
-                    junc::get_junc(db, rid, gap_rs + ref_offset, anchor_re + ref_offset, is_rev_splice, &mut jbuf);
-                    Some(jbuf)
-                } else {
-                    None
-                };
-
                 let mut ez = DpResult::default();
                 let mut zdrop_code = 0i32;
                 // max_sw_mat check: skip alignment if matrix too large
@@ -2221,10 +1915,9 @@ pub fn align_anchors(
                     ez.max_score_target_pos = -1;
                     ez.max_query_end_target_pos = -1;
                     ez.zdropped = 1;
-                } else if (is_sr || is_sr_rna || opt.alignment.ungapped_fill || *crate::align::env_flags::EXP_UNGAPPED)
+                } else if (opt.alignment.ungapped_fill || *crate::align::env_flags::EXP_UNGAPPED)
                     && q_sub.len() == t_sub.len() {
-                    // SR/SR-RNA ungapped alignment
-                    // Only when query and reference gap lengths match (no indels)
+                    // Ungapped alignment, only when query and reference gap lengths match (no indels).
                     // Try ungapped score first; only use gapped alignment if ungapped is poor
                     let gap_len = q_sub.len() as i32;
                     let max_gapped_score = (gap_len - 2) * a - 2 * (q + e);
@@ -2244,9 +1937,7 @@ pub fn align_anchors(
                         ez.cigar = vec![((gap_len as u32) << 4)]; // M op
                     } else {
                         // Fall through to gapped alignment
-                        if is_splice {
-                            dp::extend_splice(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, noncan as i8, zdrop, gap_end_bonus, junc_bonus as i8, junc_pen as i8, splice_dp_flag | APPROX_MAX | generic_sc_flag, junc_gap.as_deref(), &mut ez);
-                        } else if q == q2 && e == e2 {
+                        if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
                             gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_subanchor, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
@@ -2259,27 +1950,18 @@ pub fn align_anchors(
                     if zdrop_code != 0 {
                         ez = DpResult::default();
                         let zdrop2 = if zdrop_code == 2 { zdrop_inv } else { zdrop };
-                        if is_splice {
-                            dp::extend_splice(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, noncan as i8, zdrop2, gap_end_bonus, junc_bonus as i8, junc_pen as i8, splice_dp_flag | generic_sc_flag, junc_gap.as_deref(), &mut ez);
-                        } else if q == q2 && e == e2 {
+                        if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop2, gap_end_bonus, generic_sc_flag, &mut ez);
                         } else {
                             dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop2, gap_end_bonus, generic_sc_flag, &mut ez);
                         }
                     }
                 } else {
-                    // For is_sr_rna, try heuristic alignment first
-                    let mut skip_full = false;
-                    if is_sr_rna {
-                        skip_full = align_short_read_rna(q_sub, t_sub, &mat, opt, gap_end_bonus, splice_dp_flag | APPROX_MAX | generic_sc_flag, junc_gap.as_deref(), junc_bonus as i8, junc_pen as i8, &mut ez);
-                    }
                     // First pass: APPROX_MAX
-                    if !skip_full {
+                    {
                         #[cfg(feature = "census")]
                         let census_t0 = dp::census::start();
-                        if is_splice {
-                            dp::extend_splice(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, noncan as i8, zdrop, gap_end_bonus, junc_bonus as i8, junc_pen as i8, splice_dp_flag | APPROX_MAX | generic_sc_flag, junc_gap.as_deref(), &mut ez);
-                        } else if q == q2 && e == e2 {
+                        if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
                             gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_subanchor, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
@@ -2298,9 +1980,7 @@ pub fn align_anchors(
                         let zdrop2 = if zdrop_code == 2 { zdrop_inv } else { zdrop };
                         #[cfg(feature = "census")]
                         let census_t0 = dp::census::start();
-                        if is_splice {
-                            dp::extend_splice(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, noncan as i8, zdrop2, gap_end_bonus, junc_bonus as i8, junc_pen as i8, splice_dp_flag | generic_sc_flag, junc_gap.as_deref(), &mut ez);
-                        } else if q == q2 && e == e2 {
+                        if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop2, gap_end_bonus, generic_sc_flag, &mut ez);
                         } else {
                             dp::extend_dual_affine_dispatch(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, zdrop2, gap_end_bonus, generic_sc_flag, &mut ez);
@@ -2364,14 +2044,7 @@ pub fn align_anchors(
     if !dropped && qe < qlen && re < tlen {
         // Compute right extension boundary
         let (mut qe0, mut re0);
-        if is_sr {
-            // SR mode: force full query coverage
-            qe0 = qlen;
-            let mut l = qlen - qe;
-            l += if l * a + end_bonus > q { (l * a + end_bonus - q) / e } else { 0 };
-            re0 = cmp::min(tlen, re + l);
-        } else {
-            // Non-SR mode
+        {
             let orig_last = &anchors[anchors.len() - 1];
             let (re0_tmp, qe0_tmp) = compute_right_boundary(
                 re, qe,
@@ -2409,15 +2082,6 @@ pub fn align_anchors(
             let q_sub = &qseq[qe as usize..qe0 as usize];
             let t_sub = &tseq[re as usize..re0 as usize];
 
-            // Junction buffer for right extension: no reversal needed
-            let junc_right = if let Some(db) = junc_db {
-                let mut jbuf = vec![0u8; (re0 - re) as usize];
-                junc::get_junc(db, rid, re + ref_offset, re0 + ref_offset, is_rev_splice, &mut jbuf);
-                Some(jbuf)
-            } else {
-                None
-            };
-
             // Right extension flags: EXTZ_ONLY
             let flag = EXTENSION_ONLY | generic_sc_flag;
             let mut ez = DpResult::default();
@@ -2430,8 +2094,6 @@ pub fn align_anchors(
                 ez.max_score_target_pos = -1;
                 ez.max_query_end_target_pos = -1;
                 ez.zdropped = 1;
-            } else if is_splice {
-                dp::extend_splice(q_sub, t_sub, 5, &mat, q as i8, e as i8, q2 as i8, noncan as i8, zdrop, end_bonus, junc_bonus as i8, junc_pen as i8, splice_dp_flag | flag, junc_right.as_deref(), &mut ez);
             } else if q == q2 && e == e2 {
                 dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw, zdrop, end_bonus, flag, &mut ez);
             } else {

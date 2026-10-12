@@ -41,7 +41,7 @@ pub fn print_post_chain_breakdown() {
     }
     eprintln!("-----------------------------");
 }
-use crate::align::sketch::{sketch_sequence, sketch_sequence_append, Minimizer};
+use crate::align::sketch::{sketch_sequence, Minimizer};
 use crate::align::index::Index;
 use crate::align::chain::chain_anchors;
 #[cfg(feature = "parallel")]
@@ -50,7 +50,7 @@ use crate::align::chain_rmq::chain_anchors_rmq;
 use crate::align::sort::radix_sort_128x;
 use crate::align::filter::{FilterParams, ParentState, Filterable, check_secondary_filter, scale_alt_score};
 
-use crate::align::seed::{hash64, compute_read_hash, collect_seed_hits, collect_seed_hits_with_occ, collect_seed_hits_heap, filter_minimizers_by_occ};
+use crate::align::seed::{hash64, compute_read_hash, collect_seed_hits, collect_seed_hits_with_occ, filter_minimizers_by_occ};
 
 // Behavioral flag constants
 bitflags! {
@@ -60,21 +60,13 @@ bitflags! {
         const NO_DUAL          = 0x002;
         const NO_QUAL          = 0x010;
         const OUT_CIGAR        = 0x020;
-        const SPLICE           = 0x080;
-        const SPLICE_FOR       = 0x100;
-        const SPLICE_REV       = 0x200;
         const NO_LJOIN         = 0x400;
-        const INDEPEND_SEG     = 0x800;
-        const SHORT_READ       = 0x1000;
-        const FRAG_MODE        = 0x2000;
         const NO_PRINT_2ND     = 0x4000;
         const EQX              = 0x8000;
         const LONG_CIGAR       = 0x10000;
         const SOFTCLIP         = 0x20000;
-        const SPLICE_FLANK     = 0x40000;
         const FOR_ONLY         = 0x100000;
         const REV_ONLY         = 0x200000;
-        const HEAP_SORT        = 0x400000;
         const ALL_CHAINS       = 0x800000;
         const NO_END_FLT       = 0x1000000;
         const HARD_MASK_LEVEL  = 0x2000000;
@@ -84,11 +76,7 @@ bitflags! {
         const RMQ_CHAIN        = 0x80000000;
         const QSTRAND          = 0x100000000;
         const NO_INV           = 0x200000000;
-        const SPLICE_OLD       = 0x400000000;
         const SECONDARY_SEQ    = 0x800000000;
-        const WEAK_PAIRING     = 0x4000000000;
-        const SR_RNA           = 0x8000000000;
-        const OUT_JUNC         = 0x10000000000;
         /// Partition anchors by ref_id and chain partitions in parallel.
         /// Beneficial for assembly-to-assembly (asm2asm) workloads where a
         /// single query has millions of anchors across many references.
@@ -155,9 +143,6 @@ pub struct ScoringParams {
     pub gap_extend2: i32,
     pub transition: i32,
     pub ambig_penalty: i32,
-    pub noncanon_penalty: i32,
-    pub junc_bonus: i32,
-    pub junc_pen: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -204,19 +189,10 @@ pub struct FilteringParams {
     pub pri_ratio: f32,
     pub mask_level: f32,
     pub mask_len: i32,
-    pub is_splice: bool,
     pub alt_drop: f32,
     pub seed: i32,
     pub chain_skip_scale: f32,
     pub max_qlen: i32,
-    pub jump_min_match: i32,
-}
-
-#[derive(Debug, Clone)]
-pub struct PairedEndParams {
-    pub max_frag_len: i32,
-    pub pe_ori: i32,
-    pub pe_bonus: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -226,7 +202,6 @@ pub struct MapOptions {
     pub scoring: ScoringParams,
     pub alignment: AlignmentParams,
     pub filtering: FilteringParams,
-    pub pairing: PairedEndParams,
     pub flags: AlignFlags,
     pub mini_batch_size: i64,
 }
@@ -275,9 +250,6 @@ impl Default for MapOptions {
                 gap_extend2: 1,
                 transition: 0,
                 ambig_penalty: 1,
-                noncanon_penalty: 0,
-                junc_bonus: 0,
-                junc_pen: 0,
             },
             alignment: AlignmentParams {
                 zdrop: 400,
@@ -305,17 +277,10 @@ impl Default for MapOptions {
                 pri_ratio: 0.8,
                 mask_level: 0.5,
                 mask_len: i32::MAX,
-                is_splice: false,
                 alt_drop: 0.15,
                 seed: 11,
                 chain_skip_scale: 0.0,
                 max_qlen: 0,
-                jump_min_match: 3,
-            },
-            pairing: PairedEndParams {
-                max_frag_len: 0,
-                pe_ori: 0,
-                pe_bonus: 33,
             },
             flags: AlignFlags::empty(),
             mini_batch_size: 500_000_000,
@@ -412,8 +377,6 @@ pub trait Aligner {
 
 /// Default DP-based chainer (wraps [`crate::align::chain::chain_anchors`]).
 pub struct DpChainer {
-    pub is_cdna: bool,
-    pub n_seg: i32,
     pub max_dist_x: i32,
     pub max_dist_y: i32,
 }
@@ -425,7 +388,7 @@ impl Chainer for DpChainer {
         anchors: &mut [Minimizer],
         bufs: &mut ChainingBuffers,
     ) -> (Vec<u64>, Vec<Minimizer>) {
-        chain_anchors(params, self.is_cdna, self.n_seg, self.max_dist_x, self.max_dist_y, anchors, bufs)
+        chain_anchors(params, self.max_dist_x, self.max_dist_y, anchors, bufs)
     }
 }
 
@@ -533,10 +496,6 @@ pub struct Mapping {
     pub compact_parent: usize,
     /// True if this split part was created when zdrop detected an inversion.
     pub split_inv: bool,
-    /// True if this chain came from per-segment splitting (multi-segment input)
-    pub seg_split: bool,
-    /// Segment index (0 or 1) for multi-segment mapping
-    pub seg_id: usize,
     /// Whether this chain maps to an ALT contig
     pub is_alt: bool,
 }
@@ -754,104 +713,6 @@ fn filter_strand_retained(regs: &mut Vec<Mapping>) {
     regs.truncate(j);
 }
 
-// --- Multi-segment (strong pairing) support ---
-
-/// Collect minimizers from multiple query segments into a combined vector.
-/// Offsets positions by cumulative query lengths and passes segment index as rid.
-/// Collect minimizer seeds from the query sequence.
-fn collect_minimizers_multi(
-    mi: &Index,
-    seqs: &[&[u8]],
-    qlens: &[usize],
-    minimizers: &mut Vec<Minimizer>,
-) {
-    minimizers.clear();
-    let mut sum: usize = 0;
-    for i in 0..seqs.len() {
-        let n_before = minimizers.len();
-        sketch_sequence_append(seqs[i], qlens[i], mi.window_size, mi.kmer_size, i, mi.homopolymer_compressed, minimizers);
-        for mini in &mut minimizers[n_before..] {
-            mini.y += (sum as u64) << 1;
-        }
-        sum += qlens[i];
-    }
-}
-
-/// Port of mm_filter_suboptimal_multi_segment (pe.c:6-43).
-/// Used in chain_post when n_segs > 1.
-fn filter_suboptimal_multi_segment(
-    pri_ratio: f32,
-    pri1: f32,
-    pri2: f32,
-    max_gap_ref: i32,
-    min_diff: i32,
-    best_n: i32,
-    n_segs: usize,
-    qlens: &[usize],
-    regs: &mut Vec<Mapping>,
-    parents: &[usize],
-) {
-    if pri_ratio <= 0.0 || regs.is_empty() { return; }
-    let max_dist = if n_segs == 2 {
-        (qlens[0] + qlens[1]) as i32 + max_gap_ref
-    } else {
-        0
-    };
-
-    let n = regs.len();
-    let mut keep = vec![true; n];
-    let mut n_2nd = 0i32;
-
-    for i in 0..n {
-        let p = parents[i];
-        if p == i { continue; } // primary: always kept
-
-        let to_keep;
-        if regs[i].score + min_diff >= regs[p].score {
-            to_keep = true;
-        } else {
-            let pr = &regs[p];
-            let qr = &regs[i];
-            if pr.is_reverse == qr.is_reverse && pr.ref_id == qr.ref_id
-                && (qr.ref_end as i32 - pr.ref_start as i32) < max_dist
-                && (pr.ref_end as i32 - qr.ref_start as i32) < max_dist
-            {
-                to_keep = qr.score as f32 >= pr.score as f32 * pri1;
-            } else {
-                let is_par_both = n_segs == 2 && pr.query_start < qlens[0] && pr.query_end > qlens[0];
-                let is_chi_both = n_segs == 2 && qr.query_start < qlens[0] && qr.query_end > qlens[0];
-                if is_chi_both || is_chi_both == is_par_both {
-                    to_keep = qr.score as f32 >= pr.score as f32 * pri_ratio;
-                } else {
-                    to_keep = qr.score as f32 >= pr.score as f32 * pri2;
-                }
-            }
-        }
-
-        if to_keep {
-            n_2nd += 1;
-            if n_2nd > best_n { keep[i] = false; }
-        } else {
-            keep[i] = false;
-        }
-    }
-
-    let mut j = 0;
-    for i in 0..n {
-        if keep[i] {
-            if j != i { regs[j] = regs[i].clone(); }
-            j += 1;
-        }
-    }
-    regs.truncate(j);
-}
-
-/// Per-segment result from split_chains_into_segments.
-pub struct SegResult {
-    pub u: Vec<u64>,
-    pub anchors: Vec<Minimizer>,
-}
-
 /// A chain's span on the target and query, plus the hash identifying it.
 struct ChainCoords {
     rid: usize,
@@ -865,8 +726,8 @@ struct ChainCoords {
 
 /// Derive a chain's coordinates and identity hash from its anchors, which must
 /// be exactly the chain's own (the hash mixes in their count). `qlen` flips
-/// reverse-strand chains into query orientation (the segment sum for
-/// multi-segment reads); `is_qstrand` keeps them in chain orientation instead.
+/// reverse-strand chains into query orientation; `is_qstrand` keeps them in
+/// chain orientation instead.
 fn chain_coords(
     anchors: &[Minimizer],
     qlen: usize,
@@ -895,453 +756,6 @@ fn chain_coords(
         rev, rs, re, qs, qe,
         hash: (anchors.len() as u32) ^ h,
     }
-}
-
-/// Split combined-query chains into per-segment registrations.
-/// Split multi-segment chains into per-segment sub-chains.
-fn split_chains_into_segments(
-    read_hash: u32,
-    n_segs: usize,
-    qlens: &[usize],
-    regs0: &[Mapping],
-    chains: &[Minimizer],
-    mi: &Index,
-    is_qstrand: bool,
-) -> Vec<(Vec<Mapping>, Vec<Minimizer>)> {
-    // Phase 1: Build accumulated query lengths
-    let mut acc_qlen = vec![0usize; n_segs + 1];
-    for s in 1..n_segs {
-        acc_qlen[s] = acc_qlen[s - 1] + qlens[s - 1];
-    }
-    let qlen_sum = acc_qlen[n_segs - 1] + qlens[n_segs - 1];
-
-    // Phase 2: Initialize per-segment u arrays with chain scores in upper 32 bits
-    let mut seg_u: Vec<Vec<u64>> = (0..n_segs)
-        .map(|_| regs0.iter().map(|r| (r.score as u64) << 32).collect())
-        .collect();
-    let mut seg_n_a: Vec<usize> = vec![0; n_segs];
-
-    // Count anchors per segment per chain
-    for (i, r) in regs0.iter().enumerate() {
-        for j in 0..r.anchor_count as usize {
-            let a = &chains[r.original_as + j];
-            let sid = a.segment_id();
-            if sid < n_segs {
-                seg_u[sid][i] += 1; // increment count in lower 32 bits
-                seg_n_a[sid] += 1;
-            }
-        }
-    }
-
-    // Phase 3: Squeeze out zero-length per-segment chains
-    let mut seg_u_squeezed: Vec<Vec<u64>> = Vec::with_capacity(n_segs);
-    for su in &seg_u {
-        let squeezed: Vec<u64> = su.iter()
-            .filter(|&&u| (u as i32) != 0)
-            .copied()
-            .collect();
-        seg_u_squeezed.push(squeezed);
-    }
-
-    // Phase 4: Transform anchor coordinates to per-segment space
-    let mut seg_anchors: Vec<Vec<Minimizer>> = (0..n_segs)
-        .map(|s| Vec::with_capacity(seg_n_a[s]))
-        .collect();
-
-    for r in regs0.iter() {
-        for j in 0..r.anchor_count as usize {
-            let a = chains[r.original_as + j];
-            let sid = a.segment_id();
-            if sid >= n_segs { continue; }
-
-            let mut a1 = a;
-            // Coordinate transformation.
-            let is_rev = (a1.x >> 63) != 0;
-            let adj = if is_rev {
-                // reverse strand
-                (qlen_sum - (qlens[sid] + acc_qlen[sid])) as u64
-            } else {
-                // forward strand
-                acc_qlen[sid] as u64
-            };
-            a1.y = a1.y.wrapping_sub(adj);
-            seg_anchors[sid].push(a1);
-        }
-    }
-
-    // Phase 5: Generate per-segment registrations
-    let mut result: Vec<(Vec<Mapping>, Vec<Minimizer>)> = Vec::with_capacity(n_segs);
-    for s in 0..n_segs {
-        let u = &seg_u_squeezed[s];
-        let a = &seg_anchors[s];
-        let qlen_s = qlens[s];
-
-        let mut regs_s = Vec::with_capacity(u.len());
-        let mut k_offset = 0;
-        for &u_val in u.iter() {
-            let sc = (u_val >> 32) as i32;
-            let cnt = (u_val & 0xFFFFFFFF) as i32;
-            if cnt == 0 { continue; }
-
-            let chain_a = a[k_offset..k_offset + cnt as usize].to_vec();
-            let ChainCoords { rid, rev, rs, re, qs, qe, hash: chain_hash } =
-                chain_coords(&chain_a, qlen_s, is_qstrand, read_hash);
-
-            let tlen = if rid < mi.seqs.len() { mi.seqs[rid].len as i32 } else { 0 };
-            regs_s.push(Mapping {
-                ref_id: rid,
-                query_start: qs,
-                query_end: qe,
-                ref_start: rs,
-                ref_end: re,
-                score: sc,
-                initial_chain_score: sc,
-                anchor_count: cnt,
-                anchors: chain_a,
-                is_reverse: rev,
-                s2_score: None,
-                is_secondary: false,
-                hash: chain_hash,
-                pre_num_suboptimal: 0,
-                left_bound_rs1: 0,
-                left_bound_qs1: 0,
-                right_bound_re1: tlen,
-                right_bound_qe1: qlen_s as i32,
-                original_as: k_offset,
-                sq_start: 0,
-                div: -1.0,
-                strand_retained: false,
-                compact_parent: 0,
-                split_inv: false,
-                seg_split: true,
-                seg_id: s,
-                is_alt: false,
-            });
-
-            k_offset += cnt as usize;
-        }
-
-        result.push((regs_s, seg_anchors[s].clone()));
-    }
-
-    result
-}
-
-/// Result of multi-segment mapping.
-pub struct MultiMapResult {
-    pub per_seg: Vec<(Vec<Mapping>, Vec<Minimizer>)>,
-    pub rep_len: usize,
-    pub frag_gap: i32,
-    pub stats: AlignmentStats,
-}
-
-/// Map multiple query segments using combined minimizer collection and chaining.
-/// This is the "strong pairing" path.
-pub fn map_query_multi(
-    opt: &MapOptions,
-    mi: &Index,
-    qname: &str,
-    seqs: &[&[u8]],
-    qlens: &[usize],
-    ctx: &mut MapContext,
-) -> MultiMapResult {
-    let n_segs = seqs.len();
-    let mut stats = AlignmentStats { n_reads: n_segs, ..Default::default() };
-
-    let qlen_sum: usize = qlens.iter().sum();
-    let read_hash = compute_read_hash(qname, qlen_sum, opt.filtering.seed as u32, opt.flags);
-
-    let t0 = Instant::now();
-    collect_minimizers_multi(mi, seqs, qlens, &mut ctx.minimizers);
-
-    // Drop query minimizers that appear too many times in the query itself.
-    if opt.seeding.q_occ_frac > 0.0 && opt.seeding.mid_occ > 0 && ctx.minimizers.len() > opt.seeding.mid_occ {
-        filter_minimizers_by_occ(&mut ctx.minimizers, opt.seeding.mid_occ, opt.seeding.q_occ_frac);
-    }
-
-    stats.t_sketch = t0.elapsed();
-    stats.n_seeds = ctx.minimizers.len();
-
-    let t1 = Instant::now();
-    ctx.mini_pos.clear();
-    let qn_opt = Some(qname);
-    let mut rep_len = if opt.flags.contains(AlignFlags::HEAP_SORT) {
-        collect_seed_hits_heap(opt, mi, qlen_sum, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, opt.seeding.mid_occ, qn_opt, &mut ctx.seed_scratch)
-    } else {
-        collect_seed_hits(opt, mi, qlen_sum, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, qn_opt, &mut ctx.seed_scratch)
-    };
-    stats.t_seed = t1.elapsed();
-    stats.n_anchors = ctx.anchors.len();
-
-    let t2 = Instant::now();
-
-    // Compute max chaining gaps.
-    let is_sr = opt.flags.contains(AlignFlags::SHORT_READ);
-    let max_chain_gap_qry = if is_sr {
-        if qlen_sum as i32 > opt.chaining.max_gap { qlen_sum as i32 } else { opt.chaining.max_gap }
-    } else {
-        opt.chaining.max_gap
-    };
-    let max_chain_gap_ref = if opt.chaining.max_gap_ref > 0 {
-        opt.chaining.max_gap_ref
-    } else if opt.pairing.max_frag_len > 0 {
-        let g = opt.pairing.max_frag_len - qlen_sum as i32;
-        if g < opt.chaining.max_gap { opt.chaining.max_gap } else { g }
-    } else {
-        opt.chaining.max_gap
-    };
-
-    // Run chaining across all segments.
-    let mut anchors = std::mem::take(&mut ctx.anchors);
-    let (mut u, mut chains) = if opt.flags.contains(AlignFlags::RMQ_CHAIN) {
-        chain_anchors_rmq(&opt.chaining, &mut anchors, &mut ctx.chain_bufs)
-    } else {
-        chain_anchors(&opt.chaining, opt.filtering.is_splice, n_segs as i32, max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs)
-    };
-    ctx.anchors = anchors;
-
-    stats.t_chain = t2.elapsed();
-    stats.n_chains = chains.len();
-
-    // RMQ rescue re-chaining — checked FIRST, before high-occ re-chain.
-    let skip_rescue = opt.flags.intersects(AlignFlags::SPLICE | AlignFlags::SHORT_READ | AlignFlags::NO_LJOIN);
-    if n_segs == 1 && opt.chaining.bandwidth_long > opt.chaining.bandwidth && u.len() > 1 && !skip_rescue {
-        let first_chain_cnt = (u[0] & 0xFFFFFFFF) as usize;
-        if first_chain_cnt > 0 {
-            let first_anchor = &chains[0];
-            let last_anchor = &chains[first_chain_cnt - 1];
-            let st = first_anchor.query_pos();
-            let en = last_anchor.query_pos();
-            let coverage = (en - st) as usize;
-
-            let needs_rescue = ((qlen_sum.saturating_sub(coverage) > opt.chaining.rmq_rescue_size as usize)
-                || (coverage > (qlen_sum as f32 * opt.chaining.rmq_rescue_ratio) as usize))
-                && crate::align::env_flags::EXP_RESCUE_COVER.is_none_or(|f| (coverage as f32) < f * qlen_sum as f32);
-
-            if needs_rescue {
-                PC_RESCUE_COUNT.fetch_add(1, Relaxed);
-                PC_RESCUE_ANCHORS.fetch_add(chains.len() as u64, Relaxed);
-
-                // chains is the output of the prior chain pass and is no longer
-                // needed once we reassign below, so re-use it in place: truncate to
-                // n_a, sort by (ref_id_strand, x), pass to the rescue call. Saves
-                // an n_a × 16-byte clone per rescue trigger.
-                let n_a: usize = u.iter().map(|&v| (v & 0xFFFFFFFF) as usize).sum();
-                chains.truncate(n_a);
-                radix_sort_128x(&mut chains);
-
-                let rescue_params = ChainingParams { bandwidth: opt.chaining.bandwidth_long, ..opt.chaining.clone() };
-                let (u2, chains2) = chain_anchors_rmq(
-                    &rescue_params, &mut chains, &mut ctx.chain_bufs,
-                );
-
-                u = u2;
-                chains = chains2;
-            }
-        }
-    } else if opt.seeding.max_occ > opt.seeding.mid_occ && rep_len > 0 && !opt.flags.contains(AlignFlags::RMQ_CHAIN) {
-        let rechain = if !u.is_empty() {
-            // Find best chain by score, count distinct segment IDs
-            let mut max_score = 0u64;
-            let mut max_off: usize = 0;
-            let mut max_cnt: usize = 0;
-            let mut off: usize = 0;
-            for &u_val in u.iter() {
-                let sc = u_val >> 32;
-                let cnt = (u_val & 0xFFFFFFFF) as usize;
-                if sc > max_score {
-                    max_score = sc;
-                    max_off = off;
-                    max_cnt = cnt;
-                }
-                off += cnt;
-            }
-            let mut n_chained_segs = 1;
-            for j in 1..max_cnt {
-                if chains[max_off + j].segment_id() != chains[max_off + j - 1].segment_id() {
-                    n_chained_segs += 1;
-                }
-            }
-            n_chained_segs < n_segs
-        } else {
-            true
-        };
-
-        if rechain {
-            rep_len = if opt.flags.contains(AlignFlags::HEAP_SORT) {
-                collect_seed_hits_heap(opt, mi, qlen_sum, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, opt.seeding.max_occ, qn_opt, &mut ctx.seed_scratch)
-            } else {
-                collect_seed_hits_with_occ(opt, mi, qlen_sum, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, opt.seeding.max_occ, qn_opt, &mut ctx.seed_scratch)
-            };
-
-            let mut anchors = std::mem::take(&mut ctx.anchors);
-            let (u2, chains2) = chain_anchors(
-                &opt.chaining, opt.filtering.is_splice, n_segs as i32,
-                max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs,
-            );
-            ctx.anchors = anchors;
-            u = u2;
-            chains = chains2;
-        }
-    }
-
-    // Generate combined registrations (mm_gen_regs with qlen_sum)
-    let is_qstrand = opt.flags.contains(AlignFlags::QSTRAND);
-    let mut regs0 = Vec::with_capacity(u.len());
-    let mut k_offset = 0;
-    for &u_val in u.iter() {
-        let sc = (u_val >> 32) as i32;
-        let cnt = (u_val & 0xFFFFFFFF) as i32;
-        if cnt == 0 { continue; }
-
-        let chain_a = chains[k_offset..k_offset + cnt as usize].to_vec();
-        let ChainCoords { rid, rev, rs, re, qs, qe, hash: chain_hash } =
-            chain_coords(&chain_a, qlen_sum, is_qstrand, read_hash);
-
-        let tlen = if rid < mi.seqs.len() { mi.seqs[rid].len as i32 } else { 0 };
-        regs0.push(Mapping {
-            ref_id: rid, query_start: qs, query_end: qe, ref_start: rs, ref_end: re,
-            score: sc,
-            initial_chain_score: sc,
-            anchor_count: cnt,
-            anchors: chain_a,
-            is_reverse: rev,
-            s2_score: None,
-            is_secondary: false,
-            hash: chain_hash,
-            pre_num_suboptimal: 0,
-            left_bound_rs1: 0,
-            left_bound_qs1: 0,
-            right_bound_re1: tlen,
-            right_bound_qe1: qlen_sum as i32,
-            original_as: k_offset,
-            sq_start: 0,
-            div: -1.0,
-            strand_retained: false,
-            compact_parent: 0,
-            split_inv: false,
-            seg_split: false,
-            seg_id: 0,
-            is_alt: false,
-        });
-
-        k_offset += cnt as usize;
-    }
-
-    // Filter and sort combined regs
-    if opt.chaining.min_chain_score > 0 {
-        regs0.retain(|r| r.score >= opt.chaining.min_chain_score);
-    }
-    if opt.flags.contains(AlignFlags::FOR_ONLY) { regs0.retain(|r| !r.is_reverse); }
-    if opt.flags.contains(AlignFlags::REV_ONLY) { regs0.retain(|r| r.is_reverse); }
-
-    // Mark ALT-contig chains; then sort chains by descending score.
-    let n_alt = mi.seqs.iter().filter(|s| s.is_alt).count();
-    if n_alt > 0 {
-        for r in regs0.iter_mut() {
-            if mi.seqs[r.ref_id].is_alt { r.is_alt = true; }
-        }
-        let alt_drop = opt.filtering.alt_drop;
-        regs0.sort_by(|a, b| {
-            let sa = if a.is_alt { scale_alt_score(a.score, alt_drop) } else { a.score };
-            let sb = if b.is_alt { scale_alt_score(b.score, alt_drop) } else { b.score };
-            sb.cmp(&sa).then_with(|| b.hash.cmp(&a.hash))
-        });
-    } else {
-        regs0.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| b.hash.cmp(&a.hash)));
-    }
-
-    if regs0.is_empty() {
-        let per_seg = (0..n_segs).map(|_| (Vec::new(), Vec::new())).collect();
-        return MultiMapResult { per_seg, rep_len, frag_gap: max_chain_gap_ref, stats };
-    }
-
-    // Multi-segment chain_post: parent assignment + suboptimal filtering.
-    if !opt.flags.contains(AlignFlags::ALL_CHAINS) {
-        let filter_params = FilterParams::new(opt, mi);
-        let mut parent_state = ParentState::new(
-            regs0.len(), filter_params.mask_level, filter_params.mask_len,
-            filter_params.hard_mask_level,
-        );
-        parent_state.init_from_items(&regs0);
-        parent_state.assign_parents(&regs0);
-
-        // Compute subsc and n_sub before filtering
-        let mut subsc_pre = vec![0i32; regs0.len()];
-        let mut n_sub_pre = vec![0i32; regs0.len()];
-        for i in 0..regs0.len() {
-            let pi = parent_state.parent[i];
-            if pi != i {
-                let sci = if !regs0[pi].is_alt && regs0[i].is_alt {
-                    scale_alt_score(regs0[i].score, opt.filtering.alt_drop)
-                } else {
-                    regs0[i].score
-                };
-                if sci > subsc_pre[pi] { subsc_pre[pi] = sci; }
-                if regs0[i].anchor_count >= regs0[pi].anchor_count { n_sub_pre[pi] += 1; }
-            }
-        }
-        for i in 0..regs0.len() {
-            if parent_state.is_primary(i) {
-                if subsc_pre[i] > 0 { regs0[i].s2_score = Some(subsc_pre[i]); }
-                regs0[i].pre_num_suboptimal = n_sub_pre[i];
-            }
-        }
-
-        filter_suboptimal_multi_segment(
-            opt.filtering.pri_ratio, 0.2, 0.7,
-            max_chain_gap_ref, (mi.kmer_size * 2) as i32, opt.filtering.best_n,
-            n_segs, qlens, &mut regs0, &parent_state.parent,
-        );
-    }
-
-    // estimate_divergence runs in pipeline.rs; skipped for SR mode.
-
-    if regs0.is_empty() {
-        let per_seg = (0..n_segs).map(|_| (Vec::new(), Vec::new())).collect();
-        return MultiMapResult { per_seg, rep_len, frag_gap: max_chain_gap_ref, stats };
-    }
-
-    // Split combined chains into one batch per query segment.
-    let mut per_seg = split_chains_into_segments(read_hash, n_segs, qlens, &regs0, &chains, mi, is_qstrand);
-
-    // Per-segment parent assignment.
-    for (regs_s, _) in &mut per_seg {
-        if !regs_s.is_empty() {
-            regs_s.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| b.hash.cmp(&a.hash)));
-
-            if !opt.flags.contains(AlignFlags::ALL_CHAINS) {
-                let filter_params = FilterParams::new(opt, mi);
-                let mut parent_state = ParentState::new(
-                    regs_s.len(), filter_params.mask_level, filter_params.mask_len,
-                    filter_params.hard_mask_level,
-                );
-                parent_state.init_from_items(regs_s);
-                parent_state.assign_parents(regs_s);
-
-                // Store parent info for downstream use
-                let mut subsc_pre = vec![0i32; regs_s.len()];
-                let mut n_sub_pre = vec![0i32; regs_s.len()];
-                for i in 0..regs_s.len() {
-                    let pi = parent_state.parent[i];
-                    if pi != i {
-                        if regs_s[i].score > subsc_pre[pi] { subsc_pre[pi] = regs_s[i].score; }
-                        if regs_s[i].anchor_count >= regs_s[pi].anchor_count { n_sub_pre[pi] += 1; }
-                    }
-                }
-                for i in 0..regs_s.len() {
-                    if parent_state.is_primary(i) {
-                        if subsc_pre[i] > 0 { regs_s[i].s2_score = Some(subsc_pre[i]); }
-                        regs_s[i].pre_num_suboptimal = n_sub_pre[i];
-                    } else {
-                        regs_s[i].is_secondary = true;
-                    }
-                }
-            }
-        }
-    }
-
-    MultiMapResult { per_seg, rep_len, frag_gap: max_chain_gap_ref, stats }
 }
 
 pub fn map_query(
@@ -1379,28 +793,16 @@ pub fn map_query(
     // collect_seed_hits clears ctx.anchors internally now
     ctx.mini_pos.clear();
     let qn_opt = Some(qname);
-    let mut rep_len = if opt.flags.contains(AlignFlags::HEAP_SORT) {
-        collect_seed_hits_heap(opt, mi, qlen, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, opt.seeding.mid_occ, qn_opt, &mut ctx.seed_scratch)
-    } else {
-        collect_seed_hits(opt, mi, qlen, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, qn_opt, &mut ctx.seed_scratch)
-    };
+    let mut rep_len = collect_seed_hits(opt, mi, qlen, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, qn_opt, &mut ctx.seed_scratch);
     stats.t_seed = t1.elapsed();
     stats.n_anchors = ctx.anchors.len();
 
     let t2 = Instant::now();
 
     // Compute max chaining gaps
-    let is_sr = opt.flags.contains(AlignFlags::SHORT_READ);
-    let max_chain_gap_qry = if is_sr {
-        if qlen as i32 > opt.chaining.max_gap { qlen as i32 } else { opt.chaining.max_gap }
-    } else {
-        opt.chaining.max_gap
-    };
+    let max_chain_gap_qry = opt.chaining.max_gap;
     let max_chain_gap_ref = if opt.chaining.max_gap_ref > 0 {
         opt.chaining.max_gap_ref
-    } else if opt.pairing.max_frag_len > 0 {
-        let g = opt.pairing.max_frag_len - qlen as i32;
-        if g < opt.chaining.max_gap { opt.chaining.max_gap } else { g }
     } else {
         opt.chaining.max_gap
     };
@@ -1419,16 +821,16 @@ pub fn map_query(
         if opt.flags.contains(AlignFlags::PAR_CHAIN) && anchors.len() >= 5000 {
             chain_anchors_partitioned(&opt.chaining, max_chain_gap_ref, max_chain_gap_qry, &mut anchors)
         } else {
-            chain_anchors(&opt.chaining, opt.filtering.is_splice, 1, max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs)
+            chain_anchors(&opt.chaining, max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs)
         }
         #[cfg(not(feature = "parallel"))]
-        chain_anchors(&opt.chaining, opt.filtering.is_splice, 1, max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs)
+        chain_anchors(&opt.chaining, max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs)
     };
     // A reference gap limit below -g (--max-gap-ref) can leave a read with sparse anchors
     // without any chain: chain it again with -g.
     if u.is_empty() && !anchors.is_empty() && opt.chaining.max_gap_ref > 0 && max_chain_gap_ref < opt.chaining.max_gap
-        && !opt.flags.contains(AlignFlags::RMQ_CHAIN) && !opt.filtering.is_splice {
-        (u, chains) = chain_anchors(&opt.chaining, false, 1, opt.chaining.max_gap, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs);
+        && !opt.flags.contains(AlignFlags::RMQ_CHAIN) {
+        (u, chains) = chain_anchors(&opt.chaining, opt.chaining.max_gap, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs);
     }
     ctx.anchors = anchors;
 
@@ -1439,9 +841,9 @@ pub fn map_query(
     let pc0 = Instant::now();
 
     // RMQ rescue re-chaining
-    // Only when: bw_long > bw, not splice/sr/no_ljoin, multiple chains
+    // Only when: bw_long > bw, not no_ljoin, multiple chains
     // Does NOT exclude RMQ_CHAIN
-    let skip_rescue = opt.flags.intersects(AlignFlags::SPLICE | AlignFlags::SHORT_READ | AlignFlags::NO_LJOIN);
+    let skip_rescue = opt.flags.contains(AlignFlags::NO_LJOIN);
     if opt.chaining.bandwidth_long > opt.chaining.bandwidth && u.len() > 1 && !skip_rescue {
         let first_chain_cnt = (u[0] & 0xFFFFFFFF) as usize;
         if first_chain_cnt > 0 {
@@ -1485,23 +887,17 @@ pub fn map_query(
             }
         }
     } else if opt.seeding.max_occ > opt.seeding.mid_occ && rep_len > 0 && !opt.flags.contains(AlignFlags::RMQ_CHAIN) {
-        // High-occ re-chaining
-        // For n_segs=1: only re-chain when no chains found (n_regs0 == 0)
-        // TODO: for n_segs>1, check if best chain has all segments
+        // High-occ re-chaining: only re-chain when no chains were found.
         let rechain = u.is_empty();
 
         if rechain {
             let rc0 = Instant::now();
             PC_RECHAIN_COUNT.fetch_add(1, Relaxed);
-            rep_len = if opt.flags.contains(AlignFlags::HEAP_SORT) {
-                collect_seed_hits_heap(opt, mi, qlen, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, opt.seeding.max_occ, qn_opt, &mut ctx.seed_scratch)
-            } else {
-                collect_seed_hits_with_occ(opt, mi, qlen, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, opt.seeding.max_occ, qn_opt, &mut ctx.seed_scratch)
-            };
+            rep_len = collect_seed_hits_with_occ(opt, mi, qlen, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, opt.seeding.max_occ, qn_opt, &mut ctx.seed_scratch);
 
             let mut anchors = std::mem::take(&mut ctx.anchors);
             let (u2, chains2) = chain_anchors(
-                &opt.chaining, opt.filtering.is_splice, 1,
+                &opt.chaining,
                 max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs,
             );
             ctx.anchors = anchors;
@@ -1555,8 +951,6 @@ pub fn map_query(
             strand_retained: false,
             compact_parent: 0,
             split_inv: false,
-            seg_split: false,
-            seg_id: 0,
             is_alt: false,
         });
 
@@ -1689,9 +1083,7 @@ pub fn map_query(
         }
 
         // estimate_divergence runs unconditionally after chain_post, even for ALL_CHAINS.
-        if !opt.flags.contains(AlignFlags::SHORT_READ) {
-            estimate_divergence(&mut regs, &ctx.anchors, qlen, &ctx.mini_pos, mi);
-        }
+        estimate_divergence(&mut regs, &ctx.anchors, qlen, &ctx.mini_pos, mi);
 
         stats.t_post = t3.elapsed();
         return (regs, rep_len, stats, squeezed);
@@ -1798,14 +1190,11 @@ pub fn map_query(
     let pc3 = Instant::now();
     PC_PARENT_NS.fetch_add((pc3 - pc2).as_nanos() as u64, Relaxed);
     // estimate_divergence + filter_strand_retained
-    // Only apply when not SR mode and not qstrand mode
-    if !opt.flags.contains(AlignFlags::SHORT_READ) {
-        estimate_divergence(&mut filtered_regs, &ctx.anchors, qlen, &ctx.mini_pos, mi);
-        let has_strand_retained = filtered_regs.iter().any(|r| r.strand_retained);
-        if has_strand_retained {
-            // Need div values computed by estimate_divergence before filtering
-            filter_strand_retained(&mut filtered_regs);
-        }
+    estimate_divergence(&mut filtered_regs, &ctx.anchors, qlen, &ctx.mini_pos, mi);
+    let has_strand_retained = filtered_regs.iter().any(|r| r.strand_retained);
+    if has_strand_retained {
+        // Need div values computed by estimate_divergence before filtering
+        filter_strand_retained(&mut filtered_regs);
     }
     let pc4 = Instant::now();
     PC_DIVEST_NS.fetch_add((pc4 - pc3).as_nanos() as u64, Relaxed);

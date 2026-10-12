@@ -135,8 +135,6 @@ unsafe fn compute_chain_scores_batch_avx2(
         let gw_gt_bw = _mm256_cmpgt_epi32(gap_w, bw_v);
         valid = _mm256_andnot_si256(gw_gt_bw, valid);
 
-        // Also check: n_seg > 1 case — ref_diff > max_dist_y
-        // Not needed here since we only enter SIMD for n_seg==1, !is_cdna
 
         // No valid lane (usually: off the band): the scores are all i32::MIN.
         if _mm256_testz_si256(valid, valid) != 0 {
@@ -489,7 +487,7 @@ pub(crate) unsafe fn chain_anchors_avx2(
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
                 let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
-                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip, false, 1);
+                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
                     best_predecessor = best_anchor_idx;
@@ -566,7 +564,7 @@ pub(crate) unsafe fn chain_anchors_avx2(
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
                 let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
-                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip, false, 1);
+                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
                     best_predecessor = best_anchor_idx;
@@ -971,7 +969,7 @@ pub(crate) unsafe fn chain_anchors_sse(
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
                 let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
-                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip, false, 1);
+                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
                     best_predecessor = best_anchor_idx;
@@ -1309,7 +1307,7 @@ pub(crate) unsafe fn chain_anchors_avx512(
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
                 let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
-                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip, false, 1);
+                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
                     best_predecessor = best_anchor_idx;
@@ -1740,7 +1738,7 @@ pub(crate) unsafe fn chain_anchors_neon(
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
                 let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
-                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip, false, 1);
+                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
                     best_predecessor = best_anchor_idx;
@@ -2140,7 +2138,7 @@ pub(crate) unsafe fn chain_anchors_wasm(
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
                 let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
-                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip, false, 1);
+                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
                     best_predecessor = best_anchor_idx;
@@ -2335,7 +2333,7 @@ mod tests {
             chain_anchors_avx2(&opt, 500, 500, &mut anchors_simd, &mut ctx_simd)
         };
         let (u_scalar, chains_scalar) =
-            chain_anchors_scalar(&opt, false, 1, 500, 500, &mut anchors_scalar, &mut ctx_scalar);
+            chain_anchors_scalar(&opt, 500, 500, &mut anchors_scalar, &mut ctx_scalar);
 
         assert_eq!(u_simd.len(), u_scalar.len(), "chain count mismatch");
         for (i, (us, uc)) in u_simd.iter().zip(u_scalar.iter()).enumerate() {
@@ -2407,7 +2405,7 @@ mod tests {
             chain_anchors_avx2(&opt, 5000, 5000, &mut anchors_simd, &mut ctx_simd)
         };
         let (u_scalar, chains_scalar) =
-            chain_anchors_scalar(&opt, false, 1, 5000, 5000, &mut anchors_scalar, &mut ctx_scalar);
+            chain_anchors_scalar(&opt, 5000, 5000, &mut anchors_scalar, &mut ctx_scalar);
 
         assert_eq!(u_simd.len(), u_scalar.len(), "chain count mismatch");
         for (i, (us, uc)) in u_simd.iter().zip(u_scalar.iter()).enumerate() {
@@ -2460,7 +2458,7 @@ mod tests {
             let (mut a1, mut a2) = (anchors.clone(), anchors.clone());
             let (mut c1, mut c2) = (ChainingBuffers::new(), ChainingBuffers::new());
             let (u1, ch1) = unsafe { chain_anchors_avx2(&opt, 5000, 5000, &mut a1, &mut c1) };
-            let (u2, ch2) = chain_anchors_scalar(&opt, false, 1, 5000, 5000, &mut a2, &mut c2);
+            let (u2, ch2) = chain_anchors_scalar(&opt, 5000, 5000, &mut a2, &mut c2);
             assert_eq!(u1, u2, "bw {bw}: chains differ");
             assert!(ch1.iter().zip(&ch2).all(|(x, y)| x.x == y.x && x.y == y.y) && ch1.len() == ch2.len(), "bw {bw}: anchors differ");
         }

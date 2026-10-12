@@ -37,13 +37,8 @@ pub(crate) fn compute_chain_score(
     bw: i32,
     chn_pen_gap: f32,
     chn_pen_skip: f32,
-    is_cdna: bool,
-    n_seg: i32,
 ) -> i32 {
     let query_diff = ai.query_pos().wrapping_sub(aj.query_pos()); // q_pos diff
-
-    let seg_id_i = ai.segment_id() as u64;
-    let seg_id_j = aj.segment_id() as u64;
 
     if query_diff <= 0 || query_diff > max_dist_x {
         return i32::MIN;
@@ -51,15 +46,12 @@ pub(crate) fn compute_chain_score(
 
     let ref_diff = ai.ref_pos().wrapping_sub(aj.ref_pos());
 
-    if seg_id_i == seg_id_j && (ref_diff == 0 || query_diff > max_dist_y) {
+    if ref_diff == 0 || query_diff > max_dist_y {
         return i32::MIN;
     }
 
     let gap_width = if ref_diff > query_diff { ref_diff - query_diff } else { query_diff - ref_diff };
-    if seg_id_i == seg_id_j && gap_width > bw {
-        return i32::MIN;
-    }
-    if n_seg > 1 && !is_cdna && seg_id_i == seg_id_j && ref_diff > max_dist_y {
+    if gap_width > bw {
         return i32::MIN;
     }
 
@@ -71,19 +63,7 @@ pub(crate) fn compute_chain_score(
     if gap_width > 0 || min_diff > q_span {
         let lin_pen = chn_pen_gap * (gap_width as f32) + chn_pen_skip * (min_diff as f32);
         let log_pen = if gap_width >= 1 { fast_log2((gap_width + 1) as f32) } else { 0.0f32 };
-
-        if is_cdna || seg_id_i != seg_id_j {
-            if seg_id_i != seg_id_j && ref_diff == 0 {
-                score += 1;
-            } else if ref_diff > query_diff || seg_id_i != seg_id_j {
-                let pen = if lin_pen < log_pen { lin_pen } else { log_pen };
-                score -= pen as i32;
-            } else {
-                score -= (lin_pen + 0.5f32 * log_pen) as i32;
-            }
-        } else {
-            score -= (lin_pen + 0.5f32 * log_pen) as i32;
-        }
+        score -= (lin_pen + 0.5f32 * log_pen) as i32;
     }
 
     score
@@ -223,16 +203,14 @@ pub(crate) fn chain_backtrack(
 // Dispatch: SIMD or scalar chaining based on CPU features and mode
 pub fn chain_anchors(
     opt: &ChainingParams,
-    is_cdna: bool,
-    n_seg: i32,
     max_dist_x: i32,
     max_dist_y: i32,
     a: &mut [Minimizer],
     ctx: &mut ChainingBuffers,
 ) -> (Vec<u64>, Vec<Minimizer>) {
-    // Fall back to scalar for cdna/multi-seg or small inputs
-    if is_cdna || n_seg > 1 || a.len() < 32 {
-        return chain_anchors_scalar(opt, is_cdna, n_seg, max_dist_x, max_dist_y, a, ctx);
+    // Fall back to scalar for small inputs
+    if a.len() < 32 {
+        return chain_anchors_scalar(opt, max_dist_x, max_dist_y, a, ctx);
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -274,7 +252,7 @@ pub fn chain_anchors(
 
     // wasm32 the block above always returns, so this is unreachable for wasm32
     #[cfg(not(target_arch = "wasm32"))]
-    return chain_anchors_scalar(opt, is_cdna, n_seg, max_dist_x, max_dist_y, a, ctx);
+    return chain_anchors_scalar(opt, max_dist_x, max_dist_y, a, ctx);
 }
 
 /// Partition anchors by (ref_id, strand) and chain each partition independently
@@ -317,7 +295,7 @@ pub fn chain_anchors_partitioned(
     // skip the partitioning overhead and chain directly.
     if n_partitions <= 1 {
         let mut ctx = ChainingBuffers::new();
-        return chain_anchors(opt, false, 1, max_dist_x, max_dist_y, a, &mut ctx);
+        return chain_anchors(opt, max_dist_x, max_dist_y, a, &mut ctx);
     }
 
     // Split anchors into non-overlapping mutable slices for each partition.
@@ -335,7 +313,7 @@ pub fn chain_anchors_partitioned(
                 std::slice::from_raw_parts_mut((base as *mut Minimizer).add(start), len)
             };
             let mut ctx = ChainingBuffers::new();
-            chain_anchors(opt, false, 1, max_dist_x, max_dist_y, slice, &mut ctx)
+            chain_anchors(opt, max_dist_x, max_dist_y, slice, &mut ctx)
         })
         .collect();
 
@@ -358,8 +336,6 @@ pub fn chain_anchors_partitioned(
 // score + predecessor; then backtrack into compacted chains.
 pub(crate) fn chain_anchors_scalar(
     opt: &ChainingParams,
-    is_cdna: bool,
-    n_seg: i32,
     max_dist_x: i32,
     max_dist_y: i32,
     a: &mut [Minimizer], // Input anchors
@@ -374,9 +350,9 @@ pub(crate) fn chain_anchors_scalar(
     let mut max_dist_x = max_dist_x;
     let mut max_dist_y = max_dist_y;
     if max_dist_x < bw { max_dist_x = bw; }
-    if max_dist_y < bw && !is_cdna { max_dist_y = bw; }
+    if max_dist_y < bw { max_dist_y = bw; }
 
-    let real_max_drop = if is_cdna { i32::MAX } else { bw };
+    let real_max_drop = bw;
 
     let mut predecessors = std::mem::take(&mut ctx.predecessors);
     let mut scores = std::mem::take(&mut ctx.scores);
@@ -410,7 +386,7 @@ pub(crate) fn chain_anchors_scalar(
         let mut end_j = if window_start > 0 { window_start as i64 - 1 } else { -1 };
 
         for j in (window_start..i).rev() {
-            let sc = compute_chain_score(&a[i], &a[j], max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip, is_cdna, n_seg);
+            let sc = compute_chain_score(&a[i], &a[j], max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
 
             if sc == i32::MIN { continue; }
 
@@ -446,7 +422,7 @@ pub(crate) fn chain_anchors_scalar(
 
         // Check if best_anchor_idx provides a better path than what main loop found
         if best_anchor_idx >= 0 && best_anchor_idx < end_j {
-            let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize], max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip, is_cdna, n_seg);
+            let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize], max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
             if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                 best_score = sc + scores[best_anchor_idx as usize];
                 best_predecessor = best_anchor_idx;
@@ -561,7 +537,7 @@ mod tests {
         };
         let mut bufs = ChainingBuffers::new();
         let (u, _chains) = chain_anchors(
-            &opt, false, 1, 500, 500,
+            &opt, 500, 500,
             &mut anchors, &mut bufs,
         );
         

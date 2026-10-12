@@ -298,24 +298,12 @@ pub const APPROX_DROP: i32 = 0x10;
 pub const EXTENSION_ONLY: i32 = 0x40;
 /// Reverse CIGAR output
 pub const REV_CIGAR: i32 = 0x80;
-/// Splice alignment: forward transcript strand
-pub const SPLICE_FORWARD: i32 = 0x100;
-/// Splice alignment: reverse transcript strand
-pub const SPLICE_REVERSE: i32 = 0x200;
-/// Splice alignment: use flank penalties
-pub const SPLICE_FLANK: i32 = 0x400;
-/// Splice alignment: complex splice model (miniprot-style)
-pub const SPLICE_COMPLEX: i32 = 0x800;
-/// Splice alignment: use splice score from junc array
-pub const SPLICE_SCORE: i32 = 0x1000;
 
 // CIGAR operation codes
 pub const CIGAR_MATCH: u32 = 0;
 pub const CIGAR_INS: u32 = 1;
 pub const CIGAR_DEL: u32 = 2;
 pub const CIGAR_N_SKIP: u32 = 3;
-// Splice score offset
-pub const SPSC_OFFSET: i32 = 64;
 
 // ============================================================================
 // Types
@@ -372,9 +360,8 @@ thread_local! {
 }
 
 // The per-thread DP scratch cache retains each thread's high-water-mark buffer.
-// The splice DP is unbanded, so a single large gap-fill segment needs
-// `O((qlen+tlen)·min(qlen,tlen))` bytes — hundreds of MB for the rare read with a
-// big unaligned gap. Without a cap, that one-off high-water mark is pinned per
+// A wide-band DP over a large gap-fill segment needs `O((qlen+tlen)·bandwidth)`
+// bytes — hundreds of MB for the rare read with a big unaligned gap. Without a cap, that one-off high-water mark is pinned per
 // worker thread for the rest of the run; at high thread counts the sum dominates
 // peak RSS (the genome-mode regression vs minimap2, whose `km`/`cap_kalloc` arena
 // is bounded the same way). The cap (see `super::dp_cache_cap_bytes` /
@@ -456,23 +443,6 @@ pub(super) fn init_dp_result(result: &mut DpResult) {
     result.max_query_end_score = NEG_INF;
     result.max_target_end_score = NEG_INF;
     result.score = NEG_INF;
-}
-
-/// Initialize DpResult fields for the DP loop (exts2 variant).
-/// Sets all score tracking fields including endpoint positions, cigar, and status.
-#[inline(always)]
-pub(super) fn init_dp_result_full(result: &mut DpResult) {
-    result.max = 0;
-    result.max_score_query_pos = -1;
-    result.max_score_target_pos = -1;
-    result.max_query_end_score = NEG_INF;
-    result.max_target_end_score = NEG_INF;
-    result.max_query_end_target_pos = -1;
-    result.max_target_end_query_pos = -1;
-    result.score = NEG_INF;
-    result.cigar.clear();
-    result.zdropped = 0;
-    result.reach_end = 0;
 }
 
 /// Append a CIGAR operation to the CIGAR vector, merging with the last
@@ -776,95 +746,3 @@ pub(super) fn traceback_single_affine_safe(
         result.cigar = cigar;
     }
 }
-
-/// Traceback for splice-aware (exts2) alignment — shared across SSE2/SSE4.1/NEON.
-///
-/// Walks back through the traceback matrix to reconstruct the CIGAR string.
-/// Splice has 4 states: 0=M, 1=D, 2=I, 3=N_SKIP (intron) when long_thres > 0.
-///
-/// # Safety
-/// p_ptr, band_offset_ptr, band_offset_end_ptr must point to valid memory
-/// from the DP traceback allocation.
-#[inline(always)]
-pub(super) unsafe fn traceback_splice(
-    result: &mut DpResult,
-    query_len: usize,
-    target_len: usize,
-    end_bonus: i32,
-    flags: i32,
-    n_col_: usize,
-    simd_width: usize,
-    long_thres: i32,
-    p_ptr: *mut u8,
-    band_offset_ptr: *mut i32,
-    band_offset_end_ptr: *mut i32,
-) { unsafe {
-    let rev_cigar = (flags & REV_CIGAR) != 0;
-    let (mut i, mut j) = traceback_start_position(result, query_len, target_len, end_bonus, flags);
-
-    if i >= 0 && j >= 0 {
-        let mut cigar = Vec::new();
-        let mut state = 0i32;
-        let stride = n_col_ * simd_width;
-
-        while i >= 0 && j >= 0 {
-            let r = i + j;
-            let off_r = *band_offset_ptr.add(r as usize);
-            let off_end_r = *band_offset_end_ptr.add(r as usize);
-
-            let mut force_state = -1i32;
-            if i < off_r { force_state = 2; }
-            if i > off_end_r { force_state = 1; }
-
-            let tmp = if force_state < 0 {
-                let idx = r as usize * stride + (i - off_r) as usize;
-                *p_ptr.add(idx)
-            } else {
-                0
-            };
-
-            if state == 0 { state = (tmp & 7) as i32; }
-            else if ((tmp >> (state + 2)) & 1) == 0 { state = 0; }
-            if state == 0 { state = (tmp & 7) as i32; }
-            if force_state >= 0 { state = force_state; }
-
-            let (op, di, dj) = match state {
-                0 => (0u32, 1, 1),  // M
-                1 => (2u32, 1, 0),  // D
-                2 => (1u32, 0, 1),  // I
-                3 => {
-                    if long_thres > 0 {
-                        (CIGAR_N_SKIP, 1, 0) // N_SKIP (intron)
-                    } else {
-                        (2u32, 1, 0) // D (when long_thres <= 0, treat as normal deletion)
-                    }
-                },
-                _ => (0u32, 1, 1),
-            };
-
-            push_cigar(&mut cigar, op, 1);
-
-            i -= di;
-            j -= dj;
-        }
-
-        // Handle remaining: trailing deletion or N_SKIP
-        if i >= 0 {
-            let op = if long_thres > 0 && i >= long_thres {
-                CIGAR_N_SKIP
-            } else {
-                2 // DEL
-            };
-            push_cigar(&mut cigar, op, (i + 1) as u32);
-        }
-        if j >= 0 {
-            push_cigar(&mut cigar, 1, (j + 1) as u32);
-        }
-
-        if !rev_cigar {
-            cigar.reverse();
-        }
-        result.cigar = cigar;
-    }
-}}
-

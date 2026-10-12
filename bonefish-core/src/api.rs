@@ -23,16 +23,14 @@
 //! # Thread Safety
 //!
 //! `Aligner` is `Send + Sync` — wrap it in `Arc<Aligner>` to share across threads.
-//! Each call to `map_seq`/`map_pair` allocates lightweight per-call buffers internally.
+//! Each call to `map_seq` allocates lightweight per-call buffers internally.
 
 use std::io;
 use std::sync::Arc;
 use crate::align::index::Index;
 use crate::align::map::{MapOptions, MapContext, AlignFlags};
 use crate::align::extend::AlignmentContext;
-use crate::align::pipeline::{self, OutputConfig, ReadInfo};
-use crate::align::junc::{self, JunctionDb};
-use std::collections::HashMap;
+use crate::align::pipeline::{self, OutputConfig};
 
 /// Alignment preset (selected via the `-x` flag).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,10 +106,6 @@ pub struct Mapping {
     pub is_primary: bool,
     /// Whether this is a supplementary alignment.
     pub is_supplementary: bool,
-    /// Whether this alignment contains splice junctions (N_SKIP operations).
-    pub is_spliced: bool,
-    /// Transcript strand for splice alignments: None=unknown, Some(Forward)=+, Some(Reverse)=-.
-    pub trans_strand: Option<Strand>,
     /// Number of matching bases.
     pub matches: usize,
     /// Alignment block length.
@@ -156,9 +150,6 @@ pub struct Aligner {
     index: Index,
     options: MapOptions,
     out_cfg: OutputConfig,
-    /// Optional known-junction database (minimap2 `--junc-bed` equivalent),
-    /// biasing splice scoring toward annotated junctions when set.
-    junc_db: Option<JunctionDb>,
 }
 
 /// Largest supported k-mer size.
@@ -350,7 +341,7 @@ impl AlignerBuilder {
             do_cigar: self.cigar, do_cs: false, cs_long: false, do_md: false, do_ds: false,
             eqx: false, output_sam: false, rg_id: None, split_mode: false,
         };
-        Aligner { index, options: opt, out_cfg, junc_db: None }
+        Aligner { index, options: opt, out_cfg }
     }
 }
 
@@ -430,76 +421,9 @@ impl Aligner {
         let out = self.resolve_out_cfg(&opts);
         let pq = pipeline::process_query(
             &self.options, &self.index, name, seq,
-            &mut ctx, &mut map_ctx, self.junc_db.as_ref(), &out,
+            &mut ctx, &mut map_ctx, &out,
         );
         to_map_result(&pq, &self.index, &out)
-    }
-
-    /// Align a paired-end read pair against the reference.
-    pub fn map_pair(&self, name: &str, seq1: &[u8], seq2: &[u8]) -> MapResult {
-        self.map_pair_with(name, seq1, seq2, MapOpts::default())
-    }
-
-    /// Align a paired-end read pair with per-call options.
-    pub fn map_pair_with(&self, name: &str, seq1: &[u8], seq2: &[u8], opts: MapOpts) -> MapResult {
-        let mut ctx = AlignmentContext::new();
-        let mut map_ctx = MapContext::new();
-        let out = self.resolve_out_cfg(&opts);
-        let read1 = ReadInfo { qname: name, qseq: seq1, qual: None, comment: None, n_seg: 2, seg_idx: 0 };
-        let read2 = ReadInfo { qname: name, qseq: seq2, qual: None, comment: None, n_seg: 2, seg_idx: 1 };
-        let (output, _stats) = pipeline::align_and_format_pair(
-            &self.options, &self.index, &read1, &read2,
-            &mut ctx, &mut map_ctx, self.junc_db.as_ref(), &out,
-        );
-        parse_paf_to_map_result(&output, &self.index)
-    }
-
-    /// Load known splice junctions from a BED file (BED6/BED12), enabling
-    /// junction-aware splice scoring on subsequent `map_seq` calls. This is the
-    /// bonefish equivalent of minimap2's `--junc-bed` (and minimap2-rs's
-    /// `read_junction_lr`). Reference names in the BED are resolved against the
-    /// built index, so this must be called after construction.
-    pub fn load_junctions_bed(&mut self, path: &str) -> io::Result<()> {
-        let name_to_rid: HashMap<String, usize> = self
-            .index
-            .seqs
-            .iter()
-            .enumerate()
-            .map(|(i, sq)| (sq.name.clone(), i))
-            .collect();
-        let db = junc::load_bed_junctions(path, &name_to_rid, self.index.seqs.len())?;
-        self.junc_db = Some(db);
-        Ok(())
-    }
-
-    /// Load per-position splice-site (SPSC) scores from a file, enabling
-    /// score-weighted junction-aware splice alignment on subsequent `map_seq`
-    /// calls. This is the library equivalent of the CLI's `--spsc` (the
-    /// `--junc-bed` alternative that uses graded donor/acceptor scores rather
-    /// than boolean known-junction flags). `scale` defaults to `0.7` (the CLI
-    /// default for `--spsc-scale`) when `None`. Must be called after construction
-    /// so contig names resolve against the built index.
-    pub fn load_junctions_spsc(&mut self, path: &str, scale: Option<f32>) -> io::Result<()> {
-        let name_to_rid: HashMap<String, usize> = self
-            .index
-            .seqs
-            .iter()
-            .enumerate()
-            .map(|(i, sq)| (sq.name.clone(), i))
-            .collect();
-        let max_sc = junc::max_spsc_bonus(self.options.scoring.gap_open2, self.options.scoring.gap_open);
-        let scale = scale.unwrap_or(0.7);
-        let seq_lens: Vec<usize> = self.index.seqs.iter().map(|s| s.len).collect();
-        let db = junc::load_spsc_scores(
-            path,
-            &name_to_rid,
-            self.index.seqs.len(),
-            &seq_lens,
-            max_sc,
-            scale,
-        )?;
-        self.junc_db = Some(db);
-        Ok(())
     }
 
     // --- Output ---
@@ -568,11 +492,6 @@ fn to_map_result(
     let mappings = pq.results.iter().zip(pq.mapqs.iter()).map(|(r, &mapq)| {
         let cigar_str = if out.do_cigar && !r.cigar_str.is_empty() { Some(r.cigar_str.clone()) } else { None };
         let cigar_ops = cigar_str.as_ref().map(|s| parse_cigar_string(s));
-        let trans_strand = match r.trans_strand {
-            1 => Some(Strand::Forward),
-            2 => Some(Strand::Reverse),
-            _ => None,
-        };
         let target_name = name_cache[r.ref_id].get_or_insert_with(|| {
             Arc::from(mi.seqs[r.ref_id].name.as_str())
         }).clone();
@@ -588,8 +507,6 @@ fn to_map_result(
             mapq,
             is_primary: !r.is_secondary,
             is_supplementary: r.split != 0,
-            is_spliced: r.is_spliced,
-            trans_strand,
             matches: r.matches,
             block_len: r.block_len,
             edit_distance: r.edit_distance,
@@ -621,64 +538,6 @@ fn parse_cigar_string(s: &str) -> Vec<CigarOp> {
         }
     }
     ops
-}
-
-/// Parse PAF-formatted output back into a MapResult (for paired-end path).
-fn parse_paf_to_map_result(paf: &str, _mi: &Index) -> MapResult {
-    let mut mappings = Vec::new();
-    for line in paf.lines() {
-        if line.is_empty() { continue; }
-        let fields: Vec<&str> = line.split('\t').collect();
-        if fields.len() < 12 { continue; }
-        let target_name: Arc<str> = Arc::from(fields[5]);
-        let target_len = fields[6].parse().unwrap_or(0);
-        let target_start: usize = fields[7].parse().unwrap_or(0);
-        let target_end: usize = fields[8].parse().unwrap_or(0);
-        let matches: usize = fields[9].parse().unwrap_or(0);
-        let block_len: usize = fields[10].parse().unwrap_or(0);
-        let mapq: i32 = fields[11].parse().unwrap_or(0);
-        let query_start: usize = fields[2].parse().unwrap_or(0);
-        let query_end: usize = fields[3].parse().unwrap_or(0);
-        let strand = if fields[4] == "+" { Strand::Forward } else { Strand::Reverse };
-
-        // Extract optional tags
-        let mut cigar = None;
-        let mut cs = None;
-        let mut score = 0i32;
-        let mut edit_distance = 0u32;
-        let mut divergence = 0.0f64;
-        let mut is_secondary = false;
-        for &tag in &fields[12..] {
-            if let Some(val) = tag.strip_prefix("cg:Z:") { cigar = Some(val.to_string()); }
-            else if let Some(val) = tag.strip_prefix("cs:Z:") { cs = Some(val.to_string()); }
-            else if let Some(val) = tag.strip_prefix("AS:i:") { score = val.parse().unwrap_or(0); }
-            else if let Some(val) = tag.strip_prefix("NM:i:") { edit_distance = val.parse().unwrap_or(0); }
-            else if let Some(val) = tag.strip_prefix("de:f:") { divergence = val.parse().unwrap_or(0.0); }
-            else if tag.starts_with("tp:A:S") || tag.starts_with("tp:A:s") { is_secondary = true; }
-        }
-
-        let cigar_ops = cigar.as_ref().map(|s| parse_cigar_string(s));
-        let is_spliced = cigar_ops.as_ref().is_some_and(|ops| ops.iter().any(|op| op.op == 3));
-
-        // Extract md tag
-        let mut md = None;
-        for &tag in &fields[12..] {
-            if let Some(val) = tag.strip_prefix("MD:Z:") { md = Some(val.to_string()); }
-        }
-
-        // Find target_id by name
-        let target_id = _mi.seqs.iter().position(|s| s.name.as_str() == &*target_name).unwrap_or(0);
-
-        mappings.push(Mapping {
-            target_name, target_id, target_len, target_start, target_end,
-            query_start, query_end, strand, mapq,
-            is_primary: !is_secondary, is_supplementary: false,
-            is_spliced, trans_strand: None,
-            matches, block_len,
-            edit_distance, cigar, cigar_ops, cs, md, score, divergence,
-        });
-    }
-    MapResult { mappings }
 }
 
 // ---------------------------------------------------------------------------

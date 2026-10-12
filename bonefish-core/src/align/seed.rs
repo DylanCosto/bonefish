@@ -4,11 +4,8 @@
 //! hash in the [`Index`] to find matching reference positions, then builds a
 //! sorted anchor array of `Minimizer` structs with repacked (ref, query) coords.
 //!
-//! Two collection strategies:
-//! - [`collect_seed_hits`] / [`collect_seed_hits_with_occ`]: radix-sort based,
-//!   used by most presets.
-//! - [`collect_seed_hits_heap`]: min-heap merge producing sorted output directly,
-//!   used by short-read (sr) presets.
+//! [`collect_seed_hits`] / [`collect_seed_hits_with_occ`] collect the hits and
+//! radix-sort them.
 //!
 //! High-frequency seeds are filtered by `mid_occ` (max occurrence threshold).
 //! For runs of consecutive high-occ minimizers, [`select_seeds`] retains a
@@ -171,12 +168,11 @@ struct MatchedSeed {
 /// Reusable scratch buffers for the seed-collection path.
 ///
 /// Held on `MapContext` and threaded through `collect_seed_hits*` so we don't
-/// allocate `is_tandem`/`seeds`/`matched_seeds`/`heap` per read.
+/// allocate `is_tandem`/`seeds`/`matched_seeds` per read.
 pub struct SeedScratch {
     is_tandem: Vec<bool>,
     seeds: Vec<SeedInfo>,
     matched_seeds: Vec<MatchedSeed>,
-    heap: Vec<(u64, u64)>,
 }
 
 impl Default for SeedScratch {
@@ -189,12 +185,11 @@ impl SeedScratch {
             is_tandem: Vec::new(),
             seeds: Vec::new(),
             matched_seeds: Vec::new(),
-            heap: Vec::new(),
         }
     }
 }
 
-/// Common seed collection + filtering logic shared by both heap and non-heap paths.
+/// Common seed collection + filtering logic.
 /// Collect anchor matches from index hits.
 ///
 /// Fills `scratch.matched_seeds` with the kept seeds and returns (n_a, rep_len)
@@ -312,7 +307,7 @@ fn collect_anchor_matches(
     (n_a, rep_len)
 }
 
-/// Non-heap seed collection with explicit max_occ parameter (for re-chaining path).
+/// Seed collection with explicit max_occ parameter (for re-chaining path).
 pub(crate) fn collect_seed_hits_with_occ(
     opt: &MapOptions,
     mi: &Index,
@@ -474,170 +469,6 @@ pub fn collect_seed_hits(
 }
 
 // --- Heap-based seed collection ---
-
-/// Min-heap sift-down. Matches ksort.h with heap_lt(a, b) = a.x > b.x.
-/// Smaller x values float to root.
-#[inline]
-fn anchor_heap_down(heap: &mut [(u64, u64)], start: usize, n: usize) {
-    debug_assert!(start < n && n <= heap.len());
-    // SAFETY: i < n on entry; k < n is checked before each child access; n <= heap.len().
-    unsafe {
-        let p = heap.as_mut_ptr();
-        let mut i = start;
-        let tmp = *p.add(i);
-        loop {
-            let mut k = (i << 1) + 1;
-            if k >= n { break; }
-            // Pick the smaller child.
-            if k + 1 < n && (*p.add(k)).0 > (*p.add(k + 1)).0 { k += 1; }
-            if (*p.add(k)).0 > tmp.0 { break; }
-            *p.add(i) = *p.add(k);
-            i = k;
-        }
-        *p.add(i) = tmp;
-    }
-}
-
-/// Build min-heap from unsorted array. Matches ksort.h ks_heapmake.
-fn anchor_heap_make(heap: &mut [(u64, u64)]) {
-    let n = heap.len();
-    if n <= 1 { return; }
-    for i in (0..n / 2).rev() {
-        anchor_heap_down(heap, i, n);
-    }
-}
-
-/// Heap-based seed collection.
-/// Uses a min-heap to produce anchors in reference position order without radix sort.
-/// Used when HEAP_SORT flag is set (splice:sr, sr presets).
-pub fn collect_seed_hits_heap(
-    opt: &MapOptions,
-    mi: &Index,
-    qlen: usize,
-    q_minimizers: &[Minimizer],
-    anchors: &mut Vec<Minimizer>,
-    mini_pos: &mut Vec<u64>,
-    max_occ: usize,
-    qname: Option<&str>,
-    scratch: &mut SeedScratch,
-) -> usize {
-    anchors.clear();
-    let (n_a, rep_len) = collect_anchor_matches(opt, mi, qlen, q_minimizers, mini_pos, max_occ, scratch);
-    if n_a == 0 { return rep_len; }
-
-    anchors.resize(n_a, Minimizer { x: 0, y: 0 });
-
-    // Disjoint field borrows: shared on matched_seeds, exclusive on heap.
-    let matched_seeds: &[MatchedSeed] = &scratch.matched_seeds;
-    let heap = &mut scratch.heap;
-    heap.clear();
-    heap.reserve(matched_seeds.len());
-    for (i, seed) in matched_seeds.iter().enumerate() {
-        let h = mi.get_by_range(seed.entry_range);
-        if !h.is_empty() {
-            heap.push((h[0], (i as u64) << 32)); // h[0] = r_packed
-        }
-    }
-    anchor_heap_make(heap);
-
-    let mut n_for: usize = 0;
-    let mut n_rev: usize = 0;
-    let seed_tandem: u64 = crate::align::sketch::SEED_TANDEM;
-    let skip_flags = opt.flags & (AlignFlags::NO_DIAG | AlignFlags::NO_DUAL);
-
-    while !heap.is_empty() {
-        let r = heap[0].0;
-        let seed_idx = (heap[0].1 >> 32) as usize;
-        let hit_idx = (heap[0].1 & 0xFFFFFFFF) as usize;
-        let seed = &matched_seeds[seed_idx];
-        let m = &q_minimizers[seed.mi_idx];
-
-        let r_pos = (r as u32) >> 1;
-        let is_rev = (m.y & 1) != (r & 1);
-
-        // skip_seed logic
-        let mut is_self = false;
-        let mut skip = false;
-        if let Some(qn) = qname && !skip_flags.is_empty() {
-            let rid = (r >> 32) as usize;
-            let tname = &mi.seqs[rid].name;
-            let tlen = mi.seqs[rid].len;
-            let cmp = qn.cmp(tname.as_str());
-            if opt.flags.contains(AlignFlags::NO_DIAG) && cmp == std::cmp::Ordering::Equal && tlen == qlen {
-                let r_pos_raw = (r as u32) >> 1;
-                let q_pos_raw = (m.y as u32) >> 1;
-                if r_pos_raw == q_pos_raw { skip = true; }
-                else if (r & 1) == (m.y & 1) { is_self = true; }
-            }
-            if !skip && opt.flags.contains(AlignFlags::NO_DUAL) && cmp == std::cmp::Ordering::Greater { skip = true; }
-        }
-
-        if !skip {
-            if !is_rev {
-                let p = &mut anchors[n_for];
-                p.x = (r & 0xFFFFFFFF00000000) | (r_pos as u64);
-                p.y = (seed.q_span as u64) << 32 | ((m.y as u32) >> 1) as u64;
-                if seed.is_tandem { p.y |= seed_tandem; }
-                if is_self { p.y |= SEED_SELF; }
-                p.y |= seed.seg_id << SEED_SEG_SHIFT;
-                n_for += 1;
-            } else if opt.flags.contains(AlignFlags::QSTRAND) {
-                // qstrand mode: keep query pos, reverse reference pos
-                n_rev += 1;
-                let p = &mut anchors[n_a - n_rev];
-                let rid = (r >> 32) as usize;
-                let tlen = mi.seqs[rid].len as u64;
-                let rpos_rev = tlen.wrapping_sub(r_pos as u64 + 1).wrapping_sub(1).wrapping_add(seed.q_span as u64);
-                p.x = (1u64 << 63) | (r & 0xFFFFFFFF00000000) | rpos_rev;
-                p.y = (seed.q_span as u64) << 32 | ((m.y as u32) >> 1) as u64;
-            } else {
-                n_rev += 1;
-                let p = &mut anchors[n_a - n_rev];
-                p.x = (1u64 << 63) | (r & 0xFFFFFFFF00000000) | (r_pos as u64);
-                let q_pos_rev = (qlen as u64)
-                    .wrapping_sub(((m.y as u32) >> 1) as u64)
-                    .wrapping_add(seed.q_span as u64)
-                    .wrapping_sub(2);
-                p.y = (seed.q_span as u64) << 32 | q_pos_rev;
-                if seed.is_tandem { p.y |= seed_tandem; }
-                if is_self { p.y |= SEED_SELF; }
-                p.y |= seed.seg_id << SEED_SEG_SHIFT;
-            }
-        }
-
-        // Update heap: advance to next hit or remove seed
-        let hits = mi.get_by_range(seed.entry_range);
-        let hs = heap.len();
-        if hit_idx < hits.len() - 1 {
-            let next_r = hits[hit_idx + 1];
-            heap[0] = (next_r, ((seed_idx as u64) << 32) | ((hit_idx + 1) as u64));
-        } else {
-            heap[0] = heap[hs - 1];
-            heap.truncate(hs - 1);
-        }
-        let hn = heap.len();
-        if hn > 0 {
-            anchor_heap_down(heap, 0, hn);
-        }
-    }
-
-    // Reverse the reverse-strand section (accumulated in descending order)
-    if n_rev > 0 {
-        anchors[n_a - n_rev..n_a].reverse();
-    }
-
-    // Compact: move reverse section right after forward section
-    if n_a > n_for + n_rev {
-        for i in 0..n_rev {
-            anchors[n_for + i] = anchors[n_a - n_rev + i];
-        }
-    }
-    anchors.truncate(n_for + n_rev);
-
-    // No radix_sort_128x needed — anchors are already in sorted order
-
-    rep_len
-}
 
 /// Drop query minimizers that appear too many times within the query itself
 /// (shared by single- and multi-segment paths). `mid_occ` is the absolute

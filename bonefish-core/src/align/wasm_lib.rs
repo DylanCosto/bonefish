@@ -211,10 +211,10 @@ pub fn align_wasm_full(
             |(ctx, map_ctx), (qname, qseq)| {
                 let ri = ReadInfo {
                     qname, qseq: qseq.as_bytes(),
-                    qual: None, comment: None, n_seg: 1, seg_idx: 0,
+                    qual: None, comment: None,
                 };
                 let res = align_and_format_query(
-                    &opt, &idx, &ri, ctx, map_ctx, None, None, &out_cfg,
+                    &opt, &idx, &ri, ctx, map_ctx, &out_cfg,
                 );
                 res.0
             },
@@ -236,10 +236,10 @@ pub fn align_wasm_full(
         for (qname, qseq) in &query_seqs {
             let ri = ReadInfo {
                 qname, qseq: qseq.as_bytes(),
-                qual: None, comment: None, n_seg: 1, seg_idx: 0,
+                qual: None, comment: None,
             };
             let res = align_and_format_query(
-                &opt, &idx, &ri, &mut ctx, &mut map_ctx, None, None, &out_cfg,
+                &opt, &idx, &ri, &mut ctx, &mut map_ctx, &out_cfg,
             );
             if !res.0.is_empty() {
                 output_buf.push_str(&res.0);
@@ -258,9 +258,8 @@ pub fn align_wasm_full(
 
 /// Legacy simple API (kept for backward compatibility with wasm tests).
 #[wasm_bindgen]
-pub fn align_wasm(target_fasta: &str, query_fasta: &str, output_sam: bool, is_splice: bool) -> String {
-    let preset = if is_splice { "splice" } else { "map-ont" };
-    let result = align_wasm_full(target_fasta, query_fasta, preset, output_sam, true);
+pub fn align_wasm(target_fasta: &str, query_fasta: &str, output_sam: bool) -> String {
+    let result = align_wasm_full(target_fasta, query_fasta, "dna", output_sam, true);
     // Return only the alignment output (before the ---LOG--- separator)
     result.split("\n---LOG---\n").next().unwrap_or("").to_string()
 }
@@ -279,7 +278,6 @@ pub fn force_align_wasm(tseq: &str, qseq: &str) -> String {
     let mut anchors = vec![Minimizer { x, y }];
 
     let mut opt = MapOptions::default();
-    opt.filtering.is_splice = false;
     opt.chaining.min_chain_score = 0;
     opt.chaining.min_cnt = 0;
     opt.alignment.min_dp_max = i32::MIN;
@@ -288,11 +286,9 @@ pub fn force_align_wasm(tseq: &str, qseq: &str) -> String {
         seed_bounds: (0, 0, tseq_nt4.len() as i32, qseq_nt4.len() as i32),
         rev: false,
         rid: 0,
-        splice_flag: AlignFlags::empty(),
         split_inv: false,
         is_hpc: false,
         k: 1,
-        junc_db: None,
         ref_offset: 0,
     };
     let aln_result = align_anchors(
@@ -548,10 +544,10 @@ impl AlignSession {
             let ri = ReadInfo {
                 qname: &qname,
                 qseq: &qseq,
-                qual: None, comment: None, n_seg: 1, seg_idx: 0,
+                qual: None, comment: None,
             };
             let res = align_and_format_query(
-                &self.opt, idx, &ri, ctx, map_ctx, None, None, &self.out_cfg,
+                &self.opt, idx, &ri, ctx, map_ctx, &self.out_cfg,
             );
             if !res.0.is_empty() {
                 out.push_str(&res.0);
@@ -577,10 +573,10 @@ impl AlignSession {
             let ri = ReadInfo {
                 qname: &qname,
                 qseq: &qseq,
-                qual: None, comment: None, n_seg: 1, seg_idx: 0,
+                qual: None, comment: None,
             };
             let res = align_and_format_query(
-                &self.opt, idx, &ri, ctx, map_ctx, None, None, &self.out_cfg,
+                &self.opt, idx, &ri, ctx, map_ctx, &self.out_cfg,
             );
             if !res.0.is_empty() {
                 trailing_out.push_str(&res.0);

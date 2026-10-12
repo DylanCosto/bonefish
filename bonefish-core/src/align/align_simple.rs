@@ -11,7 +11,6 @@
 //! | Time complexity       | O(n × bandwidth)     | O(n × m) per gap     |
 //! | Gap model             | Affine (dual)        | Affine (single)      |
 //! | Extension beyond seeds| Yes (left + right)   | Yes (left + right)   |
-//! | Splice detection      | Yes (GT-AG scoring)  | No                   |
 //! | Z-drop splitting      | Yes                  | No                   |
 //! | SIMD acceleration     | AVX512/AVX2/SSE/NEON | None (scalar)        |
 
@@ -279,9 +278,8 @@ mod tests {
         let call = AlignAnchorContext {
             seed_bounds: (0, 0, 50, 50),
             rev: false, rid: 0,
-            splice_flag: crate::align::map::AlignFlags::empty(),
             split_inv: false, is_hpc: false, k: 15,
-            junc_db: None, ref_offset: 0,
+            ref_offset: 0,
         };
 
         let aligner = NWAligner;
@@ -304,9 +302,8 @@ mod tests {
         let call = AlignAnchorContext {
             seed_bounds: (0, 0, 60, 60),
             rev: false, rid: 0,
-            splice_flag: crate::align::map::AlignFlags::empty(),
             split_inv: false, is_hpc: false, k: 15,
-            junc_db: None, ref_offset: 0,
+            ref_offset: 0,
         };
 
         let aligner = NWAligner;
@@ -331,9 +328,8 @@ mod tests {
         let call = AlignAnchorContext {
             seed_bounds: (0, 0, 50, 50),
             rev: false, rid: 0,
-            splice_flag: crate::align::map::AlignFlags::empty(),
             split_inv: false, is_hpc: false, k: 15,
-            junc_db: None, ref_offset: 0,
+            ref_offset: 0,
         };
 
         let aligner = NWAligner;

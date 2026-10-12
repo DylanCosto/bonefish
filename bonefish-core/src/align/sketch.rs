@@ -11,7 +11,6 @@
 //!   bits 48-55 segment ID, bit 43 self-mapping flag (ava mode).
 //!
 //! [`sketch_sequence`] clears and fills an output `Vec<Minimizer>`;
-//! [`sketch_sequence_append`] appends without clearing (for multi-segment reads).
 //! Homopolymer-compressed (HPC) mode collapses runs before hashing.
 
 use std::collections::VecDeque;
@@ -184,22 +183,8 @@ pub fn sketch_sequence(
     sketch_sequence_impl(seq, len, w, k, rid, is_hpc, p);
 }
 
-/// Like sketch_sequence but appends to existing vector (does not clear).
-/// Used by collect_minimizers_multi for combined multi-segment sketching.
-pub fn sketch_sequence_append(
-  seq: &[u8],
-  len: usize,
-  w: usize,
-  k: usize,
-  rid: usize,
-  is_hpc: bool,
-  p: &mut Vec<Minimizer>,
-) {
-    sketch_sequence_impl(seq, len, w, k, rid, is_hpc, p);
-}
-
 /// Core minimizer sketching algorithm. Appends minimizers to `p`.
-/// Both sketch_sequence (clear + sketch) and sketch_sequence_append (append-only) delegate here.
+/// sketch_sequence (clear + sketch) delegates here.
 fn sketch_sequence_impl(
   seq: &[u8],
   len: usize,

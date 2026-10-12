@@ -2,13 +2,12 @@
 //!
 //! When the reference is too large for a single index, it is split into parts.
 //! Each part is aligned independently, results are written to temporary files,
-//! and `split_merge` combines them with re-filtering and re-pairing.
+//! and `split_merge` combines them with re-filtering.
 
 use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::fs::File;
 use crate::align::index::{Index, TargetSequence};
-use crate::align::pipeline::{AlnResult, OutputConfig, ReadInfo, refilter_merged_results, format_output, get_mate_info};
-use crate::align::pair::{PeReg, pair_alignments};
+use crate::align::pipeline::{AlnResult, OutputConfig, ReadInfo, refilter_merged_results, format_output};
 use crate::align::map::MapOptions;
 use crate::align::stats::AlignmentStats;
 
@@ -33,17 +32,15 @@ pub fn split_init(prefix: &str, part_index: usize, mi: &Index) -> io::Result<Buf
 }
 
 /// Write one query's results to a temp file.
-/// Per-query format: n_results(i32), rep_len(i32), frag_gap(i32),
+/// Per-query format: n_results(i32), rep_len(i32),
 /// then for each result: bincode-serialized AlnResult.
 pub fn split_write_query(
     w: &mut impl Write,
     results: &[AlnResult],
     rep_len: i32,
-    frag_gap: i32,
 ) -> io::Result<()> {
     w.write_all(&(results.len() as i32).to_le_bytes())?;
     w.write_all(&rep_len.to_le_bytes())?;
-    w.write_all(&frag_gap.to_le_bytes())?;
     for r in results {
         let encoded = bincode::serialize(r).map_err(|e| {
             io::Error::other(format!("bincode serialize error: {}", e))
@@ -116,7 +113,7 @@ pub fn split_merge_prep(
 }
 
 /// Read one query's results from a part file. Returns None on EOF.
-pub fn split_read_query(r: &mut impl Read) -> io::Result<Option<(Vec<AlnResult>, i32, i32)>> {
+pub fn split_read_query(r: &mut impl Read) -> io::Result<Option<(Vec<AlnResult>, i32)>> {
     let mut buf4 = [0u8; 4];
     match r.read_exact(&mut buf4) {
         Ok(()) => {},
@@ -126,8 +123,6 @@ pub fn split_read_query(r: &mut impl Read) -> io::Result<Option<(Vec<AlnResult>,
     let n_results = i32::from_le_bytes(buf4);
     r.read_exact(&mut buf4)?;
     let rep_len = i32::from_le_bytes(buf4);
-    r.read_exact(&mut buf4)?;
-    let frag_gap = i32::from_le_bytes(buf4);
 
     let mut results = Vec::with_capacity(n_results as usize);
     for _ in 0..n_results {
@@ -141,7 +136,7 @@ pub fn split_read_query(r: &mut impl Read) -> io::Result<Option<(Vec<AlnResult>,
         results.push(aln);
     }
 
-    Ok(Some((results, rep_len, frag_gap)))
+    Ok(Some((results, rep_len)))
 }
 
 /// Delete temp files.
@@ -159,11 +154,7 @@ pub struct MergeConfig<'a> {
     pub k: usize,
     pub w: usize,
     pub is_hpc: bool,
-    pub pe_mode: bool,
-    pub pe_flip: Option<(bool, bool)>,
     pub query_path: &'a str,
-    pub query2_path: Option<&'a str>,
-    pub two_file_pe: bool,
     pub sam_rg: Option<&'a str>,
     pub copy_comment: bool,
 }
@@ -181,11 +172,7 @@ pub fn merge_split_results(
     let k = config.k;
     let w = config.w;
     let is_hpc = config.is_hpc;
-    let pe_mode = config.pe_mode;
-    let pe_flip = config.pe_flip;
     let query_path = config.query_path;
-    let query2_path = config.query2_path;
-    let two_file_pe = config.two_file_pe;
     let sam_rg = config.sam_rg;
     let copy_comment = config.copy_comment;
     // 1. Read all temp file headers, build global seqs + rid_shifts
@@ -215,159 +202,12 @@ pub fn merge_split_results(
     // 4. Re-open query files for output
     let query_reader = crate::fasta::open(query_path)
         .map_err(|e| anyhow::anyhow!("Error re-opening query for merge: {}", e))?;
-    let query_reader2 = if two_file_pe {
-        let q2 = query2_path.ok_or_else(|| anyhow::anyhow!("PE merge requires query2 path"))?;
-        Some(crate::fasta::open(q2)
-            .map_err(|e| anyhow::anyhow!("Error re-opening query2 for merge: {}", e))?)
-    } else {
-        None
-    };
 
     let mut total_stats = AlignmentStats::default();
     let mut record_iter = query_reader.records();
-    let mut record_iter2 = query_reader2.map(|r| r.records());
     let mut output_buffer = String::new();
 
-    if pe_mode {
-        let (flip_r1, flip_r2) = pe_flip.unwrap_or((false, false));
-        loop {
-            // Read R1
-            let rec1 = match record_iter.next() {
-                Some(Ok(r)) => r,
-                Some(Err(e)) => { eprintln!("Warning: Error reading record: {}", e); continue; },
-                None => break,
-            };
-            // Read R2
-            let rec2 = if two_file_pe {
-                match record_iter2.as_mut().unwrap().next() {
-                    Some(Ok(r)) => r,
-                    Some(Err(e)) => { eprintln!("Warning: Error reading R2 record: {}", e); continue; },
-                    None => break,
-                }
-            } else {
-                match record_iter.next() {
-                    Some(Ok(r)) => r,
-                    Some(Err(e)) => { eprintln!("Warning: Error reading R2 record: {}", e); continue; },
-                    None => break,
-                }
-            };
-
-            let qname1 = rec1.name().to_string();
-            let qseq1 = rec1.sequence().to_vec();
-            let qual1 = rec1.quality().map(|qs| String::from_utf8_lossy(qs).to_string());
-            let comment1 = if copy_comment { rec1.description().map(|s| s.to_string()) } else { None };
-            let qname2 = rec2.name().to_string();
-            let qseq2 = rec2.sequence().to_vec();
-            let qual2 = rec2.quality().map(|qs| String::from_utf8_lossy(qs).to_string());
-            let comment2 = if copy_comment { rec2.description().map(|s| s.to_string()) } else { None };
-
-            // Read results from all parts for both segments
-            let mut all_results1: Vec<AlnResult> = Vec::new();
-            let mut all_results2: Vec<AlnResult> = Vec::new();
-            let mut max_rep_len = 0i32;
-            let mut frag_gap = opt.chaining.max_gap_ref;
-
-            for (j, reader) in readers.iter_mut().enumerate() {
-                // Segment 1
-                if let Some((mut results, rep_len, fg)) = split_read_query(reader)
-                    .map_err(|e| anyhow::anyhow!("Error reading split part {}: {}", j, e))? {
-                    for r in results.iter_mut() { r.ref_id += rid_shifts[j]; }
-                    all_results1.extend(results);
-                    if rep_len > max_rep_len { max_rep_len = rep_len; }
-                    if j == 0 { frag_gap = fg; }
-                }
-                // Segment 2
-                if let Some((mut results, rep_len, _fg)) = split_read_query(reader)
-                    .map_err(|e| anyhow::anyhow!("Error reading split part {} seg2: {}", j, e))? {
-                    for r in results.iter_mut() { r.ref_id += rid_shifts[j]; }
-                    all_results2.extend(results);
-                    if rep_len > max_rep_len { max_rep_len = rep_len; }
-                }
-            }
-
-            // Refilter each segment
-            let qseq1_work = if flip_r1 { crate::align::extend::rev_comp(&qseq1) } else { qseq1.clone() };
-            let qseq2_work = if flip_r2 { crate::align::extend::rev_comp(&qseq2) } else { qseq2.clone() };
-            let mut pq1 = refilter_merged_results(all_results1, opt, k, qseq1_work.len(), max_rep_len, out_cfg.do_cigar);
-            let mut pq2 = refilter_merged_results(all_results2, opt, k, qseq2_work.len(), max_rep_len, out_cfg.do_cigar);
-            // merge doesn't update rep_len, so rl:i: tag is 0
-            pq1.rep_len = 0;
-            pq2.rep_len = 0;
-
-            // Run pair-rescue / TLEN inference across the two mates.
-            if out_cfg.do_cigar && opt.pairing.pe_ori >= 0 {
-                let qlens = [qseq1_work.len() as i32, qseq2_work.len() as i32];
-                let sub_diff = opt.scoring.match_score * 2 + opt.scoring.mismatch_penalty;
-                let mut pe_regs: [Vec<PeReg>; 2] = [Vec::new(), Vec::new()];
-                for (s, pq) in [&pq1, &pq2].iter().enumerate() {
-                    for (i, r) in pq.results.iter().enumerate() {
-                        pe_regs[s].push(PeReg {
-                            dp_score: r.dp_score,
-                            ref_id: r.ref_id,
-                            ref_start: r.ref_start,
-                            ref_end: r.ref_end,
-                            is_reverse: r.is_reverse,
-                            hash: r.hash,
-                            mapq: pq.mapqs[i],
-                            id: i,
-                            parent: pq.parent_indices[i],
-                            sam_pri: pq.sam_pri[i],
-                            proper_frag: r.proper_frag,
-                        });
-                    }
-                }
-                pair_alignments(frag_gap, opt.pairing.pe_bonus, sub_diff, opt.scoring.match_score, &qlens, &mut pe_regs);
-
-                for (s, seg_pe_regs) in pe_regs.iter().enumerate() {
-                    let pq = if s == 0 { &mut pq1 } else { &mut pq2 };
-                    for pr in seg_pe_regs {
-                        let i = pr.id;
-                        if i < pq.results.len() {
-                            pq.results[i].proper_frag = pr.proper_frag;
-                            pq.mapqs[i] = pr.mapq;
-                            pq.sam_pri[i] = pr.sam_pri;
-                            pq.results[i].is_secondary = pr.parent != pr.id;
-                        }
-                    }
-                }
-            }
-
-            // Post-flip coordinates
-            if flip_r1 {
-                let qlen1 = qseq1.len();
-                for r in pq1.results.iter_mut() {
-                    let t = r.query_start;
-                    r.query_start = qlen1 - r.query_end;
-                    r.query_end = qlen1 - t;
-                    r.is_reverse = !r.is_reverse;
-                    if r.trans_strand == 1 { r.trans_strand = 2; }
-                    else if r.trans_strand == 2 { r.trans_strand = 1; }
-                }
-            }
-            if flip_r2 {
-                let qlen2 = qseq2.len();
-                for r in pq2.results.iter_mut() {
-                    let t = r.query_start;
-                    r.query_start = qlen2 - r.query_end;
-                    r.query_end = qlen2 - t;
-                    r.is_reverse = !r.is_reverse;
-                    if r.trans_strand == 1 { r.trans_strand = 2; }
-                    else if r.trans_strand == 2 { r.trans_strand = 1; }
-                }
-            }
-
-            // Format output
-            let mate1 = get_mate_info(&pq1);
-            let mate2 = get_mate_info(&pq2);
-            output_buffer.clear();
-            let ri1 = ReadInfo { qname: &qname1, qseq: &qseq1, qual: qual1.as_deref(), comment: comment1.as_deref(), n_seg: 2, seg_idx: 0 };
-            let ri2 = ReadInfo { qname: &qname2, qseq: &qseq2, qual: qual2.as_deref(), comment: comment2.as_deref(), n_seg: 2, seg_idx: 1 };
-            format_output(&mut output_buffer, opt, &global_mi, &ri1, &pq1, out_cfg, mate2.as_ref());
-            format_output(&mut output_buffer, opt, &global_mi, &ri2, &pq2, out_cfg, mate1.as_ref());
-            write!(handle, "{}", output_buffer)?;
-            total_stats = total_stats + pq1.stats + pq2.stats;
-        }
-    } else {
+    {
         // Single-end merge
         loop {
             let rec = match record_iter.next() {
@@ -387,7 +227,7 @@ pub fn merge_split_results(
             let mut max_rep_len = 0i32;
 
             for (j, reader) in readers.iter_mut().enumerate() {
-                if let Some((mut results, rep_len, _frag_gap)) = split_read_query(reader)
+                if let Some((mut results, rep_len)) = split_read_query(reader)
                     .map_err(|e| anyhow::anyhow!("Error reading split part {}: {}", j, e))? {
                     for r in results.iter_mut() {
                         r.ref_id += rid_shifts[j];
@@ -404,8 +244,8 @@ pub fn merge_split_results(
 
             // Format output
             output_buffer.clear();
-            let ri = ReadInfo { qname: &qname, qseq: &qseq, qual: qual.as_deref(), comment: comment.as_deref(), n_seg: 1, seg_idx: 0 };
-            format_output(&mut output_buffer, opt, &global_mi, &ri, &pq, out_cfg, None);
+            let ri = ReadInfo { qname: &qname, qseq: &qseq, qual: qual.as_deref(), comment: comment.as_deref() };
+            format_output(&mut output_buffer, opt, &global_mi, &ri, &pq, out_cfg);
             write!(handle, "{}", output_buffer)?;
             total_stats = total_stats + pq.stats;
         }

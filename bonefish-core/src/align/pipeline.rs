@@ -8,8 +8,7 @@
 //! score, CIGAR, coordinates, and optional tags). Final output is emitted as
 //! PAF or SAM via `format_output`.
 
-use crate::align::map::{MapOptions, map_query, map_query_multi, MapContext, Mapping, AlignFlags, compute_bounds_from_squeezed};
-use crate::align::pair::{PeReg, pair_alignments};
+use crate::align::map::{MapOptions, map_query, MapContext, Mapping, AlignFlags, compute_bounds_from_squeezed};
 use crate::align::sketch::Minimizer;
 use crate::align::index::Index;
 use crate::align::extend::{AlignmentContext, AlignAnchorContext, align_anchors, build_scoring_matrix_full, convert_cigar_to_eqx_pub, fix_cigar_pub, fmt_cigar, fmt_cs, fmt_ds, fmt_md, CigarOp};
@@ -18,8 +17,6 @@ use crate::align::sort::radix_sort_128x_pair;
 use crate::align::extend::{rev_comp, rev_comp_nt4, encode_nt4_rc};
 use std::fmt::Write;
 use crate::align::stats::AlignmentStats;
-use crate::align::junc::JunctionDb;
-use crate::align::jump::JumpDb;
 use serde::{Serialize, Deserialize};
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -53,7 +50,7 @@ fn fast_log2(x: f32) -> f32 {
 /// Compute dp_max by walking the CIGAR base-by-base.
 /// Uses the full scoring matrix for per-base scoring (important for transition scoring).
 /// qseq/tseq are the aligned regions (0-indexed, encoded as 0=A,1=C,2=G,3=T,4=N).
-fn compute_alignment_score_max(ops: &[CigarOp], mat: &[i8; 25], q: i32, e: i32, qseq: &[u8], tseq: &[u8], log_gap: bool) -> i32 {
+fn compute_alignment_score_max(ops: &[CigarOp], mat: &[i8; 25], q: i32, e: i32, qseq: &[u8], tseq: &[u8]) -> i32 {
     let mut s: f64 = 0.0;
     let mut max: f64 = 0.0;
     let mut qoff: usize = 0;
@@ -74,22 +71,13 @@ fn compute_alignment_score_max(ops: &[CigarOp], mat: &[i8; 25], q: i32, e: i32, 
                 toff += len;
             }
             'I' => {
-                // log_gap uses logarithmic penalty, else flat q+e
-                if log_gap {
-                    s -= (q as f64) + (e as f64) * fast_log2(1.0 + len as f32) as f64;
-                } else {
-                    s -= (q + e) as f64;
-                }
+                // Logarithmic gap penalty.
+                s -= (q as f64) + (e as f64) * fast_log2(1.0 + len as f32) as f64;
                 if s < 0.0 { s = 0.0; }
                 qoff += len;
             }
             'D' => {
-                // same log_gap vs flat distinction
-                if log_gap {
-                    s -= (q as f64) + (e as f64) * fast_log2(1.0 + len as f32) as f64;
-                } else {
-                    s -= (q + e) as f64;
-                }
+                s -= (q as f64) + (e as f64) * fast_log2(1.0 + len as f32) as f64;
                 if s < 0.0 { s = 0.0; }
                 toff += len;
             }
@@ -134,8 +122,6 @@ pub struct ReadInfo<'a> {
     pub qseq: &'a [u8],
     pub qual: Option<&'a str>,
     pub comment: Option<&'a str>,
-    pub n_seg: usize,
-    pub seg_idx: usize,
 }
 
 /// Intermediate mapping results passed to process_query_core.
@@ -396,16 +382,12 @@ pub struct AlnResult {
     pub effective_cnt: i32,  // for post-alignment filtering
     // Pre-alignment n_sub (from first parent assignment call, persists for r[0])
     pub pre_num_suboptimal: i32,
-    pub is_spliced: bool,    // true if alignment contains N_SKIP operations (introns)
-    pub trans_strand: u8,    // 0=unknown, 1=+strand, 2=-strand, 3=ambiguous
     // Post-alignment parent assignment results (for MAPQ, set during secondary selection)
     pub dp_score_secondary: i32, // best dp_max among children
     pub secondary_chain_score: i32, // best chain_score among children
     pub num_suboptimal: i32, // count of children with similar dp_max
     pub split_inv: bool,     // true if this split part should trigger inversion alignment
     pub inv: bool,           // true if this is an inversion alignment result
-    pub proper_frag: bool,   // true if this alignment is part of a concordant PE pair
-    pub seg_split: bool,     // true if from seg_gen splitting (post-alignment filter skips cnt check)
     pub div: f32,            // estimated divergence (for dv:f: tag in non-CIGAR PAF)
     pub is_alt: bool,        // true if mapped to an ALT contig
     pub is_root_chain: bool, // true if from a root chain (parent==id), for align1_inv parent check
@@ -440,8 +422,6 @@ fn align_single_mapping(
     _map_ctx: &mut MapContext,
     out: &OutputConfig,
     squeezed: &[Minimizer],
-    splice_flag: AlignFlags,
-    junc_db: Option<&JunctionDb>,
 ) -> (AlnResult, DpRecalcInfo, Option<Mapping>) {
     let mut align_score = mapping.score;
     let mut dp_max = mapping.score;
@@ -456,7 +436,6 @@ fn align_single_mapping(
     let mut nm: u32 = 0;
     let mut nn: usize = 0;
     let mut de: f64 = 0.0;
-    let mut has_n_skip = false;
     let mut qs = mapping.query_start;
     let mut qe = mapping.query_end;
     // Query interval including extension windows the low-identity probe left unaligned.
@@ -494,9 +473,6 @@ fn align_single_mapping(
         let a = opt.scoring.match_score;
         let q = opt.scoring.gap_open;
         let e = opt.scoring.gap_extend;
-        let end_bonus = opt.alignment.end_bonus;
-        let is_sr_mode = opt.flags.contains(AlignFlags::SHORT_READ);
-        let is_splice = opt.filtering.is_splice;
         let no_end_flt = opt.flags.contains(AlignFlags::NO_END_FLT);
         let is_hpc = mi.homopolymer_compressed;
         let qlen_i32 = qlen as i32;
@@ -546,25 +522,8 @@ fn align_single_mapping(
                 re0_init - end_shift,
                 qe0_pre - end_shift,
             )
-        } else if is_sr_mode {
-            // SR: max-stretch trim, start-of-kmer convention (no center shift).
-            let (off, cnt) = crate::align::extend::max_stretch(&mapping.anchors);
-            let (trim_first_idx, trim_last_idx) = if cnt == 0 {
-                (0usize, mapping.anchors.len() - 1)
-            } else {
-                (off, off + cnt - 1)
-            };
-            let trim_first = &mapping.anchors[trim_first_idx];
-            let trim_last = &mapping.anchors[trim_last_idx];
-            let first_q_span = trim_first.query_span();
-            (
-                trim_first.ref_pos() + 1 - first_q_span,
-                trim_first.query_pos() + 1 - first_q_span,
-                trim_last.ref_pos() + 1,
-                trim_last.query_pos() + 1,
-            )
         } else {
-            let (trim_first_idx, trim_last_idx) = if !is_splice && !no_end_flt {
+            let (trim_first_idx, trim_last_idx) = if !no_end_flt {
                 let (off, cnt) = crate::align::extend::fix_bad_ends(
                     &mapping.anchors,
                     opt.chaining.bandwidth,
@@ -603,15 +562,6 @@ fn align_single_mapping(
                 std::cmp::max(0, mapping.ref_start as i32 - pad as i32),
                 std::cmp::min(tlen_i32, mapping.ref_end as i32 + pad as i32),
             )
-        } else if is_sr_mode {
-            // SR-mode region: post-trim chain (max-stretch).
-            let mut l = chain_qs;
-            l += if l * a + end_bonus > q { (l * a + end_bonus - q) / e } else { 0 };
-            let rs0 = std::cmp::max(0, chain_rs - l);
-            let mut l = qlen_i32 - chain_qe;
-            l += if l * a + end_bonus > q { (l * a + end_bonus - q) / e } else { 0 };
-            let re0 = std::cmp::min(tlen_i32, chain_re + l);
-            (rs0, re0)
         } else {
             // Non-SR region. Initial rs0/re0 use PRE-trim chain extents;
             // the max_gap-bounded branch uses POST-trim chain coords.
@@ -732,11 +682,9 @@ fn align_single_mapping(
             seed_bounds: adj_seed_bounds,
             rev: mapping.is_reverse,
             rid: mapping.ref_id,
-            splice_flag,
             split_inv: mapping.split_inv,
             is_hpc: mi.homopolymer_compressed,
             k: mi.kmer_size,
-            junc_db,
             ref_offset: rgn_start_final,
         };
         // Pick the target buffer and the lazy-extract context. For
@@ -828,8 +776,6 @@ fn align_single_mapping(
                 strand_retained: mapping.strand_retained,
                 compact_parent: mapping.compact_parent,
                 split_inv: aln_result.split_inv,
-                seg_split: mapping.seg_split,
-                seg_id: mapping.seg_id,
                 is_alt: mapping.is_alt,
             };
             // Set coordinates from anchors
@@ -862,9 +808,7 @@ fn align_single_mapping(
         let rgn_re = aln_result.ref_end;   // region-relative
         let aln_qseq = &query_seq_for_aln[new_qs..new_qe];
         let aln_tseq = &target_region[rgn_rs..rgn_re];
-        // SR uses flat q+e penalty; non-SR uses logarithmic gap penalty
-        let log_gap = !opt.flags.intersects(AlignFlags::SHORT_READ | AlignFlags::SR_RNA);
-        dp_max = compute_alignment_score_max(&ops, &mat, opt.scoring.gap_open, opt.scoring.gap_extend, aln_qseq, aln_tseq, log_gap);
+        dp_max = compute_alignment_score_max(&ops, &mat, opt.scoring.gap_open, opt.scoring.gap_extend, aln_qseq, aln_tseq);
         recalc_info = DpRecalcInfo::from_ops(&ops);
 
         let cqs = aln_result.probe_claim_qs.unwrap_or(new_qs).min(new_qs);
@@ -889,7 +833,6 @@ fn align_single_mapping(
         block_len = stats.block_len;
         nn = stats.num_ambiguous;
         de = stats.divergence;
-        has_n_skip = stats.has_n_skip;
 
         cigar_str = fmt_cigar(&ops, out.eqx);
         if out.do_cs {
@@ -902,8 +845,6 @@ fn align_single_mapping(
             ds_str = fmt_ds(&ops, query_seq_for_aln, target_region, new_qs, rgn_rs);
         }
     }
-
-    let is_spliced = has_n_skip;
 
     let result = AlnResult {
         ref_id: mapping.ref_id,
@@ -930,15 +871,12 @@ fn align_single_mapping(
         dp_score_original: dp_max,
         effective_cnt,
         pre_num_suboptimal: mapping.pre_num_suboptimal,
-        is_spliced,
-        trans_strand: 0,
+
         dp_score_secondary: 0,
         secondary_chain_score: 0,
         num_suboptimal: 0,
         split_inv: false,
         inv: false,
-        proper_frag: false,
-        seg_split: mapping.seg_split,
         div: mapping.div,
         is_alt: false,
         is_root_chain: !mapping.is_secondary,
@@ -1077,8 +1015,7 @@ fn try_align_inversion(
     }
 
     // Compute stats
-    let log_gap = !opt.flags.intersects(AlignFlags::SHORT_READ | AlignFlags::SR_RNA);
-    let dp_max = compute_alignment_score_max(&condensed, &mat, opt.scoring.gap_open, opt.scoring.gap_extend, &qseq[q_off as usize..], &tseq[t_off as usize..], log_gap);
+    let dp_max = compute_alignment_score_max(&condensed, &mat, opt.scoring.gap_open, opt.scoring.gap_extend, &qseq[q_off as usize..], &tseq[t_off as usize..]);
     // Add back the cost of the stripped leading gap
     let stripped_gap_len = qshift + tshift; // exactly one of qshift/tshift is non-zero
     let align_score = if stripped_gap_len > 0 {
@@ -1145,15 +1082,12 @@ fn try_align_inversion(
         dp_score_original: dp_max,
         effective_cnt: 0,
         pre_num_suboptimal: 0,
-        is_spliced: false,
-        trans_strand: 0,
+
         dp_score_secondary: 0,
         secondary_chain_score: 0,
         num_suboptimal: 0,
         split_inv: false,
         inv: true,
-        proper_frag: false,
-        seg_split: false,
         div: -1.0,  // inversions don't have estimated divergence
         is_alt: false,
         is_root_chain: true, // inversions only produced from root chains (checked in preconditions)
@@ -1180,7 +1114,6 @@ pub fn process_query(
     qseq: &[u8],
     ctx: &mut AlignmentContext,
     map_ctx: &mut MapContext,
-    junc_db: Option<&JunctionDb>,
     out: &OutputConfig,
 ) -> ProcessedQuery {
     // max_qlen check: skip mapping if query length exceeds limit
@@ -1192,51 +1125,7 @@ pub fn process_query(
     }
     let (regs, rep_len, stats, squeezed) = map_query(opt, mi, qname, qseq, map_ctx);
     let map_result = MapResult { regs, rep_len, stats, squeezed };
-    process_query_core(opt, mi, qseq, ctx, map_ctx, junc_db, out, map_result)
-}
-
-/// Process pre-built registrations from seg_gen (strong pairing path).
-/// Builds the squeezed array from regs' anchors and runs the alignment/MAPQ pipeline.
-pub fn process_query_from_regs(
-    opt: &MapOptions,
-    mi: &Index,
-    qseq: &[u8],
-    ctx: &mut AlignmentContext,
-    map_ctx: &mut MapContext,
-    junc_db: Option<&JunctionDb>,
-    out: &OutputConfig,
-    mut regs: Vec<Mapping>,
-    rep_len: usize,
-) -> ProcessedQuery {
-    let stats = AlignmentStats::default();
-
-    // Build squeezed array from regs' anchors (same logic as end of map_query)
-    let mut pos_order: Vec<usize> = (0..regs.len()).collect();
-    pos_order.sort_by_key(|&i| regs[i].original_as);
-    let mut squeezed: Vec<Minimizer> = Vec::new();
-    for &pi in &pos_order {
-        let start = squeezed.len();
-        squeezed.extend_from_slice(&regs[pi].anchors);
-        regs[pi].sq_start = start;
-
-        // Compute bounds
-        let sq_cnt = regs[pi].anchors.len();
-        if sq_cnt > 0 {
-            let rid = regs[pi].ref_id;
-            let tlen_i32 = mi.seqs[rid].len as i32;
-            let qlen_i32 = qseq.len() as i32;
-            let (left_rs1, left_qs1, right_re1, right_qe1) =
-                compute_bounds_from_squeezed(&squeezed, start, sq_cnt, tlen_i32, qlen_i32, opt.chaining.min_cnt);
-            regs[pi].left_bound_rs1 = left_rs1;
-            regs[pi].left_bound_qs1 = left_qs1;
-            regs[pi].right_bound_re1 = right_re1;
-            regs[pi].right_bound_qe1 = right_qe1;
-        }
-    }
-
-    // process_query_from_regs is only called from the strong pairing path, never in split mode
-    let map_result = MapResult { regs, rep_len, stats, squeezed };
-    process_query_core(opt, mi, qseq, ctx, map_ctx, junc_db, out, map_result)
+    process_query_core(opt, mi, qseq, ctx, map_ctx, out, map_result)
 }
 
 /// Compute per-read MAPQs from alignment results.
@@ -1247,8 +1136,6 @@ fn compute_mapping_qualities(
     opt: &MapOptions,
     rep_len: f32,
 ) -> Vec<i32> {
-    let is_sr_mapq = opt.flags.intersects(AlignFlags::SHORT_READ | AlignFlags::SR_RNA);
-    let is_splice_mapq = opt.flags.contains(AlignFlags::SPLICE);
 
     // uniq_ratio = sum_sc / (sum_sc + rep_len)
     let mut uniq_ratio = 1.0f32;
@@ -1261,11 +1148,6 @@ fn compute_mapping_qualities(
             uniq_ratio = sum_sc as f32 / (sum_sc as f32 + rep_len);
         }
     }
-
-    // Count non-root spliced alignments
-    let n_2nd_splice: i32 = results.iter().enumerate()
-        .filter(|(i, r)| parent_indices[*i] != *i && r.is_spliced)
-        .count() as i32;
 
     // Compute MAPQ for each root (parent==id), children get 0
     // Inversions always get mapq=0, then inv_mapq updates them
@@ -1291,19 +1173,10 @@ fn compute_mapping_qualities(
 
             let mut mapq;
             if has_p && r.dp_score_secondary > 0 && r.dp_score > 0 {
-                let x = if is_sr_mapq && is_splice_mapq {
-                    dp_max2 / dp_max
-                } else {
-                    dp_max2 * subsc / dp_max / initial_chain_score
-                };
+                let x = dp_max2 * subsc / dp_max / initial_chain_score;
                 mapq = (identity * pen_cm * q_coef * (1.0 - x * x) * (dp_max / match_sc).ln()) as i32;
-                if !is_sr_mapq {
-                    let mapq_alt = (6.02f32 * identity * identity * (dp_max - dp_max2) / match_sc + 0.499) as i32;
-                    mapq = mapq.min(mapq_alt);
-                }
-                if is_splice_mapq && is_sr_mapq && r.is_spliced && n_2nd_splice == 0 {
-                    mapq += 10;
-                }
+                let mapq_alt = (6.02f32 * identity * identity * (dp_max - dp_max2) / match_sc + 0.499) as i32;
+                mapq = mapq.min(mapq_alt);
             } else {
                 let x = subsc / initial_chain_score;
                 if has_p {
@@ -1367,7 +1240,7 @@ fn filter_alignment_results(
         // Filter both results and recalc_infos together
         let mut keep = vec![true; results.len()];
         for (i, r) in results.iter().enumerate() {
-            if !r.inv && !r.seg_split && r.effective_cnt < min_cnt {
+            if !r.inv && r.effective_cnt < min_cnt {
                 keep[i] = false;
             }
             if (r.matches as i32) < min_chain_score {
@@ -1397,7 +1270,7 @@ fn filter_alignment_results(
     } else {
         // Filter results only (retain path)
         results.retain(|r| {
-            let flt = (!r.inv && !r.seg_split && r.effective_cnt < min_cnt)
+            let flt = (!r.inv && r.effective_cnt < min_cnt)
                 || (r.matches as i32) < min_chain_score
                 || r.dp_score < min_dp_max
                 || ((r.query_start as f32) > clip_thresh
@@ -1484,8 +1357,8 @@ fn assign_parents_and_select(
     }
 
     if !results.is_empty() && out.do_cigar {
-        // Skip update_dp_max for SR, SR_RNA, ALL_CHAINS, split_prefix; require qlen >= rank_min_len (500)
-        let do_update_dp = !split_mode && !opt.flags.intersects(AlignFlags::SHORT_READ | AlignFlags::SR_RNA | AlignFlags::ALL_CHAINS) && qlen >= 500;
+        // Skip update_dp_max for ALL_CHAINS, split_prefix; require qlen >= rank_min_len (500)
+        let do_update_dp = !split_mode && !opt.flags.contains(AlignFlags::ALL_CHAINS) && qlen >= 500;
         if do_update_dp {
             let mut dp_max_vals: Vec<i32> = results.iter().map(|r| r.dp_score).collect();
             let qs_vals: Vec<usize> = results.iter().map(|r| r.query_start).collect();
@@ -1707,7 +1580,6 @@ fn process_query_core(
     qseq: &[u8],
     ctx: &mut AlignmentContext,
     map_ctx: &mut MapContext,
-    junc_db: Option<&JunctionDb>,
     out: &OutputConfig,
     map_result: MapResult,
 ) -> ProcessedQuery {
@@ -1751,8 +1623,6 @@ fn process_query_core(
     // naturally processes the split next. After each right-split, inversion detection
     // checks the adjacent pair (left part at i-1, right part at i).
     let t_aln_start = Instant::now();
-    let is_splice = opt.flags.contains(AlignFlags::SPLICE);
-    let is_dual_splice = is_splice && opt.flags.contains(AlignFlags::SPLICE_FOR) && opt.flags.contains(AlignFlags::SPLICE_REV);
 
     // Build work queue: original regs first, splits get inserted at front.
     // The u8 is split-depth: 0 = original chain, 1 = direct child of an original,
@@ -1773,72 +1643,9 @@ fn process_query_core(
 
     while let Some((mut r, parent_depth)) = work_queue.pop_front() {
         let is_split_part = parent_depth > 0;
-        let (mut result, recalc_info, new_split) = if is_dual_splice {
-            let base_flags = opt.flags & !(AlignFlags::SPLICE_FOR | AlignFlags::SPLICE_REV);
-            let mut r_for = r.clone();
-            let (result_for, recalc_for, split_for) = align_single_mapping(
-                &mut r_for, opt, mi, qseq, &qseq_fwd_nt4, &qseq_rc_nt4, qlen, ctx, map_ctx, out, &squeezed, base_flags | AlignFlags::SPLICE_FOR, junc_db,
-            );
-
-            let is_sr_rna = opt.flags.contains(AlignFlags::SR_RNA);
-            let sr_shortcut = is_sr_rna
-                && (r.query_end - r.query_start) == (r.ref_end - r.ref_start)
-                && (result_for.query_end - result_for.query_start) == (result_for.ref_end - result_for.ref_start)
-                && result_for.query_start == 0 && result_for.query_end == qlen;
-            if sr_shortcut {
-                let mut res = result_for;
-                res.trans_strand = 0;
-                r = r_for;
-                (res, recalc_for, split_for)
-            } else {
-                let mut r_rev = r.clone();
-                let (result_rev, recalc_rev, split_rev) = align_single_mapping(
-                    &mut r_rev, opt, mi, qseq, &qseq_fwd_nt4, &qseq_rc_nt4, qlen, ctx, map_ctx, out, &squeezed, base_flags | AlignFlags::SPLICE_REV, junc_db,
-                );
-
-                let (mut chosen_result, chosen_recalc, chosen_split, trans_strand) =
-                    if result_for.align_score > result_rev.align_score {
-                        (result_for, recalc_for, split_for, 1u8)
-                    } else if result_for.align_score < result_rev.align_score {
-                        (result_rev, recalc_rev, split_rev, 2u8)
-                    } else {
-                        let which = (qlen as i32 + result_for.align_score) & 1;
-                        if which == 0 {
-                            (result_for, recalc_for, split_for, 3u8)
-                        } else {
-                            (result_rev, recalc_rev, split_rev, 3u8)
-                        }
-                    };
-
-                chosen_result.trans_strand = trans_strand;
-
-                if chosen_result.is_spliced {
-                    let bonus = opt.scoring.match_score + opt.scoring.mismatch_penalty;
-                    if trans_strand == 1 || trans_strand == 2 {
-                        chosen_result.dp_score += bonus + (bonus >> 1);
-                    } else if trans_strand == 3 {
-                        chosen_result.dp_score -= bonus;
-                    }
-                }
-
-                r = if trans_strand == 2 || (trans_strand == 3 && (qlen as i32 + chosen_result.align_score) & 1 != 0) {
-                    r_rev
-                } else {
-                    r_for
-                };
-
-                (chosen_result, chosen_recalc, chosen_split)
-            }
-        } else {
-            let splice_f = opt.flags;
-            let (mut res, rec, spl) = align_single_mapping(
-                &mut r, opt, mi, qseq, &qseq_fwd_nt4, &qseq_rc_nt4, qlen, ctx, map_ctx, out, &squeezed, splice_f, junc_db,
-            );
-            if is_splice {
-                res.trans_strand = if opt.flags.contains(AlignFlags::SPLICE_FOR) { 1 } else { 2 };
-            }
-            (res, rec, spl)
-        };
+        let (mut result, recalc_info, new_split) = align_single_mapping(
+            &mut r, opt, mi, qseq, &qseq_fwd_nt4, &qseq_rc_nt4, qlen, ctx, map_ctx, out, &squeezed,
+        );
 
         // Mark split parts; split_depth carries the chain's nesting level.
         if is_split_part {
@@ -1921,8 +1728,7 @@ pub fn refilter_merged_results(
     }
 
     // 1. update_dp_max
-    let is_sr = opt.flags.intersects(AlignFlags::SHORT_READ | AlignFlags::SR_RNA);
-    if do_cigar && !is_sr && qlen >= 500 {
+    if do_cigar && qlen >= 500 {
         let recalc_infos: Vec<DpRecalcInfo> = results.iter()
             .map(|r| DpRecalcInfo::from_cigar_str(&r.cigar_str))
             .collect();
@@ -2145,178 +1951,34 @@ pub fn align_and_format_query(
     read: &ReadInfo,
     ctx: &mut AlignmentContext,
     map_ctx: &mut MapContext,
-    junc_db: Option<&JunctionDb>,
-    jump_db: Option<&JumpDb>,
     out: &OutputConfig,
 ) -> (String, AlignmentStats) {
-    let qname = read.qname;
-    let qseq = read.qseq;
-    let mut pq = process_query(opt, mi, qname, qseq, ctx, map_ctx, junc_db, out);
-
-    // Jump splice extension: after alignment, for single-segment splice mode
-    if let Some(jdb) = jump_db {
-        let is_splice = opt.flags.contains(AlignFlags::SPLICE);
-        if is_splice {
-            let qlen = qseq.len();
-            for r in pq.results.iter_mut() {
-                crate::align::jump::jump_split(mi, opt, qlen, qseq, r, jdb);
-            }
-        }
-    }
-
+    let pq = process_query(opt, mi, read.qname, read.qseq, ctx, map_ctx, out);
     let mut output_buffer = String::new();
-    format_output(&mut output_buffer, opt, mi, read, &pq, out, None);
+    format_output(&mut output_buffer, opt, mi, read, &pq, out);
     (output_buffer, pq.stats)
-}
-
-/// Mate info for PE SAM output.
-pub struct MateInfo {
-    pub ref_id: Option<usize>,  // None if mate unmapped
-    pub ref_start: usize,
-    pub ref_end: usize,
-    pub is_reverse: bool,
-}
-
-/// Trim /1 or /2 suffix from QNAME.
-fn trim_read_name_suffix(name: &str) -> &str {
-    let b = name.as_bytes();
-    let l = b.len();
-    if l >= 3 && b[l - 1].is_ascii_digit() && b[l - 2] == b'/' {
-        &name[..l - 2]
-    } else {
-        name
-    }
-}
-
-/// Compare read names ignoring /1 /2 suffix.
-pub fn qname_same(s1: &str, s2: &str) -> bool {
-    let t1 = trim_read_name_suffix(s1);
-    let t2 = trim_read_name_suffix(s2);
-    t1 == t2
-}
-
-/// Write junction BED output for a single alignment result.
-/// Outputs one line per N_SKIP (intron) in the CIGAR: chr\tstart\tend\tqname\tscore\tstrand
-fn write_junction_bed(output_buffer: &mut String, mi: &Index, qname: &str, r: &AlnResult) {
-    if !r.is_spliced || r.cigar_str.is_empty() { return; }
-    if r.trans_strand != 1 && r.trans_strand != 2 { return; }
-    // Parse CIGAR string for N_SKIP operations
-    let mut t_off = r.ref_start;
-    let rid = r.ref_id;
-    let tname = &mi.seqs[rid].name;
-    let mut first = true;
-    let cigar_bytes = r.cigar_str.as_bytes();
-    let mut num_start = 0;
-    for (i, &b) in cigar_bytes.iter().enumerate() {
-        if b.is_ascii_digit() { continue; }
-        let len: usize = std::str::from_utf8(&cigar_bytes[num_start..i]).unwrap_or("0").parse().unwrap_or(0);
-        num_start = i + 1;
-        match b {
-            b'M' | b'=' | b'X' | b'D' => { t_off += len; }
-            b'N' => {
-                // Intron: score donor/acceptor splice sites
-                if len < 2 { t_off += len; continue; }
-                let rev = (r.trans_strand == 2) ^ r.is_reverse;
-                let (d0, d1, a0, a1) = if !rev {
-                    // Forward: donor = start, acceptor = end
-                    let d0 = mi.get_nt4(rid, t_off);
-                    let d1 = mi.get_nt4(rid, t_off + 1);
-                    let a0 = mi.get_nt4(rid, t_off + len - 2);
-                    let a1 = mi.get_nt4(rid, t_off + len - 1);
-                    (d0, d1, a0, a1)
-                } else {
-                    // Reverse: swap + revcomp
-                    let ra0 = mi.get_nt4(rid, t_off);
-                    let ra1 = mi.get_nt4(rid, t_off + 1);
-                    let rd0 = mi.get_nt4(rid, t_off + len - 2);
-                    let rd1 = mi.get_nt4(rid, t_off + len - 1);
-                    // revcomp_splice: swap + complement
-                    let d0 = if rd1 < 4 { 3 - rd1 } else { 4 };
-                    let d1 = if rd0 < 4 { 3 - rd0 } else { 4 };
-                    let a0 = if ra1 < 4 { 3 - ra1 } else { 4 };
-                    let a1 = if ra0 < 4 { 3 - ra0 } else { 4 };
-                    (d0, d1, a0, a1)
-                };
-                let mut score1 = 0i32;
-                let mut score2 = 0i32;
-                // GT=3, GC=2, AT=1 for donor
-                if d0 == 2 && d1 == 3 { score1 = 3; }
-                else if d0 == 2 && d1 == 1 { score1 = 2; }
-                else if d0 == 0 && d1 == 3 { score1 = 1; }
-                // AG=3, AC=1 for acceptor
-                if a0 == 0 && a1 == 2 { score2 = 3; }
-                else if a0 == 0 && a1 == 1 { score2 = 1; }
-                if !first { output_buffer.push('\n'); } else { first = false; }
-                use std::fmt::Write;
-                write!(output_buffer, "{}\t{}\t{}\t{}\t{}\t{}", tname, t_off, t_off + len, qname, score1 + score2, if rev { '-' } else { '+' }).ok();
-                t_off += len;
-            }
-            b'I' | b'S' | b'H' => { /* query-consuming or hard clip, no ref movement */ }
-            _ => {}
-        }
-    }
-    if !first { output_buffer.push('\n'); }
 }
 
 /// Format an unmapped record (SAM unmapped or PAF no-hit) when results are empty.
 fn format_unmapped_record(
     output_buffer: &mut String,
     opt: &MapOptions,
-    mi: &Index,
     out: &OutputConfig,
     read: &ReadInfo,
     rep_len: i32,
-    mate_info: Option<&MateInfo>,
 ) {
     let qname = read.qname;
     let qseq = read.qseq;
     let qual = read.qual;
     let qlen = qseq.len();
-    let n_seg = read.n_seg;
-    let seg_idx = read.seg_idx;
     let comment = read.comment;
-    // Derive display names from read info (same logic as format_output)
-    let out_qname: &str = if n_seg > 1 { trim_read_name_suffix(qname) } else { qname };
-    let paf_qname_buf: String = if n_seg >= 2 && opt.flags.contains(AlignFlags::FRAG_MODE) {
-        format!("{}/{}", qname, seg_idx + 1)
-    } else {
-        String::new()
-    };
-    let paf_qname: &str = if !paf_qname_buf.is_empty() { &paf_qname_buf } else { qname };
     if out.output_sam && !opt.flags.contains(AlignFlags::SAM_HIT_ONLY) {
         let qual_str = if opt.flags.contains(AlignFlags::NO_QUAL) { "*" } else { qual.unwrap_or("*") };
-        // PE unmapped: set PE flags, and if mate mapped, use mate's position
-        if n_seg > 1 {
-            let mut flag: u32 = 0x5; // 0x1 (paired) | 0x4 (unmapped)
-            if seg_idx == 0 { flag |= 0x40; }
-            else if seg_idx == n_seg - 1 { flag |= 0x80; }
-            if let Some(mi_info) = mate_info {
-                if mi_info.is_reverse { flag |= 0x20; }
-                if let Some(mate_rid) = mi_info.ref_id {
-                    // Place unmapped read at mate's position
-                    let mate_tname = &mi.seqs[mate_rid].name;
-                    write!(output_buffer, "{}\t{}\t{}\t{}\t0\t*\t", out_qname, flag, mate_tname, mi_info.ref_start + 1).ok();
-                    // RNEXT/PNEXT for mate
-                    write!(output_buffer, "=\t{}\t0\t", mi_info.ref_start + 1).ok();
-                } else {
-                    flag |= 0x8; // mate unmapped
-                    write!(output_buffer, "{}\t{}\t*\t0\t0\t*\t*\t0\t0\t", out_qname, flag).ok();
-                }
-            } else {
-                flag |= 0x8;
-                write!(output_buffer, "{}\t{}\t*\t0\t0\t*\t*\t0\t0\t", out_qname, flag).ok();
-            }
-            let seq_str = String::from_utf8_lossy(qseq);
-            write!(output_buffer, "{}\t{}\trl:i:{}", seq_str, qual_str, rep_len).ok();
-            if let Some(c) = comment { write!(output_buffer, "\t{}", c).ok(); }
-            writeln!(output_buffer).ok();
-        } else {
-            write!(output_buffer, "{}\t4\t*\t0\t0\t*\t*\t0\t0\t{}\t{}\trl:i:{}", out_qname, String::from_utf8_lossy(qseq), qual_str, rep_len).ok();
-            if let Some(c) = comment { write!(output_buffer, "\t{}", c).ok(); }
-            writeln!(output_buffer).ok();
-        }
+        write!(output_buffer, "{}\t4\t*\t0\t0\t*\t*\t0\t0\t{}\t{}\trl:i:{}", qname, String::from_utf8_lossy(qseq), qual_str, rep_len).ok();
+        if let Some(c) = comment { write!(output_buffer, "\t{}", c).ok(); }
+        writeln!(output_buffer).ok();
     } else if !out.output_sam && opt.flags.contains(AlignFlags::PAF_NO_HIT) {
-        writeln!(output_buffer, "{}\t{}\t0\t0\t*\t*\t0\t0\t0\t0\t0\t0", paf_qname, qlen).ok();
+        writeln!(output_buffer, "{}\t{}\t0\t0\t*\t*\t0\t0\t0\t0\t0\t0", qname, qlen).ok();
     }
 }
 
@@ -2375,9 +2037,6 @@ fn format_sam_record(
     qual: Option<&str>,
     qlen: usize,
     rep_len: i32,
-    n_seg: usize,
-    seg_idx: usize,
-    mate_info: Option<&MateInfo>,
     rg_id: Option<&str>,
     comment: Option<&str>,
 ) {
@@ -2390,20 +2049,6 @@ fn format_sam_record(
     } else if !sam_pri_i {
         flag |= 0x800; // supplementary
     }
-    // PE flags
-    if n_seg > 1 {
-        flag |= 0x1; // paired
-        if r.proper_frag { flag |= 0x2; } // proper pair
-        if seg_idx == 0 { flag |= 0x40; } // first in pair
-        else if seg_idx == n_seg - 1 { flag |= 0x80; } // last in pair
-        if let Some(mi_info) = mate_info {
-            if mi_info.ref_id.is_none() { flag |= 0x8; } // mate unmapped
-            if mi_info.is_reverse { flag |= 0x20; } // mate reverse strand
-        } else {
-            flag |= 0x8; // no mate = mate unmapped
-        }
-    }
-
     let mapq = mapqs[idx];
     let mut full_cigar = String::new();
 
@@ -2489,35 +2134,7 @@ fn format_sam_record(
         out_qname, flag, tname, r.ref_start + 1, mapq, cigar_col).ok();
 
     // Write RNEXT/PNEXT/TLEN
-    if n_seg > 1 {
-        let this_rid = r.ref_id as i64;
-        let this_pos = r.ref_start;
-        let mut tlen: i64 = 0;
-        if let Some(mi_info) = mate_info {
-            if let Some(mate_rid) = mi_info.ref_id {
-                if this_rid == mate_rid as i64 {
-                    // Same chromosome
-                    let this_pos5 = if r.is_reverse { r.ref_end as i64 - 1 } else { this_pos as i64 };
-                    let next_pos5 = if mi_info.is_reverse { mi_info.ref_end as i64 - 1 } else { mi_info.ref_start as i64 };
-                    tlen = next_pos5 - this_pos5;
-                    write!(output_buffer, "=\t").ok();
-                } else {
-                    write!(output_buffer, "{}\t", mi.seqs[mate_rid].name).ok();
-                }
-                write!(output_buffer, "{}\t", mi_info.ref_start + 1).ok();
-            } else {
-                // Mate unmapped but this is mapped: use own position
-                write!(output_buffer, "=\t{}\t", this_pos + 1).ok();
-            }
-        } else {
-            // Mate unmapped, this mapped: use own position
-            write!(output_buffer, "=\t{}\t", this_pos + 1).ok();
-        }
-        if tlen > 0 { tlen += 1; } else if tlen < 0 { tlen -= 1; }
-        write!(output_buffer, "{}\t", tlen).ok();
-    } else {
-        write!(output_buffer, "*\t0\t0\t").ok();
-    }
+    write!(output_buffer, "*\t0\t0\t").ok();
 
     // Write SEQ/QUAL
     write!(output_buffer, "{}\t{}", out_seq, out_qual).ok();
@@ -2526,11 +2143,6 @@ fn format_sam_record(
     write!(output_buffer, "\tms:i:{}", r.dp_score_original).ok();
     write!(output_buffer, "\tAS:i:{}", r.align_score).ok();
     write!(output_buffer, "\tnn:i:{}", r.num_ambiguous).ok();
-    if r.trans_strand == 1 {
-        write!(output_buffer, "\tts:A:+").ok();
-    } else if r.trans_strand == 2 {
-        write!(output_buffer, "\tts:A:-").ok();
-    }
     write!(output_buffer, "\ttp:A:{}", tp_tag).ok();
     write!(output_buffer, "\tcm:i:{}", cm_val).ok();
     write!(output_buffer, "\ts1:i:{}", s1_val).ok();
@@ -2641,11 +2253,6 @@ fn format_paf_record(
         write!(output_buffer, "\tms:i:{}", r.dp_score_original).ok();
         write!(output_buffer, "\tAS:i:{}", r.align_score).ok();
         write!(output_buffer, "\tnn:i:{}", r.num_ambiguous).ok();
-        if r.trans_strand == 1 {
-            write!(output_buffer, "\tts:A:+").ok();
-        } else if r.trans_strand == 2 {
-            write!(output_buffer, "\tts:A:-").ok();
-        }
     }
     write!(output_buffer, "\ttp:A:{}", tp_tag).ok();
     write!(output_buffer, "\tcm:i:{}", cm_val).ok();
@@ -2682,9 +2289,7 @@ fn format_paf_record(
     writeln!(output_buffer).ok();
 }
 
-/// Format SAM/PAF output for a single segment.
-/// n_seg=1 for single-read, n_seg=2 for PE. seg_idx=0/1 for PE read1/read2.
-/// mate_info is the SAM primary of the other segment (if n_seg > 1).
+/// Format SAM/PAF output for one read.
 pub fn format_output(
     output_buffer: &mut String,
     opt: &MapOptions,
@@ -2692,43 +2297,20 @@ pub fn format_output(
     read: &ReadInfo,
     pq: &ProcessedQuery,
     out: &OutputConfig,
-    mate_info: Option<&MateInfo>,
 ) {
     let qname = read.qname;
     let qseq = read.qseq;
     let qual = read.qual;
     let comment = read.comment;
-    let n_seg = read.n_seg;
-    let seg_idx = read.seg_idx;
     let rg_id = out.rg_id.as_deref();
     let results = &pq.results;
     let mapqs = &pq.mapqs;
     let sam_pri = &pq.sam_pri;
     let rep_len = pq.rep_len;
     let qlen = qseq.len();
-    // SAM: trim /1 /2 suffix. PAF: keep original name + append /{seg_idx+1} for PE.
-    let sam_qname: &str = if n_seg > 1 { trim_read_name_suffix(qname) } else { qname };
-    let paf_qname_buf: String = if n_seg >= 2 && opt.flags.contains(AlignFlags::FRAG_MODE) {
-        format!("{}/{}", qname, seg_idx + 1)
-    } else {
-        String::new()
-    };
-    let paf_qname: &str = if !paf_qname_buf.is_empty() { &paf_qname_buf } else { qname };
-    let out_qname = sam_qname; // default for SAM paths
-
     // Output unmapped record if no results
     if results.is_empty() {
-        format_unmapped_record(output_buffer, opt, mi, out, read, rep_len, mate_info);
-    }
-    // --write-junc mode: output junction BED instead of SAM/PAF
-    if opt.flags.contains(AlignFlags::OUT_JUNC) {
-        let parent_indices = &pq.parent_indices;
-        for (i, r) in results.iter().enumerate() {
-            // Only root alignments (parent == self) with mapq >= 10
-            if parent_indices[i] != i || mapqs[i] < 10 { continue; }
-            write_junction_bed(output_buffer, mi, paf_qname, r);
-        }
-        return;
+        format_unmapped_record(output_buffer, opt, out, read, rep_len);
     }
 
     let skip_sec = opt.flags.contains(AlignFlags::NO_PRINT_2ND);
@@ -2745,206 +2327,17 @@ pub fn format_output(
             format_sam_record(
                 output_buffer, r, i, results, mapqs, sam_pri[i],
                 tp_tag, s1_val, cm_val,
-                opt, mi, out, out_qname, qseq, qual, qlen, rep_len,
-                n_seg, seg_idx, mate_info, rg_id, comment,
+                opt, mi, out, qname, qseq, qual, qlen, rep_len,
+                rg_id, comment,
             );
         } else {
             format_paf_record(
                 output_buffer, r, mapqs[i],
                 tp_tag, s1_val, cm_val,
-                opt, mi, out, paf_qname, qlen, rep_len, comment,
+                opt, mi, out, qname, qlen, rep_len, comment,
             );
         }
     }
-}
-
-/// Align and format a paired-end read pair (weak pairing path).
-/// Pre-flips read2 per pe_ori, maps each independently, optionally runs pair assignment,
-/// post-flips results, then formats PE SAM output for both reads.
-pub fn align_and_format_pair(
-    opt: &MapOptions,
-    mi: &Index,
-    read1: &ReadInfo,
-    read2: &ReadInfo,
-    ctx: &mut AlignmentContext,
-    map_ctx: &mut MapContext,
-    junc_db: Option<&JunctionDb>,
-    out: &OutputConfig,
-) -> (String, AlignmentStats) {
-    // Group consecutive reads by base name (qname).
-    // If names differ, each read is an independent n_seg=1 fragment.
-    if !qname_same(read1.qname, read2.qname) {
-        let s1 = ReadInfo { n_seg: 1, seg_idx: 0, ..*read1 };
-        let s2 = ReadInfo { n_seg: 1, seg_idx: 0, ..*read2 };
-        let pq1 = process_query(opt, mi, s1.qname, s1.qseq, ctx, map_ctx, junc_db, out);
-        let pq2 = process_query(opt, mi, s2.qname, s2.qseq, ctx, map_ctx, junc_db, out);
-        let mut buf = String::new();
-        format_output(&mut buf, opt, mi, &s1, &pq1, out, None);
-        format_output(&mut buf, opt, mi, &s2, &pq2, out, None);
-        return (buf, pq1.stats + pq2.stats);
-    }
-
-    let qname1 = read1.qname;
-    let qseq1 = read1.qseq;
-    let qual1 = read1.qual;
-    let comment1 = read1.comment;
-    let qname2 = read2.qname;
-    let qseq2 = read2.qseq;
-    let qual2 = read2.qual;
-    let comment2 = read2.comment;
-    let pe_ori = opt.pairing.pe_ori;
-    let mut output_buffer = String::new();
-
-    // pe_ori flipping: rev-comp read2 before alignment
-    // For FR (pe_ori=1): read2 (j=1) is rev-comped. pe_ori&1 = 1 for j==1.
-    // For read1: j==0, pe_ori>>1&1 = 0 for pe_ori=1, so read1 is NOT flipped.
-    let flip_r1 = (pe_ori >> 1) & 1 != 0;
-    let flip_r2 = pe_ori & 1 != 0;
-
-    // Flip sequence for alignment; qual is only used in output (original orientation)
-    let qseq1_work = if flip_r1 { rev_comp(qseq1) } else { qseq1.to_vec() };
-    let qseq2_work = if flip_r2 { rev_comp(qseq2) } else { qseq2.to_vec() };
-
-    // Weak pairing per-segment chaining is only activated when CIGAR is requested;
-    // without CIGAR it decays into joint (strong) chaining.
-    let is_weak = opt.flags.contains(AlignFlags::WEAK_PAIRING) && out.do_cigar;
-    let is_independ = opt.flags.contains(AlignFlags::INDEPEND_SEG);
-
-    // frag_gap: gap parameter for pair assignment (strong path uses computed max_chain_gap_ref,
-    // weak path uses opt.chaining.max_gap_ref)
-    let (mut pq1, mut pq2, frag_gap, multi_stats) = if is_independ {
-        // Fully independent mapping: each segment treated as a standalone single-end read.
-        // No joint chaining, no pair rescoring — each read keeps its own rep_len and hash seed.
-        let pq1 = process_query(opt, mi, qname1, &qseq1_work, ctx, map_ctx, junc_db, out);
-        let pq2 = process_query(opt, mi, qname2, &qseq2_work, ctx, map_ctx, junc_db, out);
-        (pq1, pq2, opt.chaining.max_gap_ref, AlignmentStats::default())
-    } else if is_weak {
-        // Weak pairing: map each read independently
-        // The FIRST segment's qname is used for ALL segments. This affects read_hash
-        // (via compute_read_hash), which propagates to chain hashes and pair tiebreaking.
-        // Use qname1 for both to match.
-        let mut pq1 = process_query(opt, mi, qname1, &qseq1_work, ctx, map_ctx, junc_db, out);
-        let pq2 = process_query(opt, mi, qname1, &qseq2_work, ctx, map_ctx, junc_db, out);
-        // Quirk: the mapping wrapper processes segments sequentially. rep_len is overwritten
-        // each time, so after it returns, rep_len = seg1's (R2's) rep_len. The caller then
-        // copies this value to ALL segments. MAPQ is already computed with per-read rep_len,
-        // so this only affects the rl:i output tag.
-        pq1.rep_len = pq2.rep_len;
-        (pq1, pq2, opt.chaining.max_gap_ref, AlignmentStats::default())
-    } else {
-        // Strong pairing: combined minimizers, chaining, seg_gen, per-segment alignment
-        let seqs: Vec<&[u8]> = vec![&qseq1_work, &qseq2_work];
-        let qlens = vec![qseq1_work.len(), qseq2_work.len()];
-
-        let multi = map_query_multi(opt, mi, qname1, &seqs, &qlens, map_ctx);
-        let multi_stats = multi.stats;
-        let shared_rep_len = multi.rep_len;
-        let frag_gap = multi.frag_gap;
-
-        let mut per_seg = multi.per_seg;
-        let (regs2, _anchors2) = if per_seg.len() > 1 { per_seg.remove(1) } else { (Vec::new(), Vec::new()) };
-        let (regs1, _anchors1) = if !per_seg.is_empty() { per_seg.remove(0) } else { (Vec::new(), Vec::new()) };
-
-        let pq1 = process_query_from_regs(opt, mi, &qseq1_work, ctx, map_ctx, junc_db, out, regs1, shared_rep_len);
-        let pq2 = process_query_from_regs(opt, mi, &qseq2_work, ctx, map_ctx, junc_db, out, regs2, shared_rep_len);
-        (pq1, pq2, frag_gap, multi_stats)
-    };
-
-    // Call pair assignment when PE with CIGAR enabled
-    // Always call pair for n_segs==2 && pe_ori>=0 && CIGAR mode.
-    // Skipped under INDEPEND_SEG (--pairing no): reads are treated as unrelated.
-    if out.do_cigar && opt.pairing.pe_ori >= 0 && !is_independ {
-        let qlens = [qseq1_work.len() as i32, qseq2_work.len() as i32];
-        let sub_diff = opt.scoring.match_score * 2 + opt.scoring.mismatch_penalty;
-
-        // Convert results to PeReg arrays
-        let mut pe_regs: [Vec<PeReg>; 2] = [Vec::new(), Vec::new()];
-        for (s, pq) in [&pq1, &pq2].iter().enumerate() {
-            for (i, r) in pq.results.iter().enumerate() {
-                pe_regs[s].push(PeReg {
-                    dp_score: r.dp_score,
-                    ref_id: r.ref_id,
-                    ref_start: r.ref_start,
-                    ref_end: r.ref_end,
-                    is_reverse: r.is_reverse,
-                    hash: r.hash,
-                    mapq: pq.mapqs[i],
-                    id: i,
-                    parent: pq.parent_indices[i],
-                    sam_pri: pq.sam_pri[i],
-                    proper_frag: r.proper_frag,
-                });
-            }
-        }
-
-        pair_alignments(frag_gap, opt.pairing.pe_bonus, sub_diff, opt.scoring.match_score, &qlens, &mut pe_regs);
-
-        // Write back changes from pair assignment
-        for (s, pq) in [&mut pq1, &mut pq2].iter_mut().enumerate() {
-            for pr in &pe_regs[s] {
-                let i = pr.id;
-                if i < pq.results.len() {
-                    pq.results[i].proper_frag = pr.proper_frag;
-                    pq.mapqs[i] = pr.mapq;
-                    pq.sam_pri[i] = pr.sam_pri;
-                    // Update is_sec based on pair assignment's parent reassignment
-                    pq.results[i].is_secondary = pr.parent != pr.id;
-                }
-            }
-        }
-    }
-
-    // Post-flip: reverse coordinates back for flipped reads
-    if flip_r1 {
-        let qlen1 = qseq1.len();
-        for r in pq1.results.iter_mut() {
-            let t = r.query_start;
-            r.query_start = qlen1 - r.query_end;
-            r.query_end = qlen1 - t;
-            r.is_reverse = !r.is_reverse;
-            if r.trans_strand == 1 { r.trans_strand = 2; }
-            else if r.trans_strand == 2 { r.trans_strand = 1; }
-        }
-    }
-    if flip_r2 {
-        let qlen2 = qseq2.len();
-        for r in pq2.results.iter_mut() {
-            let t = r.query_start;
-            r.query_start = qlen2 - r.query_end;
-            r.query_end = qlen2 - t;
-            r.is_reverse = !r.is_reverse;
-            if r.trans_strand == 1 { r.trans_strand = 2; }
-            else if r.trans_strand == 2 { r.trans_strand = 1; }
-        }
-    }
-
-    // Build mate info from SAM primary of each segment
-    let mate1 = get_mate_info(&pq1);
-    let mate2 = get_mate_info(&pq2);
-
-    // Format output for both segments (using original sequences, not flipped)
-    let out_read1 = ReadInfo { qname: qname1, qseq: qseq1, qual: qual1, comment: comment1, n_seg: 2, seg_idx: 0 };
-    let out_read2 = ReadInfo { qname: qname2, qseq: qseq2, qual: qual2, comment: comment2, n_seg: 2, seg_idx: 1 };
-    format_output(&mut output_buffer, opt, mi, &out_read1, &pq1, out, mate2.as_ref());
-    format_output(&mut output_buffer, opt, mi, &out_read2, &pq2, out, mate1.as_ref());
-
-    let stats = multi_stats + pq1.stats + pq2.stats;
-    (output_buffer, stats)
-}
-
-/// Extract mate info from the SAM primary of a processed query.
-pub fn get_mate_info(pq: &ProcessedQuery) -> Option<MateInfo> {
-    for (i, sp) in pq.sam_pri.iter().enumerate() {
-        if *sp {
-            return Some(MateInfo {
-                ref_id: Some(pq.results[i].ref_id),
-                ref_start: pq.results[i].ref_start,
-                ref_end: pq.results[i].ref_end,
-                is_reverse: pq.results[i].is_reverse,
-            });
-        }
-    }
-    None
 }
 
 #[cfg(test)]
@@ -2999,8 +2392,6 @@ mod tests {
             qseq: seq.as_bytes(),
             qual: Some("ABCDEFGH"),
             comment: None,
-            n_seg: 1,
-            seg_idx: 0,
         };
         let (output, stats) = align_and_format_query(
             &opt,
@@ -3008,8 +2399,6 @@ mod tests {
             &read,
             &mut aln_ctx,
             &mut map_ctx,
-            None, // junc_db
-            None, // jump_db
             &out_cfg,
         );
 
