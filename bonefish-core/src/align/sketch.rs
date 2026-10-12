@@ -10,10 +10,8 @@
 //! - **y** (query): bits 0-31 query_pos (bit 0 = strand), bits 32-39 kmer_span,
 //!   bits 48-55 segment ID, bit 43 self-mapping flag (ava mode).
 //!
-//! [`sketch_sequence`] clears and fills an output `Vec<Minimizer>`;
-//! Homopolymer-compressed (HPC) mode collapses runs before hashing.
+//! [`sketch_sequence`] clears and fills an output `Vec<Minimizer>`.
 
-use std::collections::VecDeque;
 
 /// Anchor bit-field encoding constants for the `y` field of `Minimizer`.
 /// Segment ID occupies bits 48-55 of y.
@@ -159,12 +157,11 @@ pub fn kmer_hash(mut bits: u64, mask: u64) -> u64 {
 pub struct MinimizerSketcher {
     pub w: usize,
     pub k: usize,
-    pub is_hpc: bool,
 }
 
 impl Sketcher for MinimizerSketcher {
     fn sketch(&self, seq: &[u8], len: usize, rid: usize, out: &mut Vec<Minimizer>) {
-        sketch_sequence(seq, len, self.w, self.k, rid, self.is_hpc, out);
+        sketch_sequence(seq, len, self.w, self.k, rid, out);
     }
 }
 
@@ -176,11 +173,10 @@ pub fn sketch_sequence(
   w: usize,
   k: usize,
   rid: usize,
-  is_hpc: bool,
   p: &mut Vec<Minimizer>,
 ) {
     p.clear();
-    sketch_sequence_impl(seq, len, w, k, rid, is_hpc, p);
+    sketch_sequence_impl(seq, len, w, k, rid, p);
 }
 
 /// Core minimizer sketching algorithm. Appends minimizers to `p`.
@@ -191,22 +187,21 @@ fn sketch_sequence_impl(
   w: usize,
   k: usize,
   rid: usize,
-  is_hpc: bool,
   p: &mut Vec<Minimizer>,
 ) {
     #[cfg(target_arch = "x86_64")]
-    if !is_hpc && len > 0 && w > 0 && w < 256 && k > 0 && k <= 28 && is_x86_feature_detected!("avx2") && !*SKETCH_SCALAR {
+    if len > 0 && w > 0 && w < 256 && k > 0 && k <= 28 && is_x86_feature_detected!("avx2") && !*SKETCH_SCALAR {
         unsafe { sketch_chunked_avx2(seq, len, w, k, rid, p) };
         return;
     }
-    sketch_sequence_scalar(seq, len, w, k, rid, is_hpc, p);
+    sketch_sequence_scalar(seq, len, w, k, rid, p);
 }
 
 /// BONEFISH_SKETCH_SCALAR=1: always use the one-pass sketcher (comparisons).
 static SKETCH_SCALAR: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("BONEFISH_SKETCH_SCALAR").is_ok_and(|v| v != "0"));
 
-/// Non-HPC sketching in chunks: (1) roll the k-mers and record, per position that the one-pass
+/// Sketching in chunks: (1) roll the k-mers and record, per position that the one-pass
 /// loop would process (symmetric k-mers are skipped there too), the canonical k-mer, strand,
 /// span and k-mer count `l`; (2) hash the chunk's k-mers in one tight loop (vectorised);
 /// (3) run the one-pass loop's window logic on those values. Same minimizers, same order.
@@ -314,19 +309,18 @@ unsafe fn sketch_chunked_avx2(seq: &[u8], len: usize, w: usize, k: usize, rid: u
 }}
 
 /// The one-pass sketcher (for comparisons with the chunked path).
-pub fn sketch_sequence_reference(seq: &[u8], len: usize, w: usize, k: usize, rid: usize, is_hpc: bool, p: &mut Vec<Minimizer>) {
+pub fn sketch_sequence_reference(seq: &[u8], len: usize, w: usize, k: usize, rid: usize, p: &mut Vec<Minimizer>) {
     p.clear();
-    sketch_sequence_scalar(seq, len, w, k, rid, is_hpc, p);
+    sketch_sequence_scalar(seq, len, w, k, rid, p);
 }
 
-/// One-pass sketcher (all modes; reference for the chunked path).
+/// One-pass sketcher (reference for the chunked path).
 fn sketch_sequence_scalar(
   seq: &[u8],
   len: usize,
   w: usize,
   k: usize,
   rid: usize,
-  is_hpc: bool,
   p: &mut Vec<Minimizer>,
 ) {
     if len == 0 {
@@ -341,33 +335,14 @@ fn sketch_sequence_scalar(
     let mut l: usize = 0;
     let mut buf_pos: usize = 0;
     let mut min_pos: usize = 0;
-    let mut kmer_span: usize = 0;
     let mut buf: Vec<Minimizer> = vec![Minimizer { x: 0, y: 0 }; 256];
     let mut min: Minimizer = Minimizer { x: u64::MAX, y: u64::MAX };
-    let mut tq = VecDeque::new();
 
     while i < len {
         let c = encode_base(seq[i]);
         let mut info = Minimizer { x: u64::MAX, y: u64::MAX };
         if c < 4 { // not an ambiguous base
-            if is_hpc {
-                let mut skip_len = 1;
-                if i + 1 < len && seq[i + 1] == seq[i] {
-                    skip_len = 2;
-                    while i + skip_len < len {
-                        if seq[i + skip_len] != seq[i] { break; }
-                        skip_len += 1;
-                    }
-                    i += skip_len - 1;
-                }
-                tq.push_back(skip_len);
-                kmer_span += skip_len;
-                if tq.len() > k {
-                    kmer_span -= tq.pop_front().unwrap_or(0);
-                }
-            } else {
-                kmer_span = if l + 1 < k { l + 1 } else { k };
-            }
+            let kmer_span = if l + 1 < k { l + 1 } else { k };
             kmer[0] = (kmer[0] << 2 | c as u64) & mask;           // forward k-mer
             kmer[1] = (kmer[1] >> 2) | (3u64 ^ c as u64) << shift1; // reverse k-mer
             if kmer[0] == kmer[1] { // skip symmetric k-mers
@@ -382,8 +357,6 @@ fn sketch_sequence_scalar(
             }
         } else {
             l = 0;
-            kmer_span = 0;
-            tq.clear();
         }
 
         buf[buf_pos] = info;
@@ -437,7 +410,7 @@ mod tests {
     fn test_sketch_basic() {
         let seq = "GTTGATAATCACTCACTGAGTGACATCCAAATCATGGCGTCCCAAGGCACCAAACGGTCTTATGAACAGATGGAAACTGATGGAGATCGCCAGAATGCAACTGAGATTAGGGCATCCGTCGGAAAGATGATTGATGGAATTGGGAGATTCTACATCCAAATGTGCACTGAACTTAAACTCAGTGATCATGAAGGACGGTTGATCCAAAACAGCTTGACAATAGAGAAAATGGTGCTTTCTGCTTTTGATGAAAGAAGGAATAAATACCTGGAAGAACACCCCAGCGCGGGGAAAGATCCCAAGAAAACCGGGGGGCCCATATACAGGAGAGTCGATGGGAAATGGATGAGAGAACTCGTCCTTTATGACAAAGAAGAAATAAGGCGAATCTGGCGCCAAGCCAACAATGGTGAGGATGCTACATCTGGTCTAACCCACCTAATGATTTGGCATTCCAATTTGAATGATGCAACATACCAAAGGACAAGAGCTCTTGTTCGGACTGGAATGGACCCCAGAATGTGCTCTCTGATGCAGGGCTCGACTCTCCCTAGAAGGTCCGGAGCTGCCGGTGCTGCAGTCAAAGGAATCGGAACAATGGTGATGGAACTGATCAGAATGATCAAACGGGGGATCAACGATCGAAATTTTTGGAGAGGTGAGAATGGGCGGAAAACAAGAAGTGCTTATGAGAGAATGTGCAACATTCTCAAAGGAAAATTTCAAACAGCTGCACAAAAAGCAATGGTGGATCAAGTTAGAGAAAGCCGGAATCCAGGAAACGCTGAGATCGAAGATCTCATATTTTTAGCAAGATCTGCACTGATATTGAGAGGATCAGTTGCTCACAAATCTTGCCTACCTGCCTGTGCATATGGACCTGCAGTATCCAGTGGTTATGACTTTGAAAAAGAGGGATATTCCTTGGTGGGAATAGACCCTTTCAAACTACTTCAAAATAGCCAAATATACAGCTTAATCAGACCTAATGAGAATCCAGCACACAAGAGTCAGCTGGTGTGGATGGCATGTCATTCTGCTGCATTTGAAGATTTAAGATTGTTAAGCTTCATCAGAGGAACAAAAGTATCTCCTCGGGGGAAACTGTCAACTAGAGGAGTACAAATTGCTTCAAATGAGAACATGGATAATATGGGATCAAGCACTCTTGAACTGAGAAGCGGGTACTGGGCCATAAGGACCAGGAGTGGAGGAAACACTAATCAGCAGAGGGCCTCCGCAGGCCAAACCAGTGTGCAACCAACGTTTTCTGTACAAAGAAACCTCCCATTTGAAAAGTCAACCATCATGGCAGCATTCACTGGAAATACGGAAGGAAGAACTTCAGACATGAGGGCAGAAATTATAAGGATGATGGAAGGTGCAAAACCAGAAGAAGTGTCATTCCGGGGGAGGGGAGTTTTCGAGCTCTCTGACGAGAAGGCAGCGAACCCGATCGTGCCCTCTTTTGATATGAGTAACGAAGGATCTTATTTCTTCGGAGACAATGCAGAAGAATACGACAATTAAGAAAAAANNNN";
         let mut mins = Vec::new();
-        sketch_sequence(seq.as_bytes(), seq.len(), 10, 15, 0, false, &mut mins);
+        sketch_sequence(seq.as_bytes(), seq.len(), 10, 15, 0, &mut mins);
         assert!(mins.len() > 0);
     }
 
@@ -457,8 +430,8 @@ mod tests {
             if case % 11 == 0 { for c in seq.iter_mut().step_by(3) { *c = c.to_ascii_lowercase(); } }
             let k = [15usize, 17, 19, 21, 28, 5][(rnd() % 6) as usize];
             let w = [1usize, 2, 10, 19, 50, 255][(rnd() % 6) as usize];
-            sketch_sequence(&seq, len, w, k, (case % 3) as usize, false, &mut a);
-            sketch_sequence_reference(&seq, len, w, k, (case % 3) as usize, false, &mut b);
+            sketch_sequence(&seq, len, w, k, (case % 3) as usize, &mut a);
+            sketch_sequence_reference(&seq, len, w, k, (case % 3) as usize, &mut b);
             assert_eq!(a, b, "case {case}: len {len} k {k} w {w}");
         }
     }
@@ -467,7 +440,7 @@ mod tests {
     fn test_sketch_empty() {
         let seq = "";
         let mut mins = Vec::new();
-        sketch_sequence(seq.as_bytes(), seq.len(), 10, 15, 0, false, &mut mins);
+        sketch_sequence(seq.as_bytes(), seq.len(), 10, 15, 0, &mut mins);
         assert_eq!(mins.len(), 0);
     }
 

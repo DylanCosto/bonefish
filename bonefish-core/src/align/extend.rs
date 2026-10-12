@@ -150,8 +150,6 @@ pub struct AlignAnchorContext {
     pub rid: usize,
     /// Whether this chain was produced by a z-drop split (affects zdrop threshold).
     pub split_inv: bool,
-    /// Whether the index was built with homopolymer compression.
-    pub is_hpc: bool,
     /// K-mer size from the index.
     pub k: usize,
     /// Offset from region-relative to absolute chromosome coordinates.
@@ -1046,26 +1044,6 @@ pub struct AlignResult {
     pub split_inv: bool,
 }
 
-/// HPC-adjusted coordinate for a position in a sequence.
-/// Walks backward from `pos` while the base matches, returning the adjusted start.
-/// Adjust anchor offset to chain start index.
-fn hpc_adjust_ref(seq: &[u8], pos: i32) -> i32 {
-    if pos <= 0 || pos as usize >= seq.len() { return pos; }
-    let c = seq[pos as usize];
-    let mut i = pos - 1;
-    while i > 0 && seq[i as usize] == c { i -= 1; }
-    if seq[i as usize] != c { i + 1 } else { i }
-}
-
-/// HPC-adjusted coordinate for query.
-fn hpc_adjust_query(seq: &[u8], pos: i32) -> i32 {
-    if pos <= 0 || pos as usize >= seq.len() { return pos; }
-    let c = seq[pos as usize];
-    let mut i = pos - 1;
-    while i > 0 && seq[i as usize] == c { i -= 1; }
-    i + 1
-}
-
 /// Result of anchor trimming and coordinate setup.
 struct TrimResult {
     as1_offset: usize,
@@ -1077,14 +1055,11 @@ struct TrimResult {
     qe: i32,
 }
 
-/// Trim anchors and compute alignment coordinates (fix_bad_ends + filter_bad_seeds + hpc_adjust).
+/// Trim anchors and compute alignment coordinates (fix_bad_ends + filter_bad_seeds).
 /// Returns None if no valid anchors remain after trimming.
 fn trim_and_prepare_anchors(
     anchors: &mut [Minimizer],
-    qseq: &[u8],
-    tseq: &[u8],
     opt: &MapOptions,
-    is_hpc: bool,
     k_half: i32,
 ) -> Option<TrimResult> {
     let w = opt.chaining.bandwidth;
@@ -1112,20 +1087,15 @@ fn trim_and_prepare_anchors(
         }
     }
 
-    // Adjust anchor coordinates (HPC or k-mer offset)
+    // Adjust anchor coordinates (k-mer center offset)
     let first = &wa[0];
     let last = &wa[cnt - 1];
-    let (rs, qs, re, qe) = if is_hpc {
-        (hpc_adjust_ref(tseq, first.ref_pos()),
-         hpc_adjust_query(qseq, first.query_pos()),
-         hpc_adjust_ref(tseq, last.ref_pos()),
-         hpc_adjust_query(qseq, last.query_pos()))
-    } else {
-        (first.ref_pos() - k_half,
-         first.query_pos() - k_half,
-         last.ref_pos() - k_half,
-         last.query_pos() - k_half)
-    };
+    let (rs, qs, re, qe) = (
+        first.ref_pos() - k_half,
+        first.query_pos() - k_half,
+        last.ref_pos() - k_half,
+        last.query_pos() - k_half,
+    );
 
     Some(TrimResult {
         as1_offset: off,
@@ -1697,7 +1667,6 @@ pub fn align_anchors(
     let max_sw_mat = opt.alignment.max_sw_mat;
     let transition = opt.scoring.transition;
     let sc_ambi = opt.scoring.ambig_penalty;
-    let is_hpc = call.is_hpc;
     let min_dp_len = opt.alignment.min_dp_len;
     let ref_offset = call.ref_offset as i32;
     let split_inv = call.split_inv;
@@ -1731,20 +1700,14 @@ pub fn align_anchors(
 
     // --- Steps 1-3: Anchor trimming + coordinate computation ---
 
-    // Lazy fill: without HPC, `tseq` arrives uninitialized and we fill
-    // segments on demand before each DP call + once for the final alignment
-    // range before CIGAR finalization. HPC needs `tseq` filled up front because
-    // the trim path reads it. When `lazy_extract` is `None` (qstrand+reverse
-    // path), the caller has already filled `tseq`.
-    let use_lazy = lazy_extract.is_some() && !is_hpc;
-    if let Some((mi, rid, rgn_start)) = lazy_extract && !use_lazy {
-        let len = tseq.len();
-        mi.extract_nt4_into(rid, rgn_start, rgn_start + len, tseq);
-    }
+    // Lazy fill: `tseq` arrives uninitialized and we fill segments on demand
+    // before each DP call + once for the final alignment range before CIGAR
+    // finalization. When `lazy_extract` is `None` (qstrand+reverse path), the
+    // caller has already filled `tseq`.
+    let use_lazy = lazy_extract.is_some();
 
     let trim = match trim_and_prepare_anchors(
-        anchors, qseq, tseq, opt,
-        is_hpc, k_half,
+        anchors, opt, k_half,
     ) {
         Some(t) => t,
         None => return empty,
@@ -1858,13 +1821,8 @@ pub fn align_anchors(
         }
 
         // Anchor coordinate computation
-        let (anchor_re, anchor_qe) = if is_hpc {
-            (hpc_adjust_ref(tseq, work_anchors[i].ref_pos()),
-             hpc_adjust_query(qseq, work_anchors[i].query_pos()))
-        } else {
-            (work_anchors[i].ref_pos() - k_half,
-             work_anchors[i].query_pos() - k_half)
-        };
+        let (anchor_re, anchor_qe) = (work_anchors[i].ref_pos() - k_half,
+                                      work_anchors[i].query_pos() - k_half);
         re1 = anchor_re;
         qe1 = anchor_qe;
 

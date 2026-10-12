@@ -467,14 +467,12 @@ fn align_single_mapping(
         //    forward-space on "-"; convert before use.
         //
         // 3. Shift chain start/end coords from "start/end+1 of kmer" to
-        //    "center of kmer" (non-HPC: subtract `k/2`). HPC uses a
-        //    sequence-dependent shift handled inside `align_anchors`.
+        //    "center of kmer" (subtract `k/2`).
         let max_gap = opt.chaining.max_gap;
         let a = opt.scoring.match_score;
         let q = opt.scoring.gap_open;
         let e = opt.scoring.gap_extend;
         let no_end_flt = opt.flags.contains(AlignFlags::NO_END_FLT);
-        let is_hpc = mi.homopolymer_compressed;
         let qlen_i32 = qlen as i32;
         let tlen_i32 = tlen as i32;
         let k_half = (mi.kmer_size as i32) >> 1;
@@ -495,12 +493,8 @@ fn align_single_mapping(
         let rs0_init = mapping.ref_start as i32;
         let re0_init = mapping.ref_end as i32;
 
-        // Compute POST-trim chain extents. The trim depends on mode:
-        //   - SR non-HPC: max-stretch trim, result in start-of-kmer /
-        //     end+1-of-kmer convention (no center shift).
-        //   - Splice: DP-scoring-based trim — fall back to pre-trim extents
-        //     here; the wider region is safe.
-        //   - Otherwise: bad-end trim, then shift to center-of-kmer.
+        // Compute POST-trim chain extents: bad-end trim (unless NO_END_FLT),
+        // then shift to center-of-kmer.
         //
         // `align_anchors` re-runs the same trim on the same input (position
         // differences are invariant to the constant rgn_off rebase applied
@@ -539,7 +533,7 @@ fn align_single_mapping(
             };
             let trim_first = &mapping.anchors[trim_first_idx];
             let trim_last = &mapping.anchors[trim_last_idx];
-            // Center-of-kmer shift (non-HPC): r = a.x - k/2, q = a.y - k/2.
+            // Center-of-kmer shift: r = a.x - k/2, q = a.y - k/2.
             (
                 trim_first.ref_pos() - k_half,
                 trim_first.query_pos() - k_half,
@@ -548,22 +542,8 @@ fn align_single_mapping(
             )
         };
 
-        let (rs0, re0) = if is_hpc {
-            // HPC mode: the center-of-kmer shift is sequence-dependent
-            // (depends on homopolymer runs in qseq/tseq) and can't be
-            // computed here without those sequences. The shift is bounded
-            // by the kmer span, and the underlying region formula caps the
-            // bandwidth contribution at `max_gap` per side; `pad = max_gap *
-            // 2` (twice that algorithmic bound) safely contains the exact
-            // region. `align_anchors` does its own HPC-aware boundary calc
-            // and converges to the precise window.
-            let pad = max_gap as usize * 2;
-            (
-                std::cmp::max(0, mapping.ref_start as i32 - pad as i32),
-                std::cmp::min(tlen_i32, mapping.ref_end as i32 + pad as i32),
-            )
-        } else {
-            // Non-SR region. Initial rs0/re0 use PRE-trim chain extents;
+        let (rs0, re0) = {
+            // Initial rs0/re0 use PRE-trim chain extents;
             // the max_gap-bounded branch uses POST-trim chain coords.
             let mut rs0 = rs0_init;
             if chain_qs > 0 && chain_rs > 0 {
@@ -683,7 +663,6 @@ fn align_single_mapping(
             rev: mapping.is_reverse,
             rid: mapping.ref_id,
             split_inv: mapping.split_inv,
-            is_hpc: mi.homopolymer_compressed,
             k: mi.kmer_size,
             ref_offset: rgn_start_final,
         };
@@ -1786,7 +1765,7 @@ pub fn refilter_merged_results(
                 })
                 .collect();
 
-            let filter_params = FilterParams::new(opt, &Index::header_only(k, 0, false, vec![]));
+            let filter_params = FilterParams::new(opt, &Index::header_only(k, 0, vec![]));
             let mut parent_state = ParentState::new(filter_items.len(), filter_params.mask_level, filter_params.mask_len, filter_params.hard_mask_level);
             parent_state.init_from_items(&filter_items);
             parent_state.assign_parents(&filter_items);
@@ -2367,7 +2346,7 @@ mod tests {
     #[test]
     fn test_align_and_format_simple() {
         let seq = "ACGTACGT";
-        let idx = Index::build(vec![("ref1".to_string(), seq.as_bytes().to_vec())], 4, 3, false, 50000);
+        let idx = Index::build(vec![("ref1".to_string(), seq.as_bytes().to_vec())], 4, 3, 50000);
 
         let mut opt = MapOptions::default();
         opt.chaining.min_cnt = 1;

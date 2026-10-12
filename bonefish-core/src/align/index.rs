@@ -37,6 +37,9 @@ const RAW_MAGIC: &[u8; 4] = b"RMRW";
 const RAW_VERSION: u32 = 1;
 /// Written natively; reads back as this value only on a same-endian machine.
 const RAW_ENDIAN: u32 = 0x0102_0304;
+/// Error for indexes built with homopolymer-compressed (PacBio) seeds.
+const HPC_UNSUPPORTED: &str = "index uses homopolymer-compressed (PacBio) seeds, which bonefish does not support; rebuild it with bonefish -d";
+
 /// Section alignment (page size) in raw index files.
 const RAW_ALIGN: u64 = 4096;
 
@@ -116,6 +119,8 @@ impl SeedLookup for LookupBackend {
 pub struct Index {
     pub kmer_size: usize,
     pub window_size: usize,
+    /// Homopolymer-compressed seeds (PacBio). Always false in bonefish; the field keeps the
+    /// index file format unchanged, and indexes built with it set are rejected on load.
     pub homopolymer_compressed: bool,
     pub index: usize, // part number (0-based)
     pub seqs: Vec<TargetSequence>,
@@ -178,7 +183,6 @@ pub struct IndexBuilder {
     idx: Index,
     w: usize,
     k: usize,
-    is_hpc: bool,
     max_occ: usize,
     bucket_bits: u32,
     bucket_mask: u64,
@@ -193,21 +197,21 @@ pub struct IndexBuilder {
 }
 
 impl IndexBuilder {
-    pub fn new(w: usize, k: usize, is_hpc: bool, max_occ: usize) -> Self {
+    pub fn new(w: usize, k: usize, max_occ: usize) -> Self {
         let bucket_bits = 10u32.min((2 * k) as u32);
         let n_buckets = 1usize << bucket_bits;
         Self {
             idx: Index {
                 kmer_size: k,
                 window_size: w,
-                homopolymer_compressed: is_hpc,
+                homopolymer_compressed: false,
                 index: 0,
                 seqs: Vec::new(),
                 backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
                 packed_seqs: Default::default(),
                 name_rank: Default::default(),
             },
-            w, k, is_hpc, max_occ,
+            w, k, max_occ,
             bucket_bits,
             bucket_mask: (n_buckets - 1) as u64,
             packed: Vec::new(),
@@ -238,11 +242,7 @@ impl IndexBuilder {
     /// Add one sequence: pack it into the global 4-bit buffer, sketch its
     /// minimizers, distribute to buckets. The sequence bytes are dropped on
     /// return.
-    pub fn add_sequence(&mut self, name: String, mut seq: Vec<u8>) {
-        if self.is_hpc {
-            for b in seq.iter_mut() { *b = b.to_ascii_uppercase(); }
-        }
-
+    pub fn add_sequence(&mut self, name: String, seq: Vec<u8>) {
         let rid = self.idx.seqs.len();
         let len = seq.len();
         let goff = self.offset;
@@ -271,7 +271,7 @@ impl IndexBuilder {
         // Sketch into the persistent scratch Vec (cleared by sketch_sequence),
         // then distribute. Keeping the Vec alive across calls avoids a
         // ~13M-entry alloc/free per chromosome.
-        sketch_sequence(&seq, len, self.w, self.k, rid, self.is_hpc, &mut self.minis_scratch);
+        sketch_sequence(&seq, len, self.w, self.k, rid, &mut self.minis_scratch);
         for &m in &self.minis_scratch {
             let hash = m.x >> 8;
             self.buckets[(hash & self.bucket_mask) as usize].push((hash, m.y));
@@ -499,6 +499,9 @@ impl Index {
             if hdr.version != RAW_VERSION || hdr.endian != RAW_ENDIAN {
                 return Err(bad(format!("unsupported raw index (version {}, endian marker {:#x})", hdr.version, hdr.endian)));
             }
+            if hdr.homopolymer_compressed {
+                return Err(bad(HPC_UNSUPPORTED.into()));
+            }
             if pos + hdr.part_len > map.len() as u64 { return Err(bad("truncated part".into())); }
             let sec = |i: usize, size: usize| -> io::Result<(usize, usize)> {
                 let (off, n) = hdr.sections[i];
@@ -587,6 +590,9 @@ impl Index {
             bincode::deserialize_from(reader)
                 .map_err(io::Error::other)?
         };
+        if idx.homopolymer_compressed {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, HPC_UNSUPPORTED));
+        }
         Ok(Some(idx))
     }
 
@@ -608,7 +614,9 @@ impl Index {
         let b = hdr[2] as usize;
         let n_seq = hdr[3] as usize;
         let flag = hdr[4];
-        let is_hpc = (flag & MINIMAP2_FLAG_HPC) != 0;
+        if (flag & MINIMAP2_FLAG_HPC) != 0 {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, HPC_UNSUPPORTED));
+        }
         let no_seq = (flag & MINIMAP2_FLAG_NO_SEQ) != 0;
 
         // Read sequence metadata
@@ -680,7 +688,7 @@ impl Index {
         let idx = Index {
             kmer_size: k,
             window_size: w,
-            homopolymer_compressed: is_hpc,
+            homopolymer_compressed: false,
             index: 0,
             seqs,
             backend,
@@ -696,11 +704,11 @@ impl Index {
 
     /// Create a header-only index with sequence metadata but no minimizer data.
     /// Used during merge phase where we only need names/lengths for output formatting.
-    pub fn header_only(k: usize, w: usize, is_hpc: bool, seqs: Vec<TargetSequence>) -> Self {
+    pub fn header_only(k: usize, w: usize, seqs: Vec<TargetSequence>) -> Self {
         Index {
             kmer_size: k,
             window_size: w,
-            homopolymer_compressed: is_hpc,
+            homopolymer_compressed: false,
             index: 0,
             seqs,
             backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
@@ -709,11 +717,11 @@ impl Index {
         }
     }
 
-    pub fn new(w: usize, k: usize, is_hpc: bool) -> Self {
+    pub fn new(w: usize, k: usize) -> Self {
         Index {
             kmer_size: k,
             window_size: w,
-            homopolymer_compressed: is_hpc,
+            homopolymer_compressed: false,
             index: 0,
             seqs: Vec::new(),
             backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
@@ -737,13 +745,12 @@ impl Index {
         seqs: Vec<(String, Vec<u8>)>,
         w: usize,
         k: usize,
-        is_hpc: bool,
         max_occ: usize,
     ) -> Self {
         let mut idx = Index {
             kmer_size: k,
             window_size: w,
-            homopolymer_compressed: is_hpc,
+            homopolymer_compressed: false,
             index: 0,
             seqs: Vec::new(),
             backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
@@ -778,12 +785,7 @@ impl Index {
         let mut rid_offset = 0usize;
         while !seq_data.is_empty() {
             let take_n = CHUNK_SIZE.min(seq_data.len());
-            let chunk: Vec<Vec<u8>> = seq_data.drain(..take_n).map(|mut s| {
-                if is_hpc {
-                    for b in s.iter_mut() { *b = b.to_ascii_uppercase(); }
-                }
-                s
-            }).collect();
+            let chunk: Vec<Vec<u8>> = seq_data.drain(..take_n).collect();
 
             // Pack chunk sequentially. Adjacent sequences may share u32s at byte
             // boundaries, so concurrent read-modify-write would race.
@@ -803,7 +805,7 @@ impl Index {
                     let rid = rid_offset + i;
                     let len = idx.seqs[rid].len;
                     let mut m = Vec::new();
-                    sketch_sequence(ascii, len, w, k, rid, is_hpc, &mut m);
+                    sketch_sequence(ascii, len, w, k, rid, &mut m);
                     m
                 })
                 .collect();
@@ -813,7 +815,7 @@ impl Index {
                     let rid = rid_offset + i;
                     let len = idx.seqs[rid].len;
                     let mut m = Vec::new();
-                    sketch_sequence(ascii, len, w, k, rid, is_hpc, &mut m);
+                    sketch_sequence(ascii, len, w, k, rid, &mut m);
                     m
                 })
                 .collect();
@@ -919,7 +921,7 @@ mod tests {
     #[test]
     fn test_idx_build() {
         let seq = "GTTGATAATCACTCACTGAGTGACATCCAAATCATGGCGTCCCAAGGCACCAAACGGTCTTATGAACAGATGGAAACTGATGGAGATCGCCAGAATGCAACTGAGATTAGGGCATCCGTCGGAAAGATGATTGATGGAATTGGGAGATTCTACATCCAAATGTGCACTGAACTTAAACTCAGTGATCATGAAGGACGGTTGATCCAAAACAGCTTGACAATAGAGAAAATGGTGCTTTCTGCTTTTGATGAAAGAAGGAATAAATACCTGGAAGAACACCCCAGCGCGGGGAAAGATCCCAAGAAAACCGGGGGGCCCATATACAGGAGAGTCGATGGGAAATGGATGAGAGAACTCGTCCTTTATGACAAAGAAGAAATAAGGCGAATCTGGCGCCAAGCCAACAATGGTGAGGATGCTACATCTGGTCTAACCCACCTAATGATTTGGCATTCCAATTTGAATGATGCAACATACCAAAGGACAAGAGCTCTTGTTCGGACTGGAATGGACCCCAGAATGTGCTCTCTGATGCAGGGCTCGACTCTCCCTAGAAGGTCCGGAGCTGCCGGTGCTGCAGTCAAAGGAATCGGAACAATGGTGATGGAACTGATCAGAATGATCAAACGGGGGATCAACGATCGAAATTTTTGGAGAGGTGAGAATGGGCGGAAAACAAGAAGTGCTTATGAGAGAATGTGCAACATTCTCAAAGGAAAATTTCAAACAGCTGCACAAAAAGCAATGGTGGATCAAGTTAGAGAAAGCCGGAATCCAGGAAACGCTGAGATCGAAGATCTCATATTTTTAGCAAGATCTGCACTGATATTGAGAGGATCAGTTGCTCACAAATCTTGCCTACCTGCCTGTGCATATGGACCTGCAGTATCCAGTGGTTATGACTTTGAAAAAGAGGGATATTCCTTGGTGGGAATAGACCCTTTCAAACTACTTCAAAATAGCCAAATATACAGCTTAATCAGACCTAATGAGAATCCAGCACACAAGAGTCAGCTGGTGTGGATGGCATGTCATTCTGCTGCATTTGAAGATTTAAGATTGTTAAGCTTCATCAGAGGAACAAAAGTATCTCCTCGGGGGAAACTGTCAACTAGAGGAGTACAAATTGCTTCAAATGAGAACATGGATAATATGGGATCAAGCACTCTTGAACTGAGAAGCGGGTACTGGGCCATAAGGACCAGGAGTGGAGGAAACACTAATCAGCAGAGGGCCTCCGCAGGCCAAACCAGTGTGCAACCAACGTTTTCTGTACAAAGAAACCTCCCATTTGAAAAGTCAACCATCATGGCAGCATTCACTGGAAATACGGAAGGAAGAACTTCAGACATGAGGGCAGAAATTATAAGGATGATGGAAGGTGCAAAACCAGAAGAAGTGTCATTCCGGGGGAGGGGAGTTTTCGAGCTCTCTGACGAGAAGGCAGCGAACCCGATCGTGCCCTCTTTTGATATGAGTAACGAAGGATCTTATTTCTTCGGAGACAATGCAGAAGAATACGACAATTAAGAAAAAANNNN";
-        let idx = Index::build(vec![("test_seq".to_string(), seq.as_bytes().to_vec())], 10, 15, false, 50000);
+        let idx = Index::build(vec![("test_seq".to_string(), seq.as_bytes().to_vec())], 10, 15, 50000);
         
         let hash = 86616326159 >> 8;
         let positions = idx.get(hash);
@@ -942,7 +944,7 @@ mod tests {
         }
 
         // w=10, k=5
-        let idx = Index::build(seqs, 10, 5, false, 50000);
+        let idx = Index::build(seqs, 10, 5, 50000);
 
         // Test cal_mid_occ
         // frac=0.0 -> returns usize::MAX (no filtering)
@@ -967,7 +969,7 @@ mod tests {
         let rep = a[1000..1400].to_vec();
         for k in 0..5 { a[3000 + k * 2000..3400 + k * 2000].copy_from_slice(&rep); }
         let b: Vec<u8> = (0..7000).map(|_| b"ACGTN"[(rnd() % 5) as usize]).collect();
-        Index::build(vec![("a".into(), a), ("b".into(), b)], 5, 11, false, usize::MAX)
+        Index::build(vec![("a".into(), a), ("b".into(), b)], 5, 11, usize::MAX)
     }
 
     fn assert_same(x: &Index, y: &Index) {

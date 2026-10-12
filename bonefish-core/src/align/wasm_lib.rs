@@ -60,7 +60,7 @@ const MID_OCC_FRAC: f32 = 2e-4;
 /// memory on highly repetitive references.
 const INDEX_MAX_OCC: usize = 50_000;
 
-/// Apply a named preset to MapOptions + k/w/is_hpc, returning the preset that
+/// Apply a named preset to MapOptions + k/w, returning the preset that
 /// was actually applied.
 ///
 /// Delegates to the canonical native preset table (`api::apply_preset_str`) so
@@ -71,16 +71,15 @@ fn apply_preset_wasm<'a>(
     opt: &mut MapOptions,
     k: &mut usize,
     w: &mut usize,
-    is_hpc: &mut bool,
     preset: &'a str,
 ) -> &'a str {
-    if crate::api::apply_preset_str(opt, k, w, is_hpc, preset).is_ok() {
+    if crate::api::apply_preset_str(opt, k, w, preset).is_ok() {
         return preset;
     }
     // A rejected preset may have left `opt` partly modified.
     *opt = MapOptions::default();
-    *k = 15; *w = 10; *is_hpc = false;
-    crate::api::apply_preset_str(opt, k, w, is_hpc, "dna")
+    *k = 15; *w = 10;
+    crate::api::apply_preset_str(opt, k, w, "dna")
         .expect("dna is a valid preset");
     "dna"
 }
@@ -152,13 +151,12 @@ pub fn align_wasm_full(
     // Parse preset
     let mut k = 15usize;
     let mut w = 10usize;
-    let mut is_hpc = false;
     let mut opt = MapOptions::default();
-    let preset = apply_preset_wasm(&mut opt, &mut k, &mut w, &mut is_hpc, preset);
+    let preset = apply_preset_wasm(&mut opt, &mut k, &mut w, preset);
     if output_cigar || output_sam {
         opt.flags.insert(AlignFlags::OUT_CIGAR);
     }
-    emit_log!("[*] Preset: {} (k={}, w={}, hpc={})", preset, k, w, is_hpc as u8);
+    emit_log!("[*] Preset: {} (k={}, w={})", preset, k, w);
 
     // Parse reference
     let target_seqs: Vec<(String, Vec<u8>)> = parse_sequences(target_text)
@@ -174,7 +172,7 @@ pub fn align_wasm_full(
 
     // Build index
     let t0 = web_time::Instant::now();
-    let idx = Index::build(target_seqs, w, k, is_hpc, INDEX_MAX_OCC);
+    let idx = Index::build(target_seqs, w, k, INDEX_MAX_OCC);
     finalize_for_index(&mut opt, &idx);
     emit_log!("[*] Index built in {:.3}s (mid_occ={})", t0.elapsed().as_secs_f64(), opt.seeding.mid_occ);
 
@@ -287,7 +285,6 @@ pub fn force_align_wasm(tseq: &str, qseq: &str) -> String {
         rev: false,
         rid: 0,
         split_inv: false,
-        is_hpc: false,
         k: 1,
         ref_offset: 0,
     };
@@ -395,7 +392,6 @@ pub struct AlignSession {
     out_cfg: OutputConfig,
     k: usize,
     w: usize,
-    is_hpc: bool,
 
     // Accumulated log (joined with output at the end).
     log_buf: String,
@@ -424,9 +420,8 @@ impl AlignSession {
     pub fn new(preset: &str, output_sam: bool, output_cigar: bool) -> Self {
         let mut k = 15usize;
         let mut w = 10usize;
-        let mut is_hpc = false;
         let mut opt = MapOptions::default();
-        let preset = apply_preset_wasm(&mut opt, &mut k, &mut w, &mut is_hpc, preset);
+        let preset = apply_preset_wasm(&mut opt, &mut k, &mut w, preset);
         if output_cigar || output_sam {
             opt.flags.insert(AlignFlags::OUT_CIGAR);
         }
@@ -442,7 +437,7 @@ impl AlignSession {
             split_mode: false,
         };
         let mut log_buf = String::new();
-        log_buf.push_str(&format!("[*] Preset: {} (k={}, w={}, hpc={})\n", preset, k, w, is_hpc as u8));
+        log_buf.push_str(&format!("[*] Preset: {} (k={}, w={})\n", preset, k, w));
 
         Self {
             preset: preset.to_string(),
@@ -450,9 +445,9 @@ impl AlignSession {
             output_cigar,
             opt,
             out_cfg,
-            k, w, is_hpc,
+            k, w,
             log_buf,
-            builder: Some(IndexBuilder::new(w, k, is_hpc, INDEX_MAX_OCC)),
+            builder: Some(IndexBuilder::new(w, k, INDEX_MAX_OCC)),
             ref_parser: Some(FastaStreamer::new()),
             t_ref_start: Some(web_time::Instant::now()),
             idx: None,
@@ -602,7 +597,7 @@ impl AlignSession {
 // makes the struct self-describing in debug dumps).
 #[allow(dead_code)]
 const _AVOID_UNUSED: fn(&AlignSession) = |s: &AlignSession| {
-    let _ = (&s.preset, s.output_sam, s.output_cigar, s.is_hpc, s.w, s.k);
+    let _ = (&s.preset, s.output_sam, s.output_cigar, s.w, s.k);
 };
 
 // ==================== WASM Tests ====================

@@ -514,9 +514,8 @@ fn parse_num(s: &str) -> i64 {
 }
 
 /// Apply preset configurations.
-/// The `is_hpc` output indicates whether homopolymer compression should be used.
-fn apply_preset(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_hpc: &mut bool, preset: &str) -> anyhow::Result<()> {
-    bonefish::api::apply_preset_str(opt, k, w, is_hpc, preset).map_err(|e| anyhow::anyhow!("{}", e))
+fn apply_preset(opt: &mut MapOptions, k: &mut usize, w: &mut usize, preset: &str) -> anyhow::Result<()> {
+    bonefish::api::apply_preset_str(opt, k, w, preset).map_err(|e| anyhow::anyhow!("{}", e))
 }
 
 fn run(cli: AlignArgs) -> anyhow::Result<()> {
@@ -567,10 +566,9 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
 
     let mut k = 15;
     let mut w = 10;
-    let mut is_hpc = false;
     let mut opt = MapOptions::default();
 
-    apply_preset(&mut opt, &mut k, &mut w, &mut is_hpc, cli.preset.as_deref().unwrap_or("dna"))?;
+    apply_preset(&mut opt, &mut k, &mut w, cli.preset.as_deref().unwrap_or("dna"))?;
 
     // CLI overrides (applied after preset)
     if let Some(vk) = cli.k { k = vk; }
@@ -794,7 +792,6 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     let split_prefix = cli.split_prefix.clone();
     let mut saved_k = k;
     let mut saved_w = w;
-    let mut saved_is_hpc = is_hpc;
 
     if is_idx_file {
         // ─── Load from .mmi/.idx: iterate over parts ───
@@ -843,9 +840,9 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
                 }.map_err(|e| anyhow::anyhow!("Failed to save index part: {}", e))?;
             }
             let total_len: u64 = mi.seqs.iter().map(|s| s.len as u64).sum();
-            eprintln!("[*] Loaded part {} in {:.3}s — k: {}; w: {}; hpc: {}; #seq: {}; total len: {}",
+            eprintln!("[*] Loaded part {} in {:.3}s — k: {}; w: {}; #seq: {}; total len: {}",
                 n_parts, t_load.elapsed().as_secs_f64(),
-                mi.kmer_size, mi.window_size, if mi.homopolymer_compressed { 1 } else { 0 },
+                mi.kmer_size, mi.window_size,
                 mi.seqs.len(), total_len);
             if n_parts == 1 && mapped_parts.is_none() && cli.dump_index.is_none() {
                 eprintln!("[*] Tip: `bonefish -d INDEX.raw --idx-raw {}` converts this index to the raw format, which loads near-instantly", target_path);
@@ -855,7 +852,6 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
             }
             saved_k = mi.kmer_size;
             saved_w = mi.window_size;
-            saved_is_hpc = mi.homopolymer_compressed;
             if let Some(ref alt_path) = cli.alt {
                 read_alt_list(&mut mi, alt_path)?;
             }
@@ -919,7 +915,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
                     n_parts = 1;
                     let t0 = Instant::now();
                     eprintln!("[*] Building index for {} sequences...", all_seqs.len());
-                    let mut mi = Index::build(all_seqs, w, k, is_hpc, usize::MAX);
+                    let mut mi = Index::build(all_seqs, w, k, usize::MAX);
                     mi.index = 0;
                     eprintln!("[*] Index built in {:.3}s", t0.elapsed().as_secs_f64());
                     if let Some(ref alt_path) = cli.alt {
@@ -976,7 +972,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
                         *n_parts += 1;
                         let t0 = Instant::now();
                         eprintln!("[*] Building index part {} for {} sequences...", *n_parts, seqs.len());
-                        let mut mi = Index::build(seqs, w, k, is_hpc, usize::MAX);
+                        let mut mi = Index::build(seqs, w, k, usize::MAX);
                         mi.index = *n_parts - 1;
                         eprintln!("[*] Index part {} built in {:.3}s", *n_parts, t0.elapsed().as_secs_f64());
                         if let Some(ref alt_path) = cli.alt {
@@ -1057,7 +1053,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
                 n_parts += 1;
                 let t0 = Instant::now();
                 eprintln!("[*] Building index part {} for {} sequences...", n_parts, batch_seqs.len());
-                let mut mi = Index::build(batch_seqs, w, k, is_hpc, usize::MAX);
+                let mut mi = Index::build(batch_seqs, w, k, usize::MAX);
                 mi.index = n_parts - 1;
                 eprintln!("[*] Index part {} built in {:.3}s", n_parts, t0.elapsed().as_secs_f64());
                 if let Some(ref alt_path) = cli.alt {
@@ -1119,7 +1115,6 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
             n_parts,
             k: saved_k,
             w: saved_w,
-            is_hpc: saved_is_hpc,
             query_path,
             sam_rg: cli.sam_rg.as_deref(),
             copy_comment,

@@ -738,9 +738,7 @@ fn chain_coords(
     let last = &anchors[anchors.len() - 1];
     let span = first.query_span() as usize;
     let rev = (first.x >> 63) == 1;
-    // A seed's span is measured on the query; under homopolymer compression the
-    // same seed can cover fewer target bases, placing the target start before
-    // the sequence begins. The query start needs no such guard.
+    // Guard against a seed span reaching before the target start.
     let rs = ((first.ref_pos() as usize) + 1).saturating_sub(span);
     let re = (last.ref_pos() as usize) + 1;
     let qs_fwd = (first.query_pos() as usize) + 1 - span;
@@ -772,7 +770,7 @@ pub fn map_query(
 
     let t0 = Instant::now();
     ctx.minimizers.clear();
-    sketch_sequence(qseq, qlen, mi.window_size, mi.kmer_size, 0, mi.homopolymer_compressed, &mut ctx.minimizers);
+    sketch_sequence(qseq, qlen, mi.window_size, mi.kmer_size, 0, &mut ctx.minimizers);
     let qsub = opt.seeding.query_subsample.or_else(|| crate::align::env_flags::EXP_QSUB.map(|f| (f.max(1) as u32,
         std::env::var("BONEFISH_EXP_QSUB_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(0))));
     if let Some((f, qsub_min)) = qsub && qlen >= qsub_min as usize {
@@ -1252,7 +1250,7 @@ mod tests {
         // Build index with default parameters (w=10, k=15). 
         // 16 A's -> 2 k-mers of len 15 (overlapping). 
         // All seqs have identical content.
-        let idx = Index::build(seqs, 10, 15, false, 50000);
+        let idx = Index::build(seqs, 10, 15, 50000);
         
         // A single A...A k-mer will appear 20+ times.
         
@@ -1283,7 +1281,7 @@ mod tests {
             ("seq1".to_string(), "ACGTACGTACGTACGT".as_bytes().to_vec()),
             ("seq2".to_string(), "ACGTACGTACGTACGT".as_bytes().to_vec()),
         ];
-        let idx = Index::build(seqs, 10, 15, false, 50000);
+        let idx = Index::build(seqs, 10, 15, 50000);
         
         let mut opt = MapOptions::default();
         opt.chaining.min_cnt = 1; 

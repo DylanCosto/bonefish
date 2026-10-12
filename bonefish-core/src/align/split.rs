@@ -153,7 +153,6 @@ pub struct MergeConfig<'a> {
     pub n_parts: usize,
     pub k: usize,
     pub w: usize,
-    pub is_hpc: bool,
     pub query_path: &'a str,
     pub sam_rg: Option<&'a str>,
     pub copy_comment: bool,
@@ -171,7 +170,6 @@ pub fn merge_split_results(
     let n_parts = config.n_parts;
     let k = config.k;
     let w = config.w;
-    let is_hpc = config.is_hpc;
     let query_path = config.query_path;
     let sam_rg = config.sam_rg;
     let copy_comment = config.copy_comment;
@@ -182,7 +180,7 @@ pub fn merge_split_results(
     let _ = k_from_file; // k already known from caller
 
     // 2. Build header-only index for output formatting
-    let global_mi = Index::header_only(k, w, is_hpc, all_seqs);
+    let global_mi = Index::header_only(k, w, all_seqs);
 
     // 3. Write SAM header if SAM output
     if out_cfg.output_sam {

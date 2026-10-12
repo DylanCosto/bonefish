@@ -195,7 +195,6 @@ pub struct AlignerBuilder {
     preset: Preset,
     k: Option<usize>,
     w: Option<usize>,
-    hpc: Option<bool>,
     index_max_occ: usize,
     mid_occ: Option<usize>,
     mid_occ_frac: f32,
@@ -210,7 +209,6 @@ impl AlignerBuilder {
             preset,
             k: None,
             w: None,
-            hpc: None,
             index_max_occ: usize::MAX,
             mid_occ: None,
             mid_occ_frac: 2e-4,
@@ -226,8 +224,6 @@ impl AlignerBuilder {
     /// Minimizer window size. `1` indexes every k-mer.
     pub fn w(mut self, w: usize) -> Self { self.w = Some(w); self }
 
-    /// Homopolymer-compressed seeding.
-    pub fn hpc(mut self, hpc: bool) -> Self { self.hpc = Some(hpc); self }
 
     /// Occurrence cap applied while building the index (default: uncapped).
     pub fn index_max_occ(mut self, max_occ: usize) -> Self { self.index_max_occ = max_occ; self }
@@ -250,15 +246,15 @@ impl AlignerBuilder {
 
     /// Build the index from a FASTA reference file.
     pub fn from_fasta(self, path: &str) -> io::Result<Aligner> {
-        let (opt, k, w, hpc) = self.resolve()?;
+        let (opt, k, w) = self.resolve()?;
         let seqs = crate::fasta::read_fasta(path)?;
-        Ok(self.finish(opt, Index::build(seqs, w, k, hpc, self.index_max_occ)))
+        Ok(self.finish(opt, Index::build(seqs, w, k, self.index_max_occ)))
     }
 
     /// Build the index from in-memory `(name, sequence)` pairs.
     pub fn from_seqs(self, seqs: Vec<(String, Vec<u8>)>) -> io::Result<Aligner> {
-        let (opt, k, w, hpc) = self.resolve()?;
-        Ok(self.finish(opt, Index::build(seqs, w, k, hpc, self.index_max_occ)))
+        let (opt, k, w) = self.resolve()?;
+        Ok(self.finish(opt, Index::build(seqs, w, k, self.index_max_occ)))
     }
 
     /// Load a pre-built index file (bonefish `RMMI`, minimap2 `.mmi`, or legacy
@@ -280,33 +276,27 @@ impl AlignerBuilder {
     }
 
     /// Apply the preset to an already-loaded index. Its seeding geometry is
-    /// fixed, so any `k`, `w`, or `hpc` set here must agree with the stored values.
+    /// fixed, so any `k` or `w` set here must agree with the stored values.
     fn from_loaded_index(self, index: Index) -> io::Result<Aligner> {
-        let (opt, _, _, _) = self.resolve()?;
+        let (opt, _, _) = self.resolve()?;
         if let Some(k) = self.k && k != index.kmer_size {
             return Err(invalid(format!("k={} does not match index k={}", k, index.kmer_size)));
         }
         if let Some(w) = self.w && w != index.window_size {
             return Err(invalid(format!("w={} does not match index w={}", w, index.window_size)));
         }
-        if let Some(hpc) = self.hpc && hpc != index.homopolymer_compressed {
-            return Err(invalid(format!(
-                "hpc={} does not match index hpc={}", hpc, index.homopolymer_compressed)));
-        }
         Ok(self.finish(opt, index))
     }
 
     /// Preset plus overrides, before any index-derived values are filled in.
-    fn resolve(&self) -> io::Result<(MapOptions, usize, usize, bool)> {
+    fn resolve(&self) -> io::Result<(MapOptions, usize, usize)> {
         let mut k = 15usize;
         let mut w = 10usize;
-        let mut hpc = false;
         let mut opt = MapOptions::default();
-        apply_preset_str(&mut opt, &mut k, &mut w, &mut hpc, self.preset.as_str())
+        apply_preset_str(&mut opt, &mut k, &mut w, self.preset.as_str())
             .expect("Preset enum variants are all recognized");
         let k = self.k.unwrap_or(k);
         let w = self.w.unwrap_or(w);
-        let hpc = self.hpc.unwrap_or(hpc);
 
         if k == 0 || k > MAX_KMER {
             return Err(invalid(format!("k must be in 1..={}, got {}", MAX_KMER, k)));
@@ -326,7 +316,7 @@ impl AlignerBuilder {
                 "min_mid_occ ({}) exceeds max_mid_occ ({})",
                 opt.seeding.min_mid_occ, opt.seeding.max_mid_occ)));
         }
-        Ok((opt, k, w, hpc))
+        Ok((opt, k, w))
     }
 
     fn finish(&self, mut opt: MapOptions, index: Index) -> Aligner {
@@ -547,10 +537,10 @@ fn parse_cigar_string(s: &str) -> Vec<CigarOp> {
 /// Apply a preset by string name ("dna", or one of its minimap2-name aliases).
 ///
 /// This is the same function used by the CLI's `-x` flag. Modifies `opt`,
-/// `k`, `w`, and `is_hpc` in place. Returns an error if the preset name
+/// `k` and `w` in place. Returns an error if the preset name
 /// is not recognized so the caller can abort rather than silently using
 /// the default configuration.
-pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, _is_hpc: &mut bool, preset: &str) -> Result<(), String> {
+pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, preset: &str) -> Result<(), String> {
     // Reset SIMD cap each time so switching presets has predictable behavior.
     // Specific presets below opt back into a cap if their workload is hurt by
     // AVX-512's per-core license throttling (chain/seed-heavy presets where DP
@@ -994,45 +984,6 @@ mod tests {
         assert!(Aligner::builder(Preset::Dna).k(MAX_KMER).from_seqs(test_seqs()).is_ok());
     }
 
-    /// A homopolymer-compressed seed can span more query bases than target
-    /// bases. Matched at the start of the target, the chain start computation
-    /// goes below zero and must clamp rather than wrap.
-    #[test]
-    fn test_hpc_chain_start_clamps_at_target_start() {
-        // Both sequences compress to the same k-mers, but every run in the
-        // query is three bases long, so its seeds span 3x the target's.
-        let mut x = 12345u64;
-        let mut tseq: Vec<u8> = Vec::new();
-        while tseq.len() < 2000 {
-            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-            let b = b"ACGT"[(x >> 33) as usize % 4];
-            if tseq.last() != Some(&b) { tseq.push(b); }
-        }
-        let qseq: Vec<u8> = tseq.iter().flat_map(|&b| [b; 3]).collect();
-
-        let aligner = Aligner::builder(Preset::Dna)
-            .hpc(true)
-            .cigar(false)
-            .from_seqs(vec![("target".to_string(), tseq.clone())])
-            .unwrap();
-        let res = aligner.map_seq("query", &qseq);
-        assert!(!res.mappings.is_empty(), "expected at least one mapping");
-        for m in &res.mappings {
-            assert!(m.target_start <= m.target_end,
-                "target_start {} exceeds target_end {} (underflow)", m.target_start, m.target_end);
-            assert!(m.target_end <= tseq.len(),
-                "target_end {} exceeds target length {}", m.target_end, tseq.len());
-        }
-    }
-
-    #[test]
-    fn test_builder_hpc_override() {
-        let a = Aligner::builder(Preset::Dna).hpc(true).from_seqs(test_seqs()).unwrap();
-        assert!(a.index().homopolymer_compressed);
-        let b = Aligner::builder(Preset::Dna).hpc(false).from_seqs(test_seqs()).unwrap();
-        assert!(!b.index().homopolymer_compressed);
-    }
-
     #[test]
     fn test_from_index_reader_bounded_and_trailing() {
         // Build a tiny index and serialize it (RMMI magic + bincode) into a
@@ -1042,7 +993,7 @@ mod tests {
             ("s2".to_string(), b"TTTTGGGGCCCCAAAATTTTGGGGCCCCAAAA".to_vec()),
             ("s3".to_string(), b"ACGTNNNNACGTACGTACGTACGTNNNNACGT".to_vec()),
         ];
-        let index = Index::build(seqs, 10, 15, false, usize::MAX);
+        let index = Index::build(seqs, 10, 15, usize::MAX);
         let mut buf: Vec<u8> = Vec::new();
         index.save_part(&mut buf).expect("serialize index");
         let index_len = buf.len();
@@ -1081,8 +1032,8 @@ mod tests {
     fn test_apply_preset_aliases_and_unknown() {
         let apply = |name: &str| {
             let mut opt = MapOptions::default();
-            let (mut k, mut w, mut is_hpc) = (15, 10, false);
-            apply_preset_str(&mut opt, &mut k, &mut w, &mut is_hpc, name).map(|_| (format!("{:?}", opt), k, w))
+            let (mut k, mut w) = (15, 10);
+            apply_preset_str(&mut opt, &mut k, &mut w, name).map(|_| (format!("{:?}", opt), k, w))
         };
         let dna = apply("dna").unwrap();
         assert_eq!((dna.1, dna.2), (19, 19));

@@ -278,7 +278,7 @@ mod tests {
         let call = AlignAnchorContext {
             seed_bounds: (0, 0, 50, 50),
             rev: false, rid: 0,
-            split_inv: false, is_hpc: false, k: 15,
+            split_inv: false, k: 15,
             ref_offset: 0,
         };
 
@@ -302,7 +302,7 @@ mod tests {
         let call = AlignAnchorContext {
             seed_bounds: (0, 0, 60, 60),
             rev: false, rid: 0,
-            split_inv: false, is_hpc: false, k: 15,
+            split_inv: false, k: 15,
             ref_offset: 0,
         };
 
@@ -328,7 +328,7 @@ mod tests {
         let call = AlignAnchorContext {
             seed_bounds: (0, 0, 50, 50),
             rev: false, rid: 0,
-            split_inv: false, is_hpc: false, k: 15,
+            split_inv: false, k: 15,
             ref_offset: 0,
         };
 
