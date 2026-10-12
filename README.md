@@ -1,257 +1,73 @@
-# rammap
+# bonefish
 
-A pure-Rust extensible sequence aligner and mapper mirroring the interface and producing identical output to [minimap2](https://github.com/lh3/minimap2).
+A fast aligner for Oxford Nanopore DNA reads, written in Rust. bonefish takes ONT reads (FASTQ,
+or the unaligned BAM that dorado writes) and produces SAM, PAF, or a coordinate-sorted, indexed BAM
+in one step. It is tuned and validated for variant calling: against GIAB truth sets, its SNP and
+indel accuracy match minimap2's and its structural-variant recall is at or above minimap2's, while
+aligning 2.6-8x faster.
 
-Supports all minimap2 presets (map-ont, map-hifi, sr, splice, asm, ava) with full CIGAR, CS/MD tags, SAM, and PAF output. SIMD-optimized DP kernels
-(NEON, SSE2, SSE4.1, AVX2, AVX512BW, WASM v128) with scalar memory safe fallback.
-
-## Quick Start (CLI)
-
-```bash
-cargo build --release
-./target/release/rammap -x map-ont -c reference.fa reads.fq > alignments.paf
-./target/release/rammap -x sr -a reference.fa reads_R1.fq reads_R2.fq > alignments.sam
-```
-
-### Presets
-
-| Preset | Data type |
-|--------|-----------|
-| `map-ont` | Oxford Nanopore reads |
-| `map-pb` | PacBio CLR reads (HPC seeds) |
-| `map-hifi` | PacBio HiFi reads |
-| `map-iclr` | Illumina Complete Long Reads |
-| `lr:hq` | Accurate long reads |
-| `lr:hqae` | HQ long-read assembly eval |
-| `sr` | Short reads (Illumina) |
-| `splice` | Long-read RNA-seq |
-| `splice:hq` | High-quality RNA-seq |
-| `splice:sr` | Spliced short RNA-seq |
-| `cdna` | cDNA / splice alias |
-| `asm5` / `asm10` / `asm20` | Assembly-to-reference (~0.1% / 1% / 5% divergence) |
-| `ava-ont` / `ava-pb` | All-vs-all overlap |
-
-Run `rammap -x --help` for the full list of accepted preset names and aliases.
-
-## Library API
-
-rammap can be used as a Rust library for programmatic alignment, with an API
-compatible with [minimap2-rs](https://github.com/jguhlin/minimap2-rs).
-
-### Add to your project
-
-```toml
-[dependencies]
-# The library is published as `rammap-core` but imported in code as `rammap`
-# (e.g. `use rammap::api::Aligner;`).
-rammap-core = { version = "1.1.3", default-features = false, features = ["parallel"] }
-```
-
-Library features (on `rammap-core`): `parallel` (rayon-based threading), `wasm-threads`
-(browser-side rayon for WASM builds). The CLI is a separate crate (`rammap`, which
-depends on `rammap-core`) and provides the binary plus the `jemalloc` / `mimalloc`
-opt-in global allocators (off by default).
-
-### Example
-
-```rust
-use rammap::{Aligner, Preset, Strand};
-
-fn main() -> std::io::Result<()> {
-    // Load a reference (from FASTA or pre-built .mmi index)
-    let aligner = Aligner::from_fasta("reference.fa", Preset::MapOnt)?;
-
-    // Or use builder-style preset methods:
-    // let aligner = Aligner::from_fasta("reference.fa", Aligner::map_ont())?;
-
-    // Align a read
-    let result = aligner.map_seq("read1", b"ACGTACGTACGT...");
-
-    for m in &result.mappings {
-        let strand = match m.strand {
-            Strand::Forward => "+",
-            Strand::Reverse => "-",
-        };
-        println!("{} {}:{}-{} strand={} mapq={} score={}",
-            m.target_name, m.target_start, m.target_end,
-            strand, m.mapq, m.score);
-
-        if let Some(ref cigar) = m.cigar {
-            println!("  CIGAR: {}", cigar);
-        }
-
-        // Structured CIGAR also available:
-        if let Some(ref ops) = m.cigar_ops {
-            for op in ops {
-                print!("{}{}", op.len, op.op_char());
-            }
-            println!();
-        }
-    }
-    Ok(())
-}
-```
-
-### API Reference
-
-#### `Aligner`
-
-```rust
-// Load from pre-built minimap2 index (fast)
-let aligner = Aligner::from_index("reference.mmi", Preset::Sr)?;
-
-// Build index from FASTA (slower, builds in memory)
-let aligner = Aligner::from_fasta("reference.fa", Preset::MapOnt)?;
-
-// Build index from in-memory sequences
-let seqs = vec![("chr1".to_string(), b"ACGT...".to_vec())];
-let aligner = Aligner::from_seqs(seqs, Preset::MapOnt);
-
-// Builder-style preset methods (minimap2-rs compatible)
-let aligner = Aligner::from_fasta("ref.fa", Aligner::map_ont())?;
-let aligner = Aligner::from_fasta("ref.fa", Aligner::splice())?;
-
-// Align single-end read
-let result = aligner.map_seq("read_name", sequence_bytes);
-
-// Align paired-end reads
-let result = aligner.map_pair("read_name", seq_r1, seq_r2);
-
-// Per-call CS/MD tag toggle
-use rammap::MapOpts;
-let result = aligner.map_seq_with("read1", seq, MapOpts { cs: Some(true), md: Some(true) });
-assert!(result.mappings[0].cs.is_some());
-
-// Save index for reuse
-aligner.save_index("output.rmmi")?;
-
-// Fine-tune parameters after construction
-aligner.options_mut().chaining.max_gap = 10000;
-aligner.options_mut().filtering.best_n = 50;
-
-// Toggle output options
-aligner.output_config_mut().eqx = true;  // =/X CIGAR
-```
-
-#### `MapResult` / `Mapping`
-
-```rust
-let result = aligner.map_seq("read1", seq);
-
-for m in &result.mappings {
-    m.target_name       // Arc<str> — "chr1", "chr20", etc. (shared across mappings)
-    m.target_id         // numeric index into reference
-    m.target_start      // 0-based start on reference
-    m.target_end        // exclusive end on reference
-    m.query_start       // 0-based start on query
-    m.query_end         // exclusive end on query
-    m.strand            // Strand::Forward or Strand::Reverse
-    m.mapq              // mapping quality (0-60)
-    m.is_primary        // true for primary alignment
-    m.is_supplementary  // true for supplementary alignment
-    m.is_spliced        // true if contains intron (N_SKIP) operations
-    m.trans_strand      // transcript strand for splice alignments
-    m.matches           // number of matching bases
-    m.block_len         // alignment block length
-    m.edit_distance     // NM tag value
-    m.cigar             // Option<String> — CIGAR string
-    m.cigar_ops         // Option<Vec<CigarOp>> — structured CIGAR
-    m.cs                // Option<String> — CS tag (if requested)
-    m.md                // Option<String> — MD tag (if requested)
-    m.score             // alignment score (AS tag)
-    m.divergence        // sequence divergence (0.0 = identical)
-}
-```
-
-#### Thread Safety
-
-`Aligner` is `Send + Sync`. For multi-threaded use:
-
-```rust
-use std::sync::Arc;
-
-let aligner = Arc::new(Aligner::from_index("ref.mmi", Preset::MapOnt)?);
-
-// Each thread gets a clone of the Arc
-let aligner_clone = aligner.clone();
-std::thread::spawn(move || {
-    let result = aligner_clone.map_seq("read", seq);
-});
-```
-
-### Low-Level DP Alignment
-
-The SIMD-optimized DP engine can be used directly for pairwise sequence
-alignment, without the full mapping pipeline:
-
-```rust
-use rammap::{dp_align, dp_global, dp_local, dp_extension, DpScoring, encode_nt4};
-
-// Encode sequences to nt4 (A=0, C=1, G=2, T=3, N=4)
-let query  = encode_nt4(b"ACGTACGTACGT");
-let target = encode_nt4(b"ACGTACCTACGT");
-
-// Semi-global alignment (default — no end penalty)
-let result = dp_align(&query, &target, &DpScoring::default(), -1);
-println!("score={} cigar={}", result.score, result.cigar);
-
-// Global alignment (Needleman-Wunsch — covers both sequences end-to-end)
-let result = dp_global(&query, &target, &DpScoring::default(), -1);
-
-// Local alignment (Smith-Waterman — finds best-scoring local region)
-let result = dp_local(&query, &target, &DpScoring::default());
-
-// Extension alignment (stops at best score — for extending seed matches)
-let result = dp_extension(&query, &target, &DpScoring::default(), 100);
-
-// Custom scoring
-let scoring = DpScoring {
-    match_score: 1, mismatch: 4,
-    gap_open: 6, gap_extend: 2,
-    gap_open2: 26, gap_extend2: 1,  // dual-affine (long gaps)
-};
-let result = dp_align(&query, &target, &scoring, -1);
-```
-
-The DP engine automatically selects the best SIMD backend (AVX512 > AVX2 > SSE4.1 > SSE2 > NEON > WASM > scalar).
-
-## Building
+## Quick start
 
 ```bash
-# Full build (CLI + library) — builds both workspace crates
-cargo build --release
-
-# Library only (no CLI dependencies)
-cargo build -p rammap-core --release --no-default-features --features parallel
-
-# Run tests
-cargo test
-
-# Run integration tests (requires test data)
-bash tests/integration_test.sh
+cargo build --release --features jemalloc
+./target/release/bonefish -d ref.raw --idx-raw ref.fa          # optional: build a fast-loading index
+./target/release/bonefish -t 16 -y --sort -o sample.bam ref.raw reads.bam   # sorted BAM + .bai
+./target/release/bonefish -t 16 -a ref.fa reads.fq.gz > sample.sam
 ```
 
-## Architecture
+- There is one preset, `dna` (ONT genomic DNA, R10.4.1 or R9.4.1), applied by default. The
+  minimap2 names `lr:hq`, `lr:hq-fast`, `map-ont` and `lr` are accepted for it; other minimap2
+  presets (PacBio, short reads, RNA/splice, assembly) are not supported.
+- `-y` copies the base-modification tags (`MM`/`ML`/`MN`) from a dorado BAM (or FASTQ comments)
+  into the output.
+- `--sort -o FILE.bam` writes a coordinate-sorted BAM and `FILE.bam.bai` directly (same records and
+  order as `bonefish -a | samtools sort --write-index`); `--sort-mem` (default 4G) bounds memory,
+  with spills to `--sort-tmp`.
+- Most minimap2 command-line options (`-t`, `-a`, `-c`, `--cs`, `--MD`, `--eqx`, `-N`, `-p`, ...)
+  work as in minimap2.
 
-See [`docs/architecture.md`](docs/architecture.md) for a detailed guide to the codebase.
+## Speed and accuracy (16 threads)
 
-## Extensibility
+| dataset | minimap2 `lr:hq` | bonefish | speedup |
+|---|---:|---:|---:|
+| HG002 R10.4.1 HAC, chr20 reads (3.5 Gbp) | 417 s | 72 s | 5.8x |
+| HG002 R9.4.1, chr20 reads (4.6 Gbp) | 412 s | 103 s | 4.0x |
+| HG002 R10.4.1 ultra-long (3.4 Gbp) | 542 s | 65 s | 8.3x |
+| HG001 R10.4.1 sup, random genome-wide sample (2.7 Gbp) | 202 s | 45 s | 4.5x |
+| *Salmonella enterica* R10.4.1 (1.2 Gbp) | 25 s | 10 s | 2.6x |
 
-See [`docs/extensibility.md`](docs/extensibility.md) for documentation on building and replacing
-modular components (seeding, chaining, alignment, etc).
+HG001 37x R10.4.1, reads to sorted indexed BAM: 40 minutes.
 
-## Performance
+Variant calling (Clair3 + rtg vcfeval vs GIAB v4.2.1; Sniffles2 + Truvari vs GIAB v5.0q):
 
-See [`docs/performance.md`](docs/performance.md) for detailed benchmarks against minimap2.
+| dataset | aligner | SNP F1 | indel F1 | SV F1 |
+|---|---|---:|---:|---:|
+| HG002 HAC chr20 | minimap2 | 0.9985 | 0.8294 | 0.7887 |
+| | bonefish | 0.9984 | 0.8310 | 0.7917 |
+| HG002 R9.4.1 chr20 | minimap2 | 0.9980 | 0.8173 | 0.7704 |
+| | bonefish | 0.9980 | 0.8172 | 0.7734 |
 
-## WASM
+The measurements, methods and every optimisation tried (adopted or rejected) are written up in the
+development repository's README.
 
-See [`docs/wasm.md`](docs/wasm.md) for WASM build instructions, web demo, and benchmarks.
+## How it differs from minimap2
 
-## Python
+Same seeding and scoring as minimap2's `lr:hq`, with cheaper alignment and chaining: narrower,
+adaptive DP bands with retries where an indel needs a wider band, a probe that stops extending
+into low-identity read ends, ungapped-first and sub-anchored gap filling, a 5 kb reference-gap limit
+in the main chaining pass (with a long-join rescue that skips repeat-dense reads), segment-tree
+RMQ chaining and diagonal-bucketed exact chaining, plus multithreaded I/O and a built-in sorter.
+Output is therefore not byte-identical to minimap2. `bonefish --help` lists the individual
+options.
 
-[`rammappy`](https://github.com/tomdstanton/rammappy) is an externally maintained module that provides Python bindings directly to the `rammap-core` API via PyO3.
+## Library
 
-## License
+`bonefish-core` (imported as `bonefish`) exposes the aligner as a Rust library
+(`bonefish::Aligner`, `Preset::Dna`); see `bonefish-core/examples/`.
 
-MIT
+## Credits and license
+
+bonefish is a fork of [rammap](https://github.com/jwanglab/rammap), a pure-Rust reimplementation
+of [minimap2](https://github.com/lh3/minimap2) by Heng Li. The index format, SIMD DP kernels and
+most of the mapping pipeline come from rammap; the alignment algorithms are minimap2's. MIT
+license (see `LICENSE`), as for both projects.

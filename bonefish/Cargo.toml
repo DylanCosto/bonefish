@@ -1,0 +1,39 @@
+[package]
+name = "bonefish"
+description = "Fast aligner for Oxford Nanopore DNA reads (a fork of rammap, the Rust port of minimap2)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+
+[[bin]]
+name = "bonefish"
+path = "src/main.rs"
+
+[features]
+default = ["parallel"]
+parallel = ["bonefish-core/parallel", "dep:rayon"]
+census = ["bonefish-core/census"]
+gpu = ["bonefish-core/gpu"]
+
+# Allocator opt-ins (need a C toolchain at build time; mimalloc wins if both set):
+#   cargo build --release                       → Rust system allocator (default)
+#   cargo build --release --features jemalloc   → jemalloc
+#   cargo build --release --features mimalloc   → mimalloc
+jemalloc = ["dep:tikv-jemallocator"]
+mimalloc = ["dep:mimalloc"]
+
+[dependencies]
+bonefish-core = { path = "../bonefish-core", version = "0.1.0", default-features = false }
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+anyhow = "1"
+rayon = { version = "1", optional = true, features = ["web_spin_lock"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tikv-jemallocator = { version = "0.6", optional = true }
+mimalloc = { version = "0.1", default-features = false, optional = true }
+
+[dev-dependencies]
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }

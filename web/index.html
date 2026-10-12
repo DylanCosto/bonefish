@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rammap — sequence aligner</title>
+<title>bonefish — sequence aligner</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -87,7 +87,7 @@ table.results td.cigar:hover { color: #111; overflow: visible; white-space: norm
 </head>
 <body>
 
-<h1>rammap</h1>
+<h1>bonefish</h1>
 <div class="subtitle">minimap2-compatible sequence aligner, running in your browser via WebAssembly SIMD128</div>
 
 <div class="row">
@@ -339,7 +339,7 @@ async function handleFile(file, zone, onSet, kind) {
         log(`[!!] of ~${limitStr} for ${isGzContent ? 'compressed' : 'plain-text'} references.`);
         log(`[!!] WASM32 has a 4 GB linear-memory cap; a whole-genome index (~3 GB) exceeds it.`);
         log(`[!!] Aligning will likely fail with "unreachable executed" partway through indexing.`);
-        log(`[!!] For genome-scale references, use the native rammap CLI instead.`);
+        log(`[!!] For genome-scale references, use the native bonefish CLI instead.`);
       }
     }
 
@@ -356,11 +356,11 @@ setupDropZone('ref-drop', 'ref-file', f => { refFile = f; }, 'ref');
 setupDropZone('query-drop', 'query-file', f => { queryFile = f; }, 'query');
 
 // Test hook: assign File objects programmatically (used by headless e2e tests).
-window._rammapSetFiles = (rf, qf) => { refFile = rf; queryFile = qf; updateRunBtn(); };
+window._bonefishSetFiles = (rf, qf) => { refFile = rf; queryFile = qf; updateRunBtn(); };
 
 // --- Web Worker ---
 // The worker lives next to this HTML in web/; it internally imports
-// `../pkg/rammap.js` which resolves to the wasm-pack output one level up.
+// `../pkg/bonefish.js` which resolves to the wasm-pack output one level up.
 let worker = null;
 
 function createWorker(numThreads) {

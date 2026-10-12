@@ -1,0 +1,50 @@
+[package]
+name = "bonefish-core"
+description = "Core alignment library for bonefish"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+
+# the crate is imported as `bonefish`
+[lib]
+name = "bonefish"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["parallel"]
+parallel = ["rayon"]
+wasm-threads = ["rayon", "wasm-bindgen-rayon"]
+# Gate B DP census: record every extension/gap-fill DP call (see align/dp/census.rs).
+census = []
+# GPU offload of large dual-affine DP calls (needs nvcc; see build.rs and align/dp/gpu.rs).
+gpu = ["parallel"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
+bitflags = "2"
+rustc-hash = "2"
+hashbrown = { version = "0.15", features = ["serde"] }
+byteorder = "1"
+
+rayon = { version = "1", optional = true, features = ["web_spin_lock"] }
+
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+memchr = "2"
+
+log = "0.4"
+thiserror = "2"
+anyhow = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+libdeflater = "1.26"
+memmap2 = "0.9"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-time = "1"
+wasm-bindgen = "0.2"
+wasm-bindgen-rayon = { version = "1.2", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"

@@ -1,0 +1,8 @@
+# case	source	arguments	fnv1a64 (output without @PG lines)
+dna_sam	bonefish	-a	81ec695369877c8c
+dna_paf	bonefish		a2549676576510c3
+dna_paf_cigar	bonefish	-c	b8ab4cdde39ad80a
+dna_paf_cs	bonefish	-c --cs	0dc5b802637a8b0f
+dna_md_eqx	bonefish	-a --MD --eqx	0d347ab709e3136b
+alias_sam	bonefish	-ax lr:hq-fast	81ec695369877c8c
+alias_map_ont	bonefish	-ax map-ont	81ec695369877c8c

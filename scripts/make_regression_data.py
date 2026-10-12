@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate the small synthetic ONT-like dataset used by rammap/tests/regression.rs.
+"""Generate the small synthetic ONT-like dataset used by bonefish/tests/regression.rs.
 
-Deterministic (fixed seed). Writes rammap/tests/data/{ref.fa.gz,reads.fq.gz}. The reference
+Deterministic (fixed seed). Writes bonefish/tests/data/{ref.fa.gz,reads.fq.gz}. The reference
 has three contigs with interspersed repeats, tandem repeats and a segmental duplication; the
 reads (2-14% error, ONT-style homopolymer indels, both strands) include chimeras, reads spanning
 a large deletion / insertion / inversion relative to the reference, and unmappable junk, so
@@ -15,7 +15,7 @@ import os
 import random
 
 R = random.Random(20261006)
-OUT = os.path.join(os.path.dirname(__file__), "..", "rammap", "tests", "data")
+OUT = os.path.join(os.path.dirname(__file__), "..", "bonefish", "tests", "data")
 COMP = str.maketrans("ACGT", "TGCA")
 
 

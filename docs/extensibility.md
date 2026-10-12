@@ -1,3 +1,5 @@
+> **Note:** inherited from upstream [rammap](https://github.com/jwanglab/rammap) and kept for reference. It describes rammap (all minimap2 presets, minimap2-identical output), not bonefish; paths may still say `rammap`/`rammap-core` (now `bonefish`/`bonefish-core`).
+
 # Extensible Pipeline Architecture
 
 rammap's alignment pipeline is built around trait-based interfaces at each

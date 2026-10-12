@@ -33,7 +33,7 @@ self.onmessage = async function(e) {
 
   if (type === 'init') {
     try {
-      mod = await import('../pkg/rammap.js');
+      mod = await import('../pkg/bonefish.js');
       wasmExports = await mod.default();
       // `initThreadPool` only exists in the threaded build (wasm-bindgen-rayon).
       // Its absence means this is a single-threaded build, so the thread count
@@ -73,7 +73,7 @@ self.onmessage = async function(e) {
         postMessage({ type: 'error',
           text: `Out of memory: the WASM heap hit its 4 GB cap (current ${memMB} MB) ` +
                 `before the index could finish. Genome-scale references won't fit in ` +
-                `browser-WASM — use the native rammap CLI instead.` });
+                `browser-WASM — use the native bonefish CLI instead.` });
       } else {
         postMessage({ type: 'error',
           text: `Alignment error: ${msg} (wasm memory ${memMB} MB)` });

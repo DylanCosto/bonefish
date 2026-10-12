@@ -23,7 +23,7 @@ RUSTFLAGS="\
 -C link-arg=--export=__tls_align \
 -C link-arg=--export=__tls_base" \
   rustup run nightly cargo build \
-    -p rammap-core \
+    -p bonefish-core \
     --target wasm32-unknown-unknown \
     --release \
     --features wasm-threads \
@@ -35,14 +35,14 @@ echo "[*] Generating JS bindings..."
 wasm-bindgen \
   --target web \
   --out-dir pkg \
-  target/wasm32-unknown-unknown/release/rammap.wasm
+  target/wasm32-unknown-unknown/release/bonefish.wasm
 
 echo "[*] Patching workerHelpers.js for browser module loading..."
 # wasm-bindgen-rayon's workerHelpers.js uses `import('../../..')` which resolves
 # to a directory (pkg/), not a JS file. Browsers can't handle directory imports.
 # Patch to use the explicit module path.
 find pkg/snippets -name "workerHelpers.js" -exec \
-  sed -i "s|import('../../..')|import('../../../rammap.js')|g" {} \;
+  sed -i "s|import('../../..')|import('../../../bonefish.js')|g" {} \;
 
 echo "[*] Done. WASM package in pkg/"
 echo "[*] Serve with: python3 scripts/serve.py"

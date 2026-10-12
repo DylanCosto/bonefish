@@ -8,13 +8,13 @@ set -euo pipefail
 
 echo "[*] Building WASM (single-threaded + SIMD128)..."
 
-# Build the rammap-core lib crate. The lib's crate name is `rammap`, so the
-# wasm-pack output stays rammap.js / rammap_bg.wasm. wasm-pack writes to
-# rammap-core/pkg; relocate it to the repo-root pkg/ so the web/ demo's
-# `../pkg/rammap.js` import resolves. (`--out-dir` is avoided: wasm-pack forwards
+# Build the bonefish-core lib crate. The lib's crate name is `bonefish`, so the
+# wasm-pack output stays bonefish.js / bonefish_bg.wasm. wasm-pack writes to
+# bonefish-core/pkg; relocate it to the repo-root pkg/ so the web/ demo's
+# `../pkg/bonefish.js` import resolves. (`--out-dir` is avoided: wasm-pack forwards
 # it to cargo as the nightly-only `--artifact-dir`.)
-( cd rammap-core && wasm-pack build --target web --release --no-default-features )
-rm -rf pkg && mv rammap-core/pkg pkg
+( cd bonefish-core && wasm-pack build --target web --release --no-default-features )
+rm -rf pkg && mv bonefish-core/pkg pkg
 
 echo "[*] Done. WASM package in pkg/"
 echo "[*] Serve with: python3 -m http.server 8080 (or python3 scripts/serve.py for threads)"

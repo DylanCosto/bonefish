@@ -1,3 +1,5 @@
+> **Note:** inherited from upstream [rammap](https://github.com/jwanglab/rammap) and kept for reference. It describes rammap (all minimap2 presets, minimap2-identical output), not bonefish; paths may still say `rammap`/`rammap-core` (now `bonefish`/`bonefish-core`).
+
 # rammap Architecture Reference
 
 **rammap** is a pure-Rust minimap2-compatible sequence aligner producing byte-identical output via the same algorithms. It supports all major minimap2 presets (map-ont, map-hifi, sr, splice, asm, ava) with full CIGAR, CS/MD/DS tag, SAM, and PAF output.
