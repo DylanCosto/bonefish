@@ -2325,7 +2325,7 @@ mod tests {
             rmq_rescue_ratio: 0.1,
             rmq_inner_dist: 1000,
             rmq_size_cap: 100000,
-            seg_rmq: false, rescue_join: false, rescue_subset: false, rescue_max_density: 0,
+            seg_rmq: false, rescue_join: false, rescue_max_density: 0,
         };
 
         let mut ctx_simd = ChainingBuffers::new();
@@ -2397,7 +2397,7 @@ mod tests {
             rmq_rescue_ratio: 0.1,
             rmq_inner_dist: 1000,
             rmq_size_cap: 100000,
-            seg_rmq: false, rescue_join: false, rescue_subset: false, rescue_max_density: 0,
+            seg_rmq: false, rescue_join: false, rescue_max_density: 0,
         };
 
         let mut ctx_simd = ChainingBuffers::new();
@@ -2455,7 +2455,7 @@ mod tests {
                 max_dist_x: 5000, max_dist_y: 5000, bandwidth: bw, bandwidth_long: 20000,
                 max_chain_skip: skip, max_chain_iter: 5000, chn_pen_gap: 0.152, chn_pen_skip: 0.0,
                 chain_gap_scale: 0.8, rmq_rescue_size: 1000, rmq_rescue_ratio: 0.1, rmq_inner_dist: 1000,
-                rmq_size_cap: 100000, seg_rmq: false, rescue_join: false, rescue_subset: false, rescue_max_density: 0,
+                rmq_size_cap: 100000, seg_rmq: false, rescue_join: false, rescue_max_density: 0,
             };
             let (mut a1, mut a2) = (anchors.clone(), anchors.clone());
             let (mut c1, mut c2) = (ChainingBuffers::new(), ChainingBuffers::new());
@@ -2514,7 +2514,7 @@ mod tests {
             rmq_rescue_ratio: 0.1,
             rmq_inner_dist: 1000,
             rmq_size_cap: 100000,
-            seg_rmq: false, rescue_join: false, rescue_subset: false, rescue_max_density: 0,
+            seg_rmq: false, rescue_join: false, rescue_max_density: 0,
         };
 
         let mut opt_noskip = opt_skip.clone();

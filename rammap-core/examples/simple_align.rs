@@ -22,9 +22,9 @@ fn main() {
     // Load reference — detects .mmi (pre-built index) vs .fa (build on the fly)
     eprintln!("[*] Loading reference: {}", ref_path);
     let aligner = if ref_path.ends_with(".mmi") || ref_path.ends_with(".idx") {
-        Aligner::from_index(ref_path, Preset::MapOnt).expect("Failed to load index")
+        Aligner::from_index(ref_path, Preset::Dna).expect("Failed to load index")
     } else {
-        Aligner::from_fasta(ref_path, Preset::MapOnt).expect("Failed to build index")
+        Aligner::from_fasta(ref_path, Preset::Dna).expect("Failed to build index")
     };
 
     // Open reads and align each one

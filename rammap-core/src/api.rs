@@ -10,7 +10,7 @@
 //! use rammap::api::{Aligner, Preset};
 //! use rammap::Strand;
 //!
-//! let aligner = Aligner::from_index("reference.mmi", Preset::MapOnt).unwrap();
+//! let aligner = Aligner::from_index("reference.mmi", Preset::Dna).unwrap();
 //! let results = aligner.map_seq("read1", b"ACGTACGTACGT...");
 //! for m in &results.mappings {
 //!     println!("{}\t{}\t{}\t{}\tMAPQ={}",
@@ -37,44 +37,15 @@ use std::collections::HashMap;
 /// Alignment preset (selected via the `-x` flag).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preset {
-    MapOnt,
-    MapPb,
-    MapHifi,
-    LrHq,
-    LrHqae,
-    MapIclr,
-    Sr,
-    Splice,
-    SpliceHq,
-    SpliceSr,
-    Cdna,
-    Asm5,
-    Asm10,
-    Asm20,
-    AvaOnt,
-    AvaPb,
+    /// ONT genomic DNA (the only preset).
+    Dna,
 }
 
 impl Preset {
     /// Convert to the string form
     pub fn as_str(&self) -> &'static str {
         match self {
-            Preset::MapOnt => "map-ont",
-            Preset::MapPb => "map-pb",
-            Preset::MapHifi => "map-hifi",
-            Preset::LrHq => "lr:hq",
-            Preset::LrHqae => "lr:hqae",
-            Preset::MapIclr => "map-iclr",
-            Preset::Sr => "sr",
-            Preset::Splice => "splice",
-            Preset::SpliceHq => "splice:hq",
-            Preset::SpliceSr => "splice:sr",
-            Preset::Cdna => "cdna",
-            Preset::Asm5 => "asm5",
-            Preset::Asm10 => "asm10",
-            Preset::Asm20 => "asm20",
-            Preset::AvaOnt => "ava-ont",
-            Preset::AvaPb => "ava-pb",
+            Preset::Dna => "dna",
         }
     }
 }
@@ -225,7 +196,7 @@ fn invalid(msg: String) -> io::Error {
 /// use rammap::api::{Aligner, Preset};
 /// // Dense seeding for short, degraded cDNA reads: w = 1 indexes every k-mer,
 /// // at proportionally higher index memory cost.
-/// let aligner = Aligner::builder(Preset::MapOnt).k(12).w(1).from_fasta("cdna.fa")?;
+/// let aligner = Aligner::builder(Preset::Dna).k(12).w(1).from_fasta("cdna.fa")?;
 /// # Ok::<(), std::io::Error>(())
 /// ```
 #[derive(Debug, Clone)]
@@ -384,40 +355,12 @@ impl AlignerBuilder {
 }
 
 impl Aligner {
-    // --- Preset convenience methods (minimap2-rs compatibility) ---
+    // --- Preset convenience methods ---
 
-    /// ONT long read preset.
-    pub fn map_ont() -> Preset { Preset::MapOnt }
-    /// PacBio CLR preset.
-    pub fn map_pb() -> Preset { Preset::MapPb }
-    /// PacBio HiFi preset.
-    pub fn map_hifi() -> Preset { Preset::MapHifi }
-    /// Long read high-quality preset.
-    pub fn lr_hq() -> Preset { Preset::LrHq }
-    /// Long read HQ all-extension preset.
-    pub fn lr_hqae() -> Preset { Preset::LrHqae }
-    /// ICLR preset.
-    pub fn map_iclr() -> Preset { Preset::MapIclr }
-    /// Short read preset.
-    pub fn sr() -> Preset { Preset::Sr }
-    /// Splice (RNA) preset.
-    pub fn splice() -> Preset { Preset::Splice }
-    /// Splice high-quality preset.
-    pub fn splice_hq() -> Preset { Preset::SpliceHq }
-    /// Splice short-read preset.
-    pub fn splice_sr() -> Preset { Preset::SpliceSr }
-    /// cDNA preset.
-    pub fn cdna() -> Preset { Preset::Cdna }
-    /// Assembly 5% divergence preset.
-    pub fn asm5() -> Preset { Preset::Asm5 }
-    /// Assembly 10% divergence preset.
-    pub fn asm10() -> Preset { Preset::Asm10 }
-    /// Assembly 20% divergence preset.
-    pub fn asm20() -> Preset { Preset::Asm20 }
-    /// All-vs-all ONT overlap preset.
-    pub fn ava_ont() -> Preset { Preset::AvaOnt }
-    /// All-vs-all PacBio overlap preset.
-    pub fn ava_pb() -> Preset { Preset::AvaPb }
+    /// ONT genomic DNA preset (the only preset).
+    pub fn dna() -> Preset { Preset::Dna }
+    /// Alias of [`Aligner::dna`] for minimap2-rs compatibility.
+    pub fn map_ont() -> Preset { Preset::Dna }
 
     // --- Constructors ---
 
@@ -425,7 +368,7 @@ impl Aligner {
     ///
     /// ```no_run
     /// use rammap::api::{Aligner, Preset};
-    /// let aligner = Aligner::builder(Preset::MapOnt).k(12).w(1).from_fasta("ref.fa")?;
+    /// let aligner = Aligner::builder(Preset::Dna).k(12).w(1).from_fasta("ref.fa")?;
     /// # Ok::<(), std::io::Error>(())
     /// ```
     pub fn builder(preset: Preset) -> AlignerBuilder {
@@ -465,7 +408,7 @@ impl Aligner {
     ///     ("chr1".to_string(), b"ACGTACGT...".to_vec()),
     ///     ("chr2".to_string(), b"TGCATGCA...".to_vec()),
     /// ];
-    /// let aligner = Aligner::from_seqs(seqs, Preset::MapOnt);
+    /// let aligner = Aligner::from_seqs(seqs, Preset::Dna);
     /// ```
     pub fn from_seqs(seqs: Vec<(String, Vec<u8>)>, preset: Preset) -> Self {
         Aligner::builder(preset)
@@ -742,50 +685,31 @@ fn parse_paf_to_map_result(paf: &str, _mi: &Index) -> MapResult {
 // Preset application (moved from main.rs)
 // ---------------------------------------------------------------------------
 
-/// Apply a preset by string name (e.g., "map-ont", "sr", "splice").
+/// Apply a preset by string name ("dna", or one of its minimap2-name aliases).
 ///
 /// This is the same function used by the CLI's `-x` flag. Modifies `opt`,
 /// `k`, `w`, and `is_hpc` in place. Returns an error if the preset name
 /// is not recognized so the caller can abort rather than silently using
 /// the default configuration.
-pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_hpc: &mut bool, preset: &str) -> Result<(), String> {
+pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, _is_hpc: &mut bool, preset: &str) -> Result<(), String> {
     // Reset SIMD cap each time so switching presets has predictable behavior.
     // Specific presets below opt back into a cap if their workload is hurt by
     // AVX-512's per-core license throttling (chain/seed-heavy presets where DP
     // is a small fraction of CPU time).
     crate::align::dp::set_simd_cap(crate::align::dp::SimdCap::Auto);
     match preset {
-        "lr" | "map-ont" => {
-            *k = 15; *w = 10;
-        },
-        "map10k" | "map-pb" => {
-            *is_hpc = true; *k = 19;
-        },
-        "lr:hq" => {
-            *k = 19; *w = 19;
-            opt.chaining.max_gap = 10000;
-            opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
-        },
-        // lr:hq with only the near-output-preserving DP savings (adaptive gap-fill band and
-        // ungapped-first gap fill; extension band unchanged): 0.03% of chr22 primaries move,
-        // SV accuracy unchanged. Use lr:hq-fast for the larger speedup.
-        "lr:hq-balanced" => {
-            *k = 19; *w = 19;
-            opt.chaining.max_gap = 10000;
-            opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
-            opt.alignment.gap_bw_margin = Some(500);
-            opt.alignment.ungapped_fill = true;
-        },
-        // lr:hq with cheaper DP and chaining (ont-aligner Phase 3): narrower extension band (with
-        // a wide-band retry when an extension's tail shows a wider indel), a 2 kb probe that stops
-        // extending into low-identity read ends, an adaptive 64-cell extension band that follows
-        // the alignment, adaptive gap-fill band with a narrow first pass (widened where read
-        // k-mers match only off it), ungapped-first gap fill, 5 kb reference gap limit in the
-        // main chaining pass (the long-join rescue keeps -g), segment-tree RMQ and the clean DP
-        // kernel (exact band boundaries instead of minimap2's SSE behaviour). ~3x faster than
-        // minimap2 on HG002 R10.4.1 sup with SNP, indel and SV accuracy at baseline level on chr20
-        // and chr22; output differs from minimap2. Long gaps are sub-anchored on unique 15-mers.
-        "lr:hq-fast" => {
+        // The one preset: ONT genomic DNA (formerly lr:hq-fast). minimap2's lr:hq seeding (k=19,
+        // w=19) and scoring, with cheaper DP and chaining (ont-aligner Phase 3 onwards): narrower
+        // extension band (with a wide-band retry when an extension's tail shows a wider indel), a
+        // 2 kb probe that stops extending into low-identity read ends, an adaptive 64-cell
+        // extension band that follows the alignment, adaptive gap-fill band with a narrow first
+        // pass (widened where read k-mers match only off it), ungapped-first gap fill, 5 kb
+        // reference gap limit in the main chaining pass (the long-join rescue keeps -g, and skips
+        // repeat-dense reads), segment-tree RMQ, the clean DP kernel, and long gaps sub-anchored
+        // on unique 15-mers. Validated against GIAB truth sets on R10.4.1 (sup, HAC) and R9.4.1:
+        // SNP/indel accuracy at minimap2 level, SV recall at or above it. The minimap2 names
+        // people habitually pass are accepted for the same preset.
+        "dna" | "lr:hq" | "lr:hq-fast" | "map-ont" | "lr" => {
             *k = 19; *w = 19;
             opt.chaining.max_gap = 10000;
             opt.chaining.max_gap_ref = 5000;
@@ -802,163 +726,9 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, is_h
             opt.alignment.clean_dp = true;
             opt.alignment.ungapped_fill = true;
             opt.alignment.gap_subanchor = true;
-        },
-        // lr:hq-fast plus speed-for-SV-sensitivity trades (ont-aligner Round 7): fewer allowed
-        // non-improving predecessors and a 2 kb reference gap limit in the main chaining pass, the
-        // long-join rescue re-chaining only joinable chains, a 1 kb extension probe, narrower and
-        // asymmetric gap-fill bands, and a stable (not minimap2-order) anchor sort.
-        // SNP/indel accuracy at lr:hq-fast level; loses some SV support (see the README).
-        "lr:hq-turbo" => {
-            *k = 19; *w = 19;
-            opt.chaining.max_gap = 10000;
-            opt.chaining.max_gap_ref = 5000;
-            opt.chaining.seg_rmq = true;
-            opt.chaining.rescue_join = true;
-            opt.chaining.rescue_max_density = 2;
-            opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
-            opt.alignment.ext_bw = Some(200);
-            opt.alignment.ext_rescue = true;
-            opt.alignment.ext_probe = Some((2000, 1000, 0));
-            opt.alignment.gap_bw_margin = Some(500);
-            opt.alignment.gap_bw_narrow = Some(32);
-            opt.alignment.ext_adaptive = Some(64);
-            opt.alignment.clean_dp = true;
-            opt.alignment.ungapped_fill = true;
-            opt.chaining.max_chain_skip = 10;
-            opt.chaining.max_gap_ref = 2000;
-            opt.chaining.rescue_subset = true;
-            opt.alignment.ext_probe = Some((1000, 1000, 0));
-            opt.alignment.gap_bw_margin = Some(300);
-            opt.alignment.gap_band_asym = true;
-            opt.seeding.stable_anchor_sort = true;
-            opt.alignment.gap_subanchor = true;
-        },
-        "map-hifi" | "map-ccs" => {
-            *k = 19; *w = 19;
-            opt.chaining.max_gap = 10000;
-            opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
-            opt.scoring.match_score = 1; opt.scoring.mismatch_penalty = 4; opt.scoring.gap_open = 6; opt.scoring.gap_open2 = 26; opt.scoring.gap_extend = 2; opt.scoring.gap_extend2 = 1;
-            opt.alignment.min_dp_max = 200;
-        },
-        "lr:hqae" => {
-            *k = 25; *w = 51;
-            opt.flags.insert(AlignFlags::RMQ_CHAIN);
-            opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
-            opt.chaining.rmq_inner_dist = 5000;
-            opt.seeding.occ_dist = 200;
-            opt.filtering.best_n = 100;
-            opt.chaining.chain_gap_scale = 5.0;
-        },
-        "map-iclr-prerender" => {
-            *k = 15;
-            opt.scoring.mismatch_penalty = 6; opt.scoring.transition = 1;
-            opt.scoring.gap_open = 10; opt.scoring.gap_open2 = 50;
-        },
-        "map-iclr" => {
-            *k = 19;
-            opt.scoring.mismatch_penalty = 6; opt.scoring.transition = 4;
-            opt.scoring.gap_open = 10; opt.scoring.gap_open2 = 50;
-        },
-        p if p.starts_with("asm") => {
-            *k = 19; *w = 19;
-            opt.chaining.bandwidth = 1000; opt.chaining.bandwidth_long = 100000;
-            opt.chaining.max_gap = 10000;
-            opt.flags.insert(AlignFlags::RMQ_CHAIN);
-            opt.seeding.min_mid_occ = 50; opt.seeding.max_mid_occ = 500;
-            opt.alignment.min_dp_max = 200;
-            opt.filtering.best_n = 50;
-            match p {
-                "asm5" => {
-                    opt.scoring.match_score = 1; opt.scoring.mismatch_penalty = 19; opt.scoring.gap_open = 39; opt.scoring.gap_open2 = 81; opt.scoring.gap_extend = 3; opt.scoring.gap_extend2 = 1;
-                    opt.alignment.zdrop = 200; opt.alignment.zdrop_inv = 200;
-                },
-                "asm10" => {
-                    opt.scoring.match_score = 1; opt.scoring.mismatch_penalty = 9; opt.scoring.gap_open = 16; opt.scoring.gap_open2 = 41; opt.scoring.gap_extend = 2; opt.scoring.gap_extend2 = 1;
-                    opt.alignment.zdrop = 200; opt.alignment.zdrop_inv = 200;
-                },
-                "asm20" => {
-                    opt.scoring.match_score = 1; opt.scoring.mismatch_penalty = 4; opt.scoring.gap_open = 6; opt.scoring.gap_open2 = 26; opt.scoring.gap_extend = 2; opt.scoring.gap_extend2 = 1;
-                    opt.alignment.zdrop = 200; opt.alignment.zdrop_inv = 200;
-                    *w = 10;
-                },
-                _ => {
-                    return Err(format!("unrecognized asm preset '{}' (expected asm5, asm10, or asm20)", p));
-                }
-            }
-        },
-        "short" | "sr" => {
-            // Cap SIMD at AVX2: SR mapping spends ~7-10% of CPU in DP and the rest
-            // in chaining/seeding/output, so AVX-512's all-core license throttle
-            // (200-600 MHz drop on Skylake-X / Cascade / Cooper Lake) costs more
-            // than the DP speedup wins. RAMMAP_FORCE_AVX512=1 overrides this.
-            crate::align::dp::set_simd_cap(crate::align::dp::SimdCap::Avx2);
-            *k = 21; *w = 11;
-            opt.flags.insert(AlignFlags::SHORT_READ | AlignFlags::FRAG_MODE | AlignFlags::NO_PRINT_2ND | AlignFlags::HEAP_SORT);
-            opt.pairing.pe_ori = 1;
-            opt.scoring.match_score = 2; opt.scoring.mismatch_penalty = 8; opt.scoring.gap_open = 12; opt.scoring.gap_extend = 2; opt.scoring.gap_open2 = 24; opt.scoring.gap_extend2 = 1;
-            opt.alignment.zdrop = 100; opt.alignment.zdrop_inv = 100;
-            opt.alignment.end_bonus = 10;
-            opt.pairing.max_frag_len = 800;
-            opt.chaining.max_gap = 100;
-            opt.chaining.bandwidth = 100; opt.chaining.bandwidth_long = 100;
-            opt.filtering.pri_ratio = 0.5;
-            opt.chaining.min_cnt = 2;
-            opt.chaining.min_chain_score = 25;
-            opt.alignment.min_dp_max = 40;
-            opt.filtering.best_n = 20;
-            opt.seeding.mid_occ = 1000;
-            opt.seeding.max_occ = 5000;
-            opt.mini_batch_size = 50_000_000;
-        },
-        p if p.starts_with("splice") || p == "cdna" => {
-            *k = 15; *w = 5;
-            opt.flags.insert(AlignFlags::SPLICE | AlignFlags::SPLICE_FOR | AlignFlags::SPLICE_REV | AlignFlags::SPLICE_FLANK);
-            opt.alignment.max_sw_mat = 0;
-            opt.chaining.max_gap = 2000;
-            opt.chaining.max_gap_ref = 200000;
-            opt.chaining.bandwidth = 200000; opt.chaining.bandwidth_long = 200000;
-            opt.scoring.match_score = 1; opt.scoring.mismatch_penalty = 2; opt.scoring.gap_open = 2; opt.scoring.gap_extend = 1; opt.scoring.gap_open2 = 32; opt.scoring.gap_extend2 = 0;
-            opt.scoring.noncanon_penalty = 9;
-            opt.scoring.junc_bonus = 9;
-            opt.scoring.junc_pen = 5;
-            opt.alignment.zdrop = 200; opt.alignment.zdrop_inv = 100;
-            opt.filtering.is_splice = true;
-            if p == "splice:hq" {
-                opt.scoring.noncanon_penalty = 5; opt.scoring.mismatch_penalty = 4; opt.scoring.gap_open = 6; opt.scoring.gap_open2 = 24;
-            } else if p == "splice:sr" {
-                opt.flags.insert(AlignFlags::NO_PRINT_2ND | AlignFlags::HEAP_SORT | AlignFlags::FRAG_MODE | AlignFlags::WEAK_PAIRING | AlignFlags::SR_RNA);
-                opt.scoring.noncanon_penalty = 5; opt.scoring.mismatch_penalty = 4; opt.scoring.gap_open = 6; opt.scoring.gap_open2 = 24;
-                opt.chaining.min_chain_score = 25;
-                opt.alignment.min_dp_max = 40;
-                opt.alignment.min_dp_len = 20;
-                opt.pairing.pe_ori = 1;
-                opt.filtering.best_n = 10;
-                opt.mini_batch_size = 100_000_000;
-            }
-        },
-        "ava-ont" => {
-            // Cap SIMD at AVX2 — AVA workload is dominated by chaining (ALL_CHAINS)
-            // with no base-level alignment, so AVX-512 throttling pure-loses here.
-            crate::align::dp::set_simd_cap(crate::align::dp::SimdCap::Avx2);
-            *k = 15; *w = 5;
-            opt.flags.insert(AlignFlags::ALL_CHAINS | AlignFlags::NO_DIAG | AlignFlags::NO_DUAL | AlignFlags::NO_LJOIN);
-            opt.chaining.min_chain_score = 100; opt.filtering.pri_ratio = 0.0;
-            opt.chaining.max_chain_skip = 25;
-            opt.chaining.bandwidth = 2000; opt.chaining.bandwidth_long = 2000;
-            opt.seeding.occ_dist = 0;
-        },
-        "ava-pb" => {
-            // Cap SIMD at AVX2 — same reasoning as ava-ont.
-            crate::align::dp::set_simd_cap(crate::align::dp::SimdCap::Avx2);
-            *is_hpc = true; *k = 19; *w = 5;
-            opt.flags.insert(AlignFlags::ALL_CHAINS | AlignFlags::NO_DIAG | AlignFlags::NO_DUAL | AlignFlags::NO_LJOIN);
-            opt.chaining.min_chain_score = 100; opt.filtering.pri_ratio = 0.0;
-            opt.chaining.max_chain_skip = 25;
-            opt.chaining.bandwidth_long = opt.chaining.bandwidth;
-            opt.seeding.occ_dist = 0;
         },
         _ => {
-            return Err(format!("unrecognized preset '{}'", preset));
+            return Err(format!("unrecognized preset '{}' (ONT genomic DNA only: dna, the default)", preset));
         }
     }
     finalize_options(opt, *k);
@@ -1305,12 +1075,12 @@ mod tests {
 
     #[test]
     fn test_builder_k_override_rescales_chn_pen_gap() {
-        let a = Aligner::builder(Preset::MapOnt).k(12).w(1).from_seqs(test_seqs()).unwrap();
+        let a = Aligner::builder(Preset::Dna).k(12).w(1).from_seqs(test_seqs()).unwrap();
         assert_eq!(a.index().kmer_size, 12);
         assert_eq!(a.index().window_size, 1);
         assert_eq!(a.options().chaining.chn_pen_gap, expected_chn_pen_gap(12));
 
-        let b = Aligner::builder(Preset::Sr).k(15).from_seqs(test_seqs()).unwrap();
+        let b = Aligner::builder(Preset::Dna).k(15).from_seqs(test_seqs()).unwrap();
         assert_eq!(b.options().chaining.chn_pen_gap, expected_chn_pen_gap(15));
     }
 
@@ -1318,55 +1088,51 @@ mod tests {
     fn test_from_index_derives_chn_pen_gap_from_index_k() {
         let path = std::env::temp_dir().join("rammap_api_from_index_k25.rmmi");
         let p = path.to_str().unwrap();
-        Aligner::builder(Preset::MapOnt).k(25).w(20).from_seqs(test_seqs()).unwrap()
+        Aligner::builder(Preset::Dna).k(25).w(20).from_seqs(test_seqs()).unwrap()
             .save_index(p).unwrap();
 
-        let a = Aligner::from_index(p, Preset::MapOnt).unwrap();
+        let a = Aligner::from_index(p, Preset::Dna).unwrap();
         assert_eq!(a.index().kmer_size, 25);
         assert_eq!(a.options().chaining.chn_pen_gap, expected_chn_pen_gap(25));
 
         // Geometry of a pre-built index is fixed; a conflicting override is an error.
-        assert!(Aligner::builder(Preset::MapOnt).k(15).from_index(p).is_err());
-        assert!(Aligner::builder(Preset::MapOnt).k(25).w(20).from_index(p).is_ok());
+        assert!(Aligner::builder(Preset::Dna).k(15).from_index(p).is_err());
+        assert!(Aligner::builder(Preset::Dna).k(25).w(20).from_index(p).is_ok());
 
         let _ = std::fs::remove_file(p);
     }
 
     #[test]
     fn test_mid_occ_only_calibrated_when_unset() {
-        // sr sets mid_occ = 1000 explicitly.
-        let sr = Aligner::from_seqs(test_seqs(), Preset::Sr);
-        assert_eq!(sr.options().seeding.mid_occ, 1000);
-
-        // map-ont leaves it at 0, so it is calibrated from the index.
-        let ont = Aligner::from_seqs(test_seqs(), Preset::MapOnt);
+        // dna leaves it at 0, so it is calibrated from the index.
+        let ont = Aligner::from_seqs(test_seqs(), Preset::Dna);
         assert!(ont.options().seeding.mid_occ > 0);
 
-        let explicit = Aligner::builder(Preset::MapOnt).mid_occ(77).from_seqs(test_seqs()).unwrap();
+        let explicit = Aligner::builder(Preset::Dna).mid_occ(77).from_seqs(test_seqs()).unwrap();
         assert_eq!(explicit.options().seeding.mid_occ, 77);
     }
 
     #[test]
     fn test_out_cigar_flag_matches_output_config() {
         for a in [
-            Aligner::from_seqs(test_seqs(), Preset::MapOnt),
-            Aligner::builder(Preset::MapOnt).cigar(true).from_seqs(test_seqs()).unwrap(),
+            Aligner::from_seqs(test_seqs(), Preset::Dna),
+            Aligner::builder(Preset::Dna).cigar(true).from_seqs(test_seqs()).unwrap(),
         ] {
             assert!(a.options().flags.contains(AlignFlags::OUT_CIGAR));
         }
-        let off = Aligner::builder(Preset::MapOnt).cigar(false).from_seqs(test_seqs()).unwrap();
+        let off = Aligner::builder(Preset::Dna).cigar(false).from_seqs(test_seqs()).unwrap();
         assert!(!off.options().flags.contains(AlignFlags::OUT_CIGAR));
     }
 
     #[test]
     fn test_builder_rejects_invalid_params() {
-        assert!(Aligner::builder(Preset::MapOnt).k(0).from_seqs(test_seqs()).is_err());
-        assert!(Aligner::builder(Preset::MapOnt).k(MAX_KMER + 1).from_seqs(test_seqs()).is_err());
-        assert!(Aligner::builder(Preset::MapOnt).w(0).from_seqs(test_seqs()).is_err());
-        assert!(Aligner::builder(Preset::MapOnt).mid_occ_frac(1.0).from_seqs(test_seqs()).is_err());
-        assert!(Aligner::builder(Preset::MapOnt).min_mid_occ(100).max_mid_occ(10)
+        assert!(Aligner::builder(Preset::Dna).k(0).from_seqs(test_seqs()).is_err());
+        assert!(Aligner::builder(Preset::Dna).k(MAX_KMER + 1).from_seqs(test_seqs()).is_err());
+        assert!(Aligner::builder(Preset::Dna).w(0).from_seqs(test_seqs()).is_err());
+        assert!(Aligner::builder(Preset::Dna).mid_occ_frac(1.0).from_seqs(test_seqs()).is_err());
+        assert!(Aligner::builder(Preset::Dna).min_mid_occ(100).max_mid_occ(10)
             .from_seqs(test_seqs()).is_err());
-        assert!(Aligner::builder(Preset::MapOnt).k(MAX_KMER).from_seqs(test_seqs()).is_ok());
+        assert!(Aligner::builder(Preset::Dna).k(MAX_KMER).from_seqs(test_seqs()).is_ok());
     }
 
     /// A homopolymer-compressed seed can span more query bases than target
@@ -1385,7 +1151,7 @@ mod tests {
         }
         let qseq: Vec<u8> = tseq.iter().flat_map(|&b| [b; 3]).collect();
 
-        let aligner = Aligner::builder(Preset::MapPb)
+        let aligner = Aligner::builder(Preset::Dna)
             .hpc(true)
             .cigar(false)
             .from_seqs(vec![("target".to_string(), tseq.clone())])
@@ -1402,9 +1168,9 @@ mod tests {
 
     #[test]
     fn test_builder_hpc_override() {
-        let a = Aligner::builder(Preset::MapOnt).hpc(true).from_seqs(test_seqs()).unwrap();
+        let a = Aligner::builder(Preset::Dna).hpc(true).from_seqs(test_seqs()).unwrap();
         assert!(a.index().homopolymer_compressed);
-        let b = Aligner::builder(Preset::MapPb).hpc(false).from_seqs(test_seqs()).unwrap();
+        let b = Aligner::builder(Preset::Dna).hpc(false).from_seqs(test_seqs()).unwrap();
         assert!(!b.index().homopolymer_compressed);
     }
 
@@ -1425,14 +1191,14 @@ mod tests {
 
         // (a) A reader bounded to exactly the index bytes loads correctly.
         let mut bounded = std::io::Cursor::new(&buf[..index_len]);
-        let a_bounded = Aligner::from_index_reader(&mut bounded, Preset::MapOnt)
+        let a_bounded = Aligner::from_index_reader(&mut bounded, Preset::Dna)
             .expect("from_index_reader (bounded) should succeed");
         assert_eq!(a_bounded.index.seqs.len(), 3);
 
         // (b) A reader that also contains trailing bytes loads the same index
         // (the loader stops at the end of the serialized structure).
         let mut with_trailing = std::io::Cursor::new(&buf[..]);
-        let a_trailing = Aligner::from_index_reader(&mut with_trailing, Preset::MapOnt)
+        let a_trailing = Aligner::from_index_reader(&mut with_trailing, Preset::Dna)
             .expect("from_index_reader (with trailing bytes) should succeed");
         assert_eq!(a_trailing.index.seqs.len(), 3);
 
@@ -1444,128 +1210,8 @@ mod tests {
     }
 
     #[test]
-    fn test_load_junctions_bed_populates_db() {
-        // Build a tiny in-memory index, then load a BED6 junction referencing
-        // that contig and confirm the junction DB is populated and wired in.
-        let seq = b"ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT".to_vec();
-        let mut aligner = Aligner::from_seqs(vec![("ctg1".to_string(), seq)], Preset::Splice);
-        assert!(aligner.junc_db.is_none(), "junctions should be unset before loading");
-
-        // Write a small BED6 file (contig, start, end, name, score, strand).
-        let mut path = std::env::temp_dir();
-        path.push(format!("rammap_junc_test_{}.bed", std::process::id()));
-        std::fs::write(&path, "ctg1\t5\t25\t.\t0\t+\n").expect("write test BED");
-
-        aligner
-            .load_junctions_bed(path.to_str().unwrap())
-            .expect("load_junctions_bed should succeed");
-        assert!(aligner.junc_db.is_some(), "junctions should be set after loading");
-
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn test_load_junctions_spsc_populates_db() {
-        // SPSC file: contig, pos, strand, type(D/A), score (tab-separated).
-        let seq = b"ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT".to_vec();
-        let mut aligner = Aligner::from_seqs(vec![("ctg1".to_string(), seq)], Preset::Splice);
-        assert!(aligner.junc_db.is_none());
-
-        let mut path = std::env::temp_dir();
-        path.push(format!("rammap_spsc_test_{}.tsv", std::process::id()));
-        std::fs::write(&path, "ctg1\t10\t+\tD\t5\nctg1\t20\t+\tA\t5\n")
-            .expect("write test SPSC");
-
-        aligner
-            .load_junctions_spsc(path.to_str().unwrap(), None)
-            .expect("load_junctions_spsc should succeed");
-        assert!(aligner.junc_db.is_some(), "junctions should be set after loading SPSC");
-
-        let _ = std::fs::remove_file(&path);
-    }
-
-    // Deterministic DNA generator (xorshift) for synthetic splice scenarios.
-    fn gen_dna(state: &mut u64, n: usize) -> Vec<u8> {
-        let bases = [b'A', b'C', b'G', b'T'];
-        (0..n).map(|_| {
-            *state ^= *state << 13; *state ^= *state >> 7; *state ^= *state << 17;
-            bases[(*state % 4) as usize]
-        }).collect()
-    }
-
-    // Target offset of the first intron (N) in a CIGAR = sum of target-consuming
-    // ops (M/D/=/X) before it. None if the CIGAR has no intron.
-    fn intron_donor_offset(cigar: &str) -> Option<i32> {
-        let mut consumed = 0i32;
-        let mut num = String::new();
-        for c in cigar.chars() {
-            if c.is_ascii_digit() { num.push(c); continue; }
-            let len: i32 = num.parse().unwrap_or(0);
-            num.clear();
-            match c {
-                'N' => return Some(consumed),
-                'M' | 'D' | '=' | 'X' => consumed += len,
-                _ => {}
-            }
-        }
-        None
-    }
-
-    /// Behavioral test: a junction BED must actually change the alignment, not
-    /// just populate a field. Build a two-exon reference with an intron and
-    /// align the spliced transcript. Without an annotation the splice site
-    /// lands a few bp off; a BED at the true intron boundary snaps the intron
-    /// to the annotated position and improves the score — proving the junction
-    /// DB reaches the splice DP through the Aligner.
-    #[test]
-    fn test_junctions_reposition_splice_site() {
-        let mut st = 0xC0FFEE_u64;
-        let exon1 = gen_dna(&mut st, 100);
-        let intron = gen_dna(&mut st, 100);
-        let exon2 = gen_dna(&mut st, 100);
-        let reference: Vec<u8> = exon1.iter().chain(&intron).chain(&exon2).copied().collect();
-        let query: Vec<u8> = exon1.iter().chain(&exon2).copied().collect();
-        let intron_start = exon1.len() as i32;
-        let intron_end = exon1.len() + intron.len();
-
-        // Baseline: no junction annotation.
-        let a0 = Aligner::from_seqs(vec![("chr1".to_string(), reference.clone())], Preset::Splice);
-        let r0 = a0.map_seq("read", &query);
-        assert_eq!(r0.mappings.len(), 1, "expected one mapping without junctions");
-        let m0 = &r0.mappings[0];
-        let c0 = m0.cigar.clone().expect("cigar present");
-
-        // Same alignment, with the true intron annotated as a junction.
-        let mut a1 = Aligner::from_seqs(vec![("chr1".to_string(), reference)], Preset::Splice);
-        let mut path = std::env::temp_dir();
-        path.push(format!("rammap_junc_behavior_{}.bed", std::process::id()));
-        std::fs::write(&path, format!("chr1\t{}\t{}\t.\t0\t+\n", intron_start, intron_end))
-            .expect("write test BED");
-        a1.load_junctions_bed(path.to_str().unwrap()).expect("load_junctions_bed");
-        let _ = std::fs::remove_file(&path);
-        let r1 = a1.map_seq("read", &query);
-        assert_eq!(r1.mappings.len(), 1, "expected one mapping with junctions");
-        let m1 = &r1.mappings[0];
-        let c1 = m1.cigar.clone().expect("cigar present");
-
-        assert!(m0.is_spliced && m1.is_spliced, "both alignments should splice (c0={c0}, c1={c1})");
-        // The annotation changed the alignment and improved its score.
-        assert_ne!(c0, c1, "junction BED should change the CIGAR (both = {c0})");
-        assert!(m1.score > m0.score, "junction bonus should raise the score: with={} without={}", m1.score, m0.score);
-        // With the annotation the intron snaps exactly to the annotated donor;
-        // without it, the splice site is mis-placed.
-        assert_eq!(intron_donor_offset(&c1), Some(intron_start),
-            "annotated splice should sit at the junction (cigar {c1})");
-        assert_ne!(intron_donor_offset(&c0), Some(intron_start),
-            "unannotated splice should be mis-placed (cigar {c0})");
-    }
-
-    #[test]
     fn test_preset_as_str_roundtrip() {
-        let presets = [
-            Preset::MapOnt, Preset::MapPb, Preset::MapHifi, Preset::Sr,
-            Preset::Splice, Preset::Asm5, Preset::AvaOnt,
-        ];
+        let presets = [Preset::Dna];
         for p in &presets {
             let s = p.as_str();
             assert!(!s.is_empty(), "preset {:?} should have a string form", p);
@@ -1573,13 +1219,20 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_preset_sr() {
-        let mut opt = MapOptions::default();
-        let mut k = 15; let mut w = 10; let mut is_hpc = false;
-        apply_preset_str(&mut opt, &mut k, &mut w, &mut is_hpc, "sr").unwrap();
-        assert_eq!(k, 21);
-        assert_eq!(w, 11);
-        assert!(opt.flags.contains(AlignFlags::SHORT_READ));
+    fn test_apply_preset_aliases_and_unknown() {
+        let apply = |name: &str| {
+            let mut opt = MapOptions::default();
+            let (mut k, mut w, mut is_hpc) = (15, 10, false);
+            apply_preset_str(&mut opt, &mut k, &mut w, &mut is_hpc, name).map(|_| (format!("{:?}", opt), k, w))
+        };
+        let dna = apply("dna").unwrap();
+        assert_eq!((dna.1, dna.2), (19, 19));
+        for alias in ["lr:hq", "lr:hq-fast", "map-ont", "lr"] {
+            assert_eq!(apply(alias).unwrap(), dna, "{alias} should be the dna preset");
+        }
+        for gone in ["lr:hq-turbo", "sr", "splice", "map-pb", "asm5"] {
+            assert!(apply(gone).is_err(), "{gone} should be rejected");
+        }
     }
 
     #[test]

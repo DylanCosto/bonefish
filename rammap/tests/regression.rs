@@ -1,13 +1,11 @@
 //! End-to-end regression tests on a small synthetic ONT-like dataset (`tests/data`, made by
 //! `scripts/make_regression_data.py`).
 //!
-//! * `lr:hq` (and its output-option variants) must stay byte-identical to minimap2 2.31: the
-//!   expected hashes in `tests/data/expected.tsv` marked `minimap2-2.31` were computed from
-//!   minimap2's own output, and `lrhq.minimap2.sam.gz` holds that SAM with SEQ/QUAL masked so a
-//!   failure can name the first differing record.
-//! * The output-changing presets (`lr:hq-fast`, `lr:hq-balanced`) are pinned to golden hashes
-//!   (marked `rammap`). After an intended change, `RAMMAP_BLESS=1 cargo test --release --test
-//!   regression` prints the new lines for `expected.tsv`.
+//! * The output (SAM, PAF, and the --cs / --MD --eqx variants) is pinned to golden hashes in
+//!   `tests/data/expected.tsv`, so speed-only changes can be checked for identical output.
+//!   Accuracy-changing work is judged on the GIAB benchmarks instead (see the project README);
+//!   after an intended output change, `RAMMAP_BLESS=1 cargo test --release --test regression`
+//!   prints the new lines for `expected.tsv`.
 //! * A raw (memory-mapped) index and BAM input must give the same output as FASTA/FASTQ.
 //!
 //! Hashes are 64-bit FNV-1a over the output with `@PG` lines removed.
@@ -62,15 +60,6 @@ fn map_args(case_args: &str) -> Vec<String> {
     a
 }
 
-fn mask_seq_qual(sam: &str) -> String {
-    sam.lines().map(|l| {
-        if l.starts_with('@') { return format!("{}\n", l); }
-        let mut f: Vec<&str> = l.split('\t').collect();
-        if f.len() > 10 { f[9] = "*"; f[10] = "*"; }
-        format!("{}\n", f.join("\t"))
-    }).collect()
-}
-
 #[test]
 fn outputs_match_expected() {
     let bless = std::env::var_os("RAMMAP_BLESS").is_some();
@@ -86,20 +75,7 @@ fn outputs_match_expected() {
         if got != hash {
             let path = tmp_dir("out").join(format!("{}.out", name));
             std::fs::write(&path, &out).unwrap();
-            let mut msg = format!("{} ({}; expected from {}): hash {} != {}; output saved to {}", name, args, source, got, hash, path.display());
-            if name == "lrhq_sam" {
-                let mut exp = String::new();
-                flate2::read::GzDecoder::new(std::fs::File::open(data("lrhq.minimap2.sam.gz")).unwrap())
-                    .read_to_string(&mut exp).unwrap();
-                let masked = mask_seq_qual(&out);
-                if let Some((i, (e, g))) = exp.lines().zip(masked.lines()).enumerate().find(|(_, (e, g))| e != g) {
-                    msg += &format!("\n  first difference at line {}:\n  minimap2: {}\n  rammap:   {}", i + 1, e, g);
-                } else if exp.lines().count() != masked.lines().count() {
-                    msg += &format!("\n  line counts differ: minimap2 {} rammap {}", exp.lines().count(), masked.lines().count());
-                } else {
-                    msg += "\n  (records match with SEQ/QUAL masked: SEQ or QUAL differs)";
-                }
-            }
+            let msg = format!("{} ({}; expected from {}): hash {} != {}; output saved to {}", name, args, source, got, hash, path.display());
             failures.push(msg);
         }
     }
@@ -114,12 +90,10 @@ fn raw_index_gives_same_output() {
     let reference = data("ref.fa.gz");
     let reads = data("reads.fq.gz");
     let (reference, reads) = (reference.to_str().unwrap(), reads.to_str().unwrap());
-    run(&["-x", "lr:hq", "-d", raw_s, "--idx-raw", reference]);
-    for preset in ["lr:hq", "lr:hq-fast"] {
-        let direct = run(&["-ax", preset, "-t", "2", reference, reads]);
-        let mapped = run(&["-ax", preset, "-t", "2", raw_s, reads]);
-        assert!(direct == mapped, "{}: raw index output differs from FASTA-built index", preset);
-    }
+    run(&["-d", raw_s, "--idx-raw", reference]);
+    let direct = run(&["-a", "-t", "2", reference, reads]);
+    let mapped = run(&["-a", "-t", "2", raw_s, reads]);
+    assert!(direct == mapped, "raw index output differs from FASTA-built index");
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -187,11 +161,9 @@ fn bam_input_gives_same_output() {
     write_ubam(&data("reads.fq.gz"), &bam);
     let reference = data("ref.fa.gz");
     let reads = data("reads.fq.gz");
-    for preset in ["lr:hq", "lr:hq-fast"] {
-        let from_fq = run(&["-ax", preset, "-t", "2", reference.to_str().unwrap(), reads.to_str().unwrap()]);
-        let from_bam = run(&["-ax", preset, "-t", "2", reference.to_str().unwrap(), bam.to_str().unwrap()]);
-        assert!(from_fq == from_bam, "{}: BAM input output differs from FASTQ input", preset);
-    }
+    let from_fq = run(&["-a", "-t", "2", reference.to_str().unwrap(), reads.to_str().unwrap()]);
+    let from_bam = run(&["-a", "-t", "2", reference.to_str().unwrap(), bam.to_str().unwrap()]);
+    assert!(from_fq == from_bam, "BAM input output differs from FASTQ input");
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -204,11 +176,9 @@ fn bgzipped_fastq_gives_same_output() {
     write_bgzf(fq.as_bytes(), &bgz);
     let reference = data("ref.fa.gz");
     let reads = data("reads.fq.gz");
-    for preset in ["lr:hq", "lr:hq-fast"] {
-        let a = run(&["-ax", preset, "-t", "2", reference.to_str().unwrap(), reads.to_str().unwrap()]);
-        let b = run(&["-ax", preset, "-t", "2", reference.to_str().unwrap(), bgz.to_str().unwrap()]);
-        assert!(a == b, "{}: bgzipped FASTQ output differs from gzipped", preset);
-    }
+    let a = run(&["-a", "-t", "2", reference.to_str().unwrap(), reads.to_str().unwrap()]);
+    let b = run(&["-a", "-t", "2", reference.to_str().unwrap(), bgz.to_str().unwrap()]);
+    assert!(a == b, "bgzipped FASTQ output differs from gzipped");
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -222,8 +192,8 @@ fn sorted_bam_output() {
     let reference = data("ref.fa.gz");
     let reads = data("reads.fq.gz");
     let (reference, reads) = (reference.to_str().unwrap(), reads.to_str().unwrap());
-    for preset in ["lr:hq", "lr:hq-fast"] {
-        let sam = run(&["-ax", preset, "-t", "2", reference, reads]);
+    {
+        let sam = run(&["-a", "-t", "2", reference, reads]);
         let names: Vec<&str> = sam.lines().filter(|l| l.starts_with("@SQ")).map(|l| &l.split('\t').nth(1).unwrap()[3..]).collect();
         let tid = |n: &str| if n == "*" { u32::MAX } else { names.iter().position(|&x| x == n).unwrap() as u32 };
         let mut expect: Vec<(u64, String, u16)> = sam.lines().filter(|l| !l.starts_with('@')).map(|l| {
@@ -234,7 +204,7 @@ fn sorted_bam_output() {
         }).collect();
         expect.sort_by_key(|e| e.0);
 
-        run(&["-ax", preset, "-t", "2", "--sort", "--sort-mem", "100K", "-o", bam.to_str().unwrap(), reference, reads]);
+        run(&["-a", "-t", "2", "--sort", "--sort-mem", "100K", "-o", bam.to_str().unwrap(), reference, reads]);
         let mut raw = Vec::new();
         flate2::read::MultiGzDecoder::new(std::fs::File::open(&bam).unwrap()).read_to_end(&mut raw).unwrap();
         assert_eq!(&raw[..4], b"BAM\x01");
@@ -254,7 +224,7 @@ fn sorted_bam_output() {
             got.push(((tid as u64) << 32 | ((pos + 1) as u64) << 1 | ((flag >> 4) & 1) as u64, name, flag));
             p += 4 + n;
         }
-        assert_eq!(got, expect, "{}: sorted BAM records differ from the sorted SAM output", preset);
+        assert_eq!(got, expect, "sorted BAM records differ from the sorted SAM output");
         let bai = std::fs::read(dir.join("out.bam.bai")).unwrap();
         assert_eq!(&bai[..4], b"BAI\x01");
     }

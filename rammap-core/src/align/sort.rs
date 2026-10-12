@@ -182,47 +182,6 @@ pub fn radix_sort_u64(arr: &mut [u64]) {
     }
 }
 
-thread_local! {
-    static LSD_BUF: std::cell::RefCell<Vec<Minimizer>> = const { std::cell::RefCell::new(Vec::new()) };
-}
-
-/// Stable LSD radix sort of anchors by `x`, one counting pass per byte that differs between keys
-/// (anchors of one read share their top bytes). Equal keys keep their input order.
-pub fn radix_sort_lsd(arr: &mut Vec<Minimizer>) {
-    let n = arr.len();
-    if n <= RS_MIN_SIZE {
-        // Insertion sort is stable too.
-        rs_insertsort(arr);
-        return;
-    }
-    let k0 = arr[0].x;
-    let diff = arr.iter().fold(0u64, |d, e| d | (e.x ^ k0));
-    LSD_BUF.with(|cell| {
-        let mut buf = cell.borrow_mut();
-        buf.clear();
-        buf.resize(n, Minimizer { x: 0, y: 0 });
-        let (mut src, mut dst): (&mut [Minimizer], &mut [Minimizer]) = (&mut arr[..], &mut buf[..]);
-        let mut swapped = false;
-        for byte in 0..8 {
-            let s = byte * 8;
-            if (diff >> s) & 0xff == 0 { continue; }
-            let mut cnt = [0usize; 256];
-            for e in src.iter() { cnt[((e.x >> s) & 0xff) as usize] += 1; }
-            let mut sum = 0;
-            for c in cnt.iter_mut() { let t = *c; *c = sum; sum += t; }
-            for e in src.iter() {
-                let b = ((e.x >> s) & 0xff) as usize;
-                // SAFETY: cnt[b] < n by construction of the prefix sums.
-                unsafe { *dst.get_unchecked_mut(cnt[b]) = *e; }
-                cnt[b] += 1;
-            }
-            std::mem::swap(&mut src, &mut dst);
-            swapped = !swapped;
-        }
-        if swapped { dst.copy_from_slice(src); }
-    });
-}
-
 /// MSD in-place radix sort for `(u64, u64)` aux entries by `.0`. Cycle-leader
 /// bucket-shuffle radix variant with a deterministic ordering of ties; used
 /// for the per-read hit sort where output stability matters.

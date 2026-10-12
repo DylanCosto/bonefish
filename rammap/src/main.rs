@@ -50,23 +50,12 @@ struct AlignArgs {
     #[arg(short = 'd', long)]
     pub dump_index: Option<String>,
 
-    /// Preset applied before other options. Accepted values:
-    ///   lr / map-ont     — Nanopore vs reference (default-like)
-    ///   map-pb / map10k  — PacBio CLR vs reference (HPC seeds)
-    ///   map-hifi / map-ccs — PacBio HiFi vs reference
-    ///   map-iclr         — Illumina Complete Long Reads vs reference
-    ///   map-iclr-prerender — ICLR pre-render variant
-    ///   lr:hq            — accurate long reads (<1% error) vs reference
-    ///   lr:hq-balanced   — lr:hq with near-output-preserving DP savings (--gap-bw-margin 500 --ungapped-fill)
-    ///   lr:hq-fast       — lr:hq with cheaper DP and chaining (--ext-bw 200 --ext-adaptive 64 --ext-rescue --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000 --seg-rmq --clean-dp --rescue-join --rescue-max-density 2 --gap-subanchor)
-    ///   lr:hq-turbo      — lr:hq-fast plus --max-chain-skip 10 --max-gap-ref 2000 --rescue-subset --ext-probe 1000,1000 --gap-bw-margin 300 --gap-band-asym --stable-anchor-sort (faster; loses some SV support)
-    ///   lr:hqae          — HQ long-read assembly eval (k=25 w=51, RMQ)
-    ///   asm5 / asm10 / asm20 — asm-to-ref ~0.1/1/5% divergence
-    ///   ava-ont / ava-pb — all-vs-all Nanopore / PacBio read overlap
-    ///   short / sr       — short reads vs reference
-    ///   splice / splice:hq — spliced long reads / accurate long reads
-    ///   splice:sr        — spliced short RNA-seq reads
-    ///   cdna             — cDNA / splice alias
+    /// Preset applied before other options. There is one: ONT genomic DNA, applied by default.
+    ///   dna              — ONT reads (R10.4.1 or R9.4.1) vs a reference genome (default)
+    ///   lr:hq / lr:hq-fast / map-ont / lr — accepted as aliases of dna
+    /// dna = minimap2 lr:hq seeding and scoring plus --ext-bw 200 --ext-adaptive 64 --ext-rescue
+    /// --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000
+    /// --seg-rmq --clean-dp --rescue-join --rescue-max-density 2 --gap-subanchor
     #[arg(short = 'x', long, verbatim_doc_comment)]
     pub preset: Option<String>,
 
@@ -334,37 +323,24 @@ struct AlignArgs {
     #[arg(long)]
     pub seg_rmq: bool,
 
-    /// Run the long-gap (RMQ) rescue re-chain only when two first-pass chains could be joined [on in lr:hq-fast]
+    /// Run the long-gap (RMQ) rescue re-chain only when two first-pass chains could be joined [on in dna]
     #[arg(long)]
     pub rescue_join: bool,
 
-    /// Asymmetric gap-fill bands: cover only the diagonals between the gap's ends (plus off-band
-    /// k-mer evidence) [on in lr:hq-turbo; faster, loses some SV support]
-    #[arg(long)]
-    pub gap_band_asym: bool,
-
-    /// Stable LSD radix sort for anchors (ties keep seed order; not minimap2's order) [on in lr:hq-turbo]
-    #[arg(long)]
-    pub stable_anchor_sort: bool,
-
-    /// With --rescue-join, re-chain only the joinable chains and keep the others [on in lr:hq-turbo]
-    #[arg(long)]
-    pub rescue_subset: bool,
-
-    /// Skip the long-join rescue for reads with >= INT anchors per query base (0 = never) [2 in lr:hq-fast, lr:hq-turbo]
+    /// Skip the long-join rescue for reads with >= INT anchors per query base (0 = never) [2 in dna]
     #[arg(long, value_name = "INT")]
     pub rescue_max_density: Option<u32>,
 
-    /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between) [on in lr:hq-fast, lr:hq-turbo]
+    /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between) [on in dna]
     #[arg(long)]
     pub gap_subanchor: bool,
 
     /// Keep 1/F of the query minimizers (by hash) for reads of at least MIN_LEN bp [default 8000]:
-    /// fewer anchors, much faster, loses some SV support (e.g. -x lr:hq-turbo --query-subsample 2)
+    /// fewer anchors, much faster, loses some SV support (e.g. --query-subsample 2)
     #[arg(long, value_name = "F[,MIN_LEN]")]
     pub query_subsample: Option<String>,
 
-    /// Turn off --rescue-join (e.g. to undo it in lr:hq-fast)
+    /// Turn off --rescue-join (e.g. to undo it in dna)
     #[arg(long, conflicts_with = "rescue_join")]
     pub no_rescue_join: bool,
 
@@ -659,9 +635,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     let mut is_hpc = cli.is_hpc;
     let mut opt = MapOptions::default();
 
-    if let Some(preset) = &cli.preset {
-        apply_preset(&mut opt, &mut k, &mut w, &mut is_hpc, preset)?;
-    }
+    apply_preset(&mut opt, &mut k, &mut w, &mut is_hpc, cli.preset.as_deref().unwrap_or("dna"))?;
 
     // CLI overrides (applied after preset)
     if let Some(vk) = cli.k { k = vk; }
@@ -736,9 +710,6 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if cli.seg_rmq { opt.chaining.seg_rmq = true; }
     if cli.rescue_join { opt.chaining.rescue_join = true; }
     if cli.no_rescue_join { opt.chaining.rescue_join = false; }
-    if cli.gap_band_asym { opt.alignment.gap_band_asym = true; }
-    if cli.stable_anchor_sort { opt.seeding.stable_anchor_sort = true; }
-    if cli.rescue_subset { opt.chaining.rescue_subset = true; }
     if let Some(d) = cli.rescue_max_density { opt.chaining.rescue_max_density = d; }
     if cli.gap_subanchor { opt.alignment.gap_subanchor = true; }
     if let Some(sv) = &cli.query_subsample {

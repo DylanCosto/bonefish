@@ -112,9 +112,6 @@ pub struct SeedingParams {
     /// Keep 1/f of the query minimizer hash space for reads of at least min_len bp
     /// (`--query-subsample f[,min_len]`): fewer anchors, faster, loses some SV support.
     pub query_subsample: Option<(u32, u32)>,
-    /// Sort anchors with a stable LSD radix sort (lr:hq-turbo): equal reference positions keep
-    /// their seed order instead of minimap2's in-place MSD order, so output is not minimap2's.
-    pub stable_anchor_sort: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -143,8 +140,6 @@ pub struct ChainingParams {
     /// Run the RMQ rescue re-chain only when two first-pass chains could be joined
     /// (collinear, same strand, gaps within the long-join distance and bandwidth).
     pub rescue_join: bool,
-    /// With rescue_join: re-chain only the chains in a joinable pair, keep the others (lr:hq-turbo).
-    pub rescue_subset: bool,
     /// Skip the RMQ long-join rescue for reads with at least this many anchors per query base
     /// (tandem-repeat/satellite reads; 0 = never skip).
     pub rescue_max_density: u32,
@@ -173,9 +168,7 @@ pub struct AlignmentParams {
     pub max_sw_mat: i64,
     pub min_dp_max: i32,
     pub min_dp_len: i32,
-    /// Asymmetric gap-fill bands (lr:hq-turbo; see `extend::gap_dual_asym`).
-    pub gap_band_asym: bool,
-    /// Sub-anchored fill of long gaps (lr:hq-turbo; see `extend::gap_subanchored`).
+    /// Sub-anchored fill of long gaps (see `extend::gap_subanchored`).
     pub gap_subanchor: bool,
     pub anchor_ext_len: i32,
     pub anchor_ext_shift: i32,
@@ -249,7 +242,6 @@ impl Default for MapOptions {
                 q_occ_frac: 0.01,
                 min_mid_occ: 10,
                 max_mid_occ: 1000000,
-                stable_anchor_sort: false,
                 query_subsample: None,
             },
             chaining: ChainingParams {
@@ -272,7 +264,6 @@ impl Default for MapOptions {
                 rmq_size_cap: 100000,
                 seg_rmq: false,
                 rescue_join: false,
-                rescue_subset: false,
                 rescue_max_density: 0,
             },
             scoring: ScoringParams {
@@ -295,7 +286,6 @@ impl Default for MapOptions {
                 max_sw_mat: 100_000_000,
                 min_dp_max: 80, // min_chain_score * a = 40 * 2
                 min_dp_len: 200,
-                gap_band_asym: false,
                 gap_subanchor: false,
                 anchor_ext_len: 20,
                 anchor_ext_shift: 6,
@@ -1466,43 +1456,14 @@ pub fn map_query(
                 || (coverage > (qlen as f32 * opt.chaining.rmq_rescue_ratio) as usize))
                 && crate::align::env_flags::EXP_RESCUE_COVER.is_none_or(|f| (coverage as f32) < f * qlen as f32)
                 && (opt.chaining.rescue_max_density == 0 || ctx.anchors.len() < opt.chaining.rescue_max_density as usize * qlen);
-            // Chains taking part in a joinable pair (computed when the join gate is on).
-            let mut members: Option<Vec<bool>> = None;
             let needs_rescue = needs_rescue && (!(opt.chaining.rescue_join || *crate::align::env_flags::EXP_RESCUE_JOIN) || {
                 let max_dist = opt.chaining.max_gap.max(opt.chaining.bandwidth_long);
-                let j = if opt.chaining.rescue_subset {
-                    members = joinable_members(&u, &chains, max_dist, opt.chaining.bandwidth_long);
-                    members.is_some()
-                } else {
-                    chains_joinable(&u, &chains, max_dist, opt.chaining.bandwidth_long)
-                };
+                let j = chains_joinable(&u, &chains, max_dist, opt.chaining.bandwidth_long);
                 if !j { PC_RESCUE_SKIP.fetch_add(1, Relaxed); }
                 j
             });
 
-            if needs_rescue && opt.chaining.rescue_subset && let Some(members) = members.as_ref() {
-                // lr:hq-turbo: re-chain only the chains that could be joined; keep the rest.
-                PC_RESCUE_COUNT.fetch_add(1, Relaxed);
-                let mut sub: Vec<Minimizer> = Vec::new();
-                let (mut u_keep, mut keep): (Vec<u64>, Vec<Minimizer>) = (Vec::new(), Vec::new());
-                let mut off = 0usize;
-                let mut ci = 0usize;
-                for &v in u.iter() {
-                    let n = (v & 0xFFFFFFFF) as usize;
-                    if n == 0 { continue; }
-                    if members[ci] { sub.extend_from_slice(&chains[off..off + n]); } else { u_keep.push(v); keep.extend_from_slice(&chains[off..off + n]); }
-                    off += n;
-                    ci += 1;
-                }
-                PC_RESCUE_ANCHORS.fetch_add(sub.len() as u64, Relaxed);
-                radix_sort_128x(&mut sub);
-                let rescue_params = ChainingParams { bandwidth: opt.chaining.bandwidth_long, ..opt.chaining.clone() };
-                let (mut u2, mut chains2) = chain_anchors_rmq(&rescue_params, &mut sub, &mut ctx.chain_bufs);
-                u2.extend_from_slice(&u_keep);
-                chains2.extend_from_slice(&keep);
-                u = u2;
-                chains = chains2;
-            } else if needs_rescue {
+            if needs_rescue {
                 PC_RESCUE_COUNT.fetch_add(1, Relaxed);
                 PC_RESCUE_ANCHORS.fetch_add(chains.len() as u64, Relaxed);
 
@@ -1957,12 +1918,6 @@ mod tests {
 /// both gaps within `max_dist` and the diagonal shift within `bw`.
 fn chains_joinable(u: &[u64], chains: &[Minimizer], max_dist: i32, bw: i32) -> bool {
     joinable_pairs(u, chains, max_dist, bw, true).is_some()
-}
-
-/// Per non-empty chain, whether it is in a joinable pair (as in `chains_joinable`); None if no
-/// pair is joinable.
-fn joinable_members(u: &[u64], chains: &[Minimizer], max_dist: i32, bw: i32) -> Option<Vec<bool>> {
-    joinable_pairs(u, chains, max_dist, bw, false)
 }
 
 /// Shared pair search: chains sorted by (reference/strand, start, chain index) so each chain is

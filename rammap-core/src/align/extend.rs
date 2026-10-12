@@ -1433,29 +1433,29 @@ pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 /// 15-mer that matches the target only off it; the result is kept unless it z-drops or its path
 /// comes within `EDGE` cells of the band edge (then the regular band `bw1`).
 #[allow(clippy::too_many_arguments)]
-/// Gap fill: `gap_dual`, or for long gaps with `subanchor` (lr:hq-turbo) the sub-anchored fill.
+/// Gap fill: `gap_dual`, or for long gaps with `subanchor` the sub-anchored fill.
 #[allow(clippy::too_many_arguments)]
 fn gap_fill(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
-            asym: bool, subanchor: bool, zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
+            subanchor: bool, zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
     let sub_min_len: usize = std::env::var("RAMMAP_SUB_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(800);
     if subanchor && qs.len().max(ts.len()) >= sub_min_len
-        && let Some(r) = gap_subanchored(qs, ts, mat, q, e, q2, e2, bw1, narrow.unwrap_or(32), asym, zdrop, end_bonus, flag) {
+        && let Some(r) = gap_subanchored(qs, ts, mat, q, e, q2, e2, bw1, narrow.unwrap_or(32), zdrop, end_bonus, flag) {
         GAP_SUB_USED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         *ez = r;
         return;
     }
-    gap_dual(qs, ts, mat, q, e, q2, e2, bw1, narrow, asym, zdrop, end_bonus, flag, ez);
+    gap_dual(qs, ts, mat, q, e, q2, e2, bw1, narrow, zdrop, end_bonus, flag, ez);
 }
 
 pub static GAP_SUB_USED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-/// Sub-anchored fill of a long gap (lr:hq-turbo): exact 15-mer matches unique in both sides
+/// Sub-anchored fill of a long gap: exact 15-mer matches unique in both sides
 /// are chained collinearly (longest increasing subsequence), merged into exact segments, and
 /// only the pieces between segments are aligned (narrow bands). Turns one wide-band DP over
 /// kilobases into a few small ones; None if there is too little to anchor on.
 #[allow(clippy::too_many_arguments)]
 fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, m: i32,
-                   asym: bool, zdrop: i32, end_bonus: i32, flag: i32) -> Option<DpResult> {
+                   zdrop: i32, end_bonus: i32, flag: i32) -> Option<DpResult> {
     const K: usize = 15;
     const MIN_SEG: usize = 20;
     if qs.len() < K || ts.len() < K { return None; }
@@ -1542,7 +1542,7 @@ fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
         let bw = bw1.min(d + 300).max(64);
         let narrow = if 2 * (d + m) < (ql.min(tl) as i32) { Some(m) } else { None };
         let mut ez = DpResult::default();
-        gap_dual(&qs[q0..q1], &ts[t0..t1], mat, q, e, q2, e2, bw, narrow, asym, zdrop, end_bonus, flag, &mut ez);
+        gap_dual(&qs[q0..q1], &ts[t0..t1], mat, q, e, q2, e2, bw, narrow, zdrop, end_bonus, flag, &mut ez);
         if ez.zdropped != 0 || ez.cigar.is_empty() { return false; }
         append_cigar(cigar, &ez.cigar);
         *score += ez.score;
@@ -1562,16 +1562,12 @@ fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
 }
 
 fn gap_dual(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
-            asym: bool, zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
+            zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
     use std::sync::atomic::Ordering::Relaxed;
     const EDGE: i32 = 8;
     if let Some(m) = narrow {
         let mut nb = (ts.len() as i32 - qs.len() as i32).abs() + m;
         let evidence = offband_only_kmers(qs, ts, nb - EDGE);
-        if asym {
-            gap_dual_asym(qs, ts, mat, q, e, q2, e2, bw1, m, evidence, zdrop, end_bonus, flag, ez);
-            return;
-        }
         // Largest |diagonal| of the evidence bins, rounded out to the 16-wide bin.
         let need = evidence.map_or(0, |(lo, hi)| (hi + 1).max(16 - lo));
         if need > 0 {
@@ -1599,56 +1595,6 @@ fn gap_dual(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1:
         if need > 0 { GAP_NARROW_WIDENED.fetch_add(1, Relaxed); }
     }
     dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, bw1, zdrop, end_bonus, flag, ez);
-}
-
-/// Gap fill with an asymmetric static band (`--gap-band-asym`, lr:hq-turbo): the diagonals
-/// spanned by 0, D = tlen - qlen and any off-band k-mer evidence, plus the margin `m`, instead of
-/// a symmetric band around |D|. A path clear of the band's edges is taken; otherwise the band is
-/// retried 3x as wide, then the full band. Fewer cells than `gap_dual`'s symmetric bands, but a
-/// breakpoint path that first steps to the other side (e.g. 86D 1702I 89D) can be replaced by a
-/// worse in-band one, which loses some SV support.
-#[allow(clippy::too_many_arguments)]
-fn gap_dual_asym(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, m: i32,
-                 evidence: Option<(i32, i32)>, zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
-    use std::sync::atomic::Ordering::Relaxed;
-    const EDGE: i32 = 8;
-    let d = ts.len() as i32 - qs.len() as i32;
-    let (klo, khi) = evidence.unwrap_or((0, 0));
-    if evidence.is_some() { GAP_NARROW_WIDENED.fetch_add(1, Relaxed); }
-    let mut lo = (d.min(0).min(klo) - m).max(-bw1);
-    let mut hi = (d.max(0).max(khi) + m).min(bw1);
-    while hi - lo < 2 * bw1 {
-        dp::extend_dual_affine_diag_range(qs, ts, 5, mat, q, e, q2, e2, lo, hi, zdrop, end_bonus, flag, ez);
-        if ez.zdropped == 0 && !ez.cigar.is_empty() {
-            let (dmin, dmax) = path_diag_range(&ez.cigar);
-            if (dmin > lo + EDGE || lo == -bw1) && (dmax < hi - EDGE || hi == bw1) {
-                GAP_NARROW_USED.fetch_add(1, Relaxed);
-                return;
-            }
-        }
-        *ez = DpResult::default();
-        let w = hi - lo;
-        (lo, hi) = ((lo - w).max(-bw1), (hi + w).min(bw1));
-    }
-    GAP_NARROW_EDGE.fetch_add(1, Relaxed);
-    dp::extend_dual_affine_dispatch(qs, ts, 5, mat, q, e, q2, e2, bw1, zdrop, end_bonus, flag, ez);
-}
-
-/// Lowest and highest diagonal (target_pos - query_pos) along a CIGAR path (ops len<<4|op;
-/// 0 M, 1 I, 2 D).
-fn path_diag_range(cigar: &[u32]) -> (i32, i32) {
-    let (mut d, mut lo, mut hi) = (0i32, 0i32, 0i32);
-    for &c in cigar {
-        let len = (c >> 4) as i32;
-        match c & 0xf {
-            1 => { d -= len; }
-            2 | 3 => { d += len; }
-            _ => {}
-        }
-        lo = lo.min(d);
-        hi = hi.max(d);
-    }
-    (lo, hi)
 }
 
 /// Largest |target_pos - query_pos| along a CIGAR path (ops len<<4|op; 0 M, 1 I, 2 D).
@@ -2303,7 +2249,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_band_asym, opt.alignment.gap_subanchor, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_subanchor, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                     }
                     // Z-drop test applies to both paths
@@ -2336,7 +2282,7 @@ pub fn align_anchors(
                         } else if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_band_asym, opt.alignment.gap_subanchor, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_subanchor, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                         #[cfg(feature = "census")]
                         dp::census::finish(census_t0, dp::census::Kind::Gap, q_sub, t_sub,

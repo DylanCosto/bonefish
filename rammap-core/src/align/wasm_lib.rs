@@ -64,10 +64,9 @@ const INDEX_MAX_OCC: usize = 50_000;
 /// was actually applied.
 ///
 /// Delegates to the canonical native preset table (`api::apply_preset_str`) so
-/// the wasm build supports the exact same preset set as the CLI and library —
-/// including the HPC presets (`map-pb`/`ava-pb`) and every alias. An
-/// unrecognized name resets and falls back to `map-ont`, so the wasm entry
-/// points never fail on a bad preset string.
+/// the wasm build supports the exact same preset set as the CLI and library. An
+/// unrecognized name resets and falls back to `dna`, so the wasm entry points
+/// never fail on a bad preset string.
 fn apply_preset_wasm<'a>(
     opt: &mut MapOptions,
     k: &mut usize,
@@ -81,9 +80,9 @@ fn apply_preset_wasm<'a>(
     // A rejected preset may have left `opt` partly modified.
     *opt = MapOptions::default();
     *k = 15; *w = 10; *is_hpc = false;
-    crate::api::apply_preset_str(opt, k, w, is_hpc, "map-ont")
-        .expect("map-ont is a valid preset");
-    "map-ont"
+    crate::api::apply_preset_str(opt, k, w, is_hpc, "dna")
+        .expect("dna is a valid preset");
+    "dna"
 }
 
 /// Fill in the option values derived from the built index.
