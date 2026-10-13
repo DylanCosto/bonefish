@@ -1,0 +1,40 @@
+{
+  "body": "Port the clean dual-affine DP kernel to a shared 16-lane implementation for ARM64 NEON and x86 SSE4.1. Static, adaptive and shifted-band dispatch now lets these backends follow the existing clean AVX2 semantics rather than the legacy rounded-band fallback.\n\n- Shared byte-vector operations and kernel logic for NEON/SSE4.1.\n- SSE4.1 selection on x86 without AVX2; `BONEFISH_FORCE_SSE=1` permits comparisons on AVX2 machines.\n- 3,000 deterministic DP cases, scalar static-band comparisons, SSE4.1/AVX2 comparisons, and a common result/CIGAR digest across native platforms.\n\n## Tested head and native validation\n\nTested exact head: `c1b7eb074b49806a86bbd0e48c617957ac436618`, against main `e8034d93ad7d7d213979147d648baaf98623117c`. No branch source edits or commits were made during testing.\n\n- **Native CI passed on x86 Linux, ARM Linux and Apple Silicon**: [run 38478508116](https://github.com/DylanCosto/bonefish/actions/runs/38478508116). The SSE4.1/AVX2 comparisons and shared 3,000-case DP digest passed.\n- Local M4 Pro: **142 Rust tests passed** (131 core, 5 integration, 6 doctests); three existing benchmarks ignored. **13 Python checks** and the existing evidence consistency checks passed.\n- Existing end-to-end SAM/PAF variants, raw-index equivalence, BAM/FASTQ/BGZF input and native sorted-BAM fixture checks passed.\n\n## Paired nominal-1x HG002 ONT WGS\n\nSame 86,553 reads / 3,088,602,282 sequenced bases, complete GRCh38 no-alt reference, compiler/profile/features, eight threads and SAM destination filesystem. Input is the existing equal-base file-order prefixes of four public HG002 R10.4.1 ultra-long source runs, Dorado 0.4.0 SUP 4.1.0; it is not a uniform random sample.\n\nGeneric ARM64 release, rustc 1.98.1, jemalloc, opt-level 3, fat LTO, one codegen unit; no native CPU tuning flags. Timer includes fresh FASTA-built index, mapping and SAM writing. FASTQ and SAM are on the **internal APFS SSD**; reference is on the external SSD for both builds. Input hashing/inventory and all output checks occur outside timing.\n\n| Build | Trials | Mean elapsed | Range |\n|---|---:|---:|---:|\n| Current main / older ARM DP | 3 | 146.492 s | 132.658-170.340 s |\n| neon-clean-dp | 3 | 121.805 s | 115.940-130.570 s |\n\nObserved mean elapsed reduction: **16.85%** (1.203x throughput ratio). Summed worker alignment duration fell **25.20%** and retired instructions **22.40%**. Worker durations are wall-time sums across reads, not exact CPU shares. Trial order was control-1, candidate-1, candidate-2, control-2, control-3, candidate-3. All trials are included. This is a small sample on one Mac under current memory/storage conditions, not a general performance guarantee or a comparison against the earlier day's 106.9-second mean.\n\n## Output checks and changes\n\nEvery run passed exact primary inventory and orientation-restored sequence/quality checks. Outputs were deterministic within each build. The complete first pair additionally passed CIGAR consumption/SEQ lengths, reference bounds and identical reference-header checks; its hashes match the repeats.\n\n- Both builds: **86,553 unique primaries; 77,376 mapped, 9,177 unmapped; no missing/extra input reads or mapping-status changes.**\n- Records: **132,946 -> 133,778** (832 additional non-primary records).\n- **3,538 reads have changed record multisets**, including **3,094 changed primary records**.\n- **124 both-mapped primary chromosome/strand placements changed**; 1,095 primary positions, 1,920 primary CIGARs and 682 primary MAPQs changed (categories overlap).\n\nNormalized SAM SHA256, excluding `@PG`:\n\n- Main on this Mac: `4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66`\n- Branch on this Mac: `48da0e7d35654db9f6d3d45c171def634802c6ae4830b25c1fe06af54ff288d8`\n\nDataset SHA256: `960490bd561a62a82551a729abd97ed5f8fb27a228287b44c9fb6378b65b8116`.\nReference SHA256: `3c8def6d325c5d1e934b2dd530c4d1709f027677a15859467071fddf3fff2026`.\nTested Mac executable SHA256: `40bfeb7053a0da22d1ce2a7709e77d441b9ca719afc684e949c38fd211109662`.\n\nThese results establish agreement on the shared native DP fixtures and structural preservation on real Mac data. **They do not preserve every older ARM alignment.** The branch replaces that legacy behavior with clean/adaptive semantics intended to match x86 AVX2. A full real-WGS x86/ARM replay and independent GIAB/variant-calling accuracy assessment remain separate checks; neither was performed here. The branch SAM hash above provides the expected result for a native replay with the exact recorded inputs/options.\n\nClean dispatch covers NEON and AVX2/SSE4.1 for supported non-generic dual-affine scoring. CPUs lacking both x86 features, and generic-scoring paths, retain legacy fallbacks.\n\nDetailed trial JSON/logs, changed-read summaries, output-comparison results and the tested Mac executable are retained locally under `outputs/bonefish-neon-clean-dp/`. The first full control/candidate SAM pair remains in internal scratch; later SAMs were discarded only after complete validation and recording their hashes. No large test data was pushed. This PR remains a draft for review; no merge was made.\n",
+  "headRefOid": "c1b7eb074b49806a86bbd0e48c617957ac436618",
+  "isDraft": true,
+  "state": "OPEN",
+  "statusCheckRollup": [
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-13T22:36:18Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/DylanCosto/bonefish/actions/runs/38478508116/job/115575056583",
+      "name": "test (ubuntu-24.04)",
+      "startedAt": "2026-10-13T22:32:49Z",
+      "status": "COMPLETED",
+      "workflowName": "ci"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-13T22:35:13Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/DylanCosto/bonefish/actions/runs/38478508116/job/115575056913",
+      "name": "test (ubuntu-24.04-arm)",
+      "startedAt": "2026-10-13T22:32:51Z",
+      "status": "COMPLETED",
+      "workflowName": "ci"
+    },
+    {
+      "__typename": "CheckRun",
+      "completedAt": "2026-10-13T22:34:05Z",
+      "conclusion": "SUCCESS",
+      "detailsUrl": "https://github.com/DylanCosto/bonefish/actions/runs/38478508116/job/115575056863",
+      "name": "test (macos-14)",
+      "startedAt": "2026-10-13T22:32:52Z",
+      "status": "COMPLETED",
+      "workflowName": "ci"
+    }
+  ],
+  "title": "Port clean dual-affine DP to NEON and SSE4.1",
+  "url": "https://github.com/DylanCosto/bonefish/pull/2"
+}

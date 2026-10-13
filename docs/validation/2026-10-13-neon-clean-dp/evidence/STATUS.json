@@ -1,0 +1,10 @@
+{
+  "stage": "complete",
+  "updated_at_utc": "2026-10-13T22:56:33.756408+00:00",
+  "completed_runs": 6,
+  "total_runs": 6,
+  "variant_sam_sha256": {
+    "control": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+    "candidate": "48da0e7d35654db9f6d3d45c171def634802c6ae4830b25c1fe06af54ff288d8"
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "run": "control-3",
+  "started_utc": "2026-10-13T22:50:50.165430+00:00",
+  "command": [
+    "${SESSION}/outputs/bonefish-masked-chaining/bonefish",
+    "-a",
+    "-t",
+    "8",
+    "${REFERENCE}",
+    "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+  ],
+  "binary_sha256": "1cb876c7cef4d1e3bebd433f9a6bfeea9e145669638687e89107a242004e669b",
+  "input_sha256": {
+    "${REFERENCE}": "3c8def6d325c5d1e934b2dd530c4d1709f027677a15859467071fddf3fff2026",
+    "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz": "960490bd561a62a82551a729abd97ed5f8fb27a228287b44c9fb6378b65b8116"
+  },
+  "returncode": 0,
+  "threads": 8,
+  "elapsed_seconds_including_index_and_sam": 136.47751691704616,
+  "census_instrumented": false,
+  "timing_scope": "Fresh FASTA-built index, mapping and SAM output. Input/output hashing and read validation are outside the timer.",
+  "warnings": [],
+  "peak_rss_bytes": 12697141248,
+  "instructions_retired": 10922226195672,
+  "peak_memory_footprint_bytes": 18169247592,
+  "worker_stage_sums_seconds": {
+    "Sequence Sketching": 34.555,
+    "Seeding (Lookup)": 322.439,
+    "Chaining": 128.918,
+    "Alignment (Ext)": 392.943,
+    "Post-chain": 87.398,
+    "Total Measured": 966.253
+  },
+  "sam_sha256_without_pg": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+  "records": 132946,
+  "primary": 86553,
+  "unique_primary_names": 86553,
+  "mapped_primary": 77376,
+  "missing_primary_names": 0,
+  "unexpected_primary_names": 0,
+  "input_sequences_and_qualities_preserved": true,
+  "same_as_original_release_sam": true,
+  "all_checks_passed": true
+}

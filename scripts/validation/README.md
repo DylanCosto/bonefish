@@ -7,6 +7,11 @@ archived numbers are historical measurements, not timings of the Python fixture
 checks. Requirements: Python 3.10+, Rust, samtools (tested 1.23.1), and BSD/GNU
 `/usr/bin/time`. The source streamer needs samtools built with HTTPS support.
 
+The separate [clean NEON/SSE4.1 DP report](../../docs/validation/2026-10-13-neon-clean-dp/README.md)
+records the exact main/candidate commits, paired 1× inputs, all six trials and
+output differences. It reuses the portable SAM runner below. Full WGS x86/ARM
+equality and independent accuracy are not established by those receipts.
+
 Run from the repository root. Keep generated reads/BAMs/traces and runner
 directories outside Git. Do not run the validation scripts with `python -O`:
 their assertions check malformed input and receipt consistency.
@@ -18,6 +23,7 @@ CARGO_PROFILE_RELEASE_STRIP=true cargo build --release --locked --features jemal
 CARGO_PROFILE_RELEASE_STRIP=true cargo test --release --locked --features jemalloc
 python3 -B -m unittest discover -s scripts/validation -p 'test_*.py'
 python3 -B scripts/validation/verify_evidence.py
+python3 -B scripts/validation/verify_clean_dp_evidence.py
 ```
 
 The existing CI matrix runs the Rust tests, Python fixture checks and receipt
@@ -25,6 +31,11 @@ checker on x86 Linux, ARM Linux and Apple Silicon. It does not acquire/run human
 WGS or prove native WGS output equality. The receipt checker hashes the imported
 evidence and recomputes the final trial aggregates; it does not have access to
 the external raw data.
+
+The clean-DP checker additionally verifies the six new trial aggregates, native
+CI snapshot identity, and the compressed changed-read evidence. The snapshot
+refers to the measured implementation commit; later documentation commits do not
+change that identity.
 
 For the original control, build base
 `2061243d0010e2895453a170c988ee54b37e7930` in a separate checkout with the same

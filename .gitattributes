@@ -2,3 +2,5 @@
 docs/validation/**/evidence/** linguist-generated=true
 # Unified-diff context lines contain a required space even on empty source lines.
 docs/validation/**/evidence/**/*.patch whitespace=-blank-at-eol
+# Preserve the timestamped CI log bytes, including trailing spaces on empty messages.
+docs/validation/2026-10-13-neon-clean-dp/evidence/native-ci.log whitespace=-blank-at-eol
