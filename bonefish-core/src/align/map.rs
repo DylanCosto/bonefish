@@ -304,6 +304,8 @@ pub struct ChainingBuffers {
     pub soa_query_span: Vec<i32>,
     pub soa_ref_id_strand: Vec<u32>,
     pub soa_scores_buf: Vec<i32>,
+    /// ref_pos - query_pos per anchor (wrapping), for the one-load diagonal band test.
+    pub soa_diag: Vec<i32>,
     /// Diagonal buckets for the DP chaining scan (see `chain_simd::DiagBuckets`).
     pub diag_buckets: crate::align::chain_simd::DiagBuckets,
 }
@@ -327,6 +329,7 @@ impl ChainingBuffers {
             soa_query_span: Vec::new(),
             soa_ref_id_strand: Vec::new(),
             soa_scores_buf: Vec::new(),
+            soa_diag: Vec::new(),
             diag_buckets: Default::default(),
         }
     }

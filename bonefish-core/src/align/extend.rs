@@ -492,6 +492,34 @@ fn test_zdrop(
     let min_dp_max = opt.alignment.min_dp_max;
     let a = opt.scoring.match_score;
     let flags = opt.flags;
+
+    // Exact early out: every drop below the running maximum is paid for by penalties on the
+    // path after it, so max_zdrop <= the path's total penalty. If even an upper bound of that
+    // (mismatched or ambiguous bases x the largest mismatch penalty, plus the gap costs) is at
+    // most both thresholds, neither the z-drop nor the inversion test can fire.
+    let lim = zdrop.min(zdrop_inv);
+    if lim >= 0 {
+        let max_pen = mat.iter().map(|&v| -(v as i32)).max().unwrap_or(0).max(0) as i64;
+        let (mut ti, mut qi) = (0usize, 0usize);
+        let mut neg: i64 = 0;
+        for &c in cigar {
+            let op = c & 0xf;
+            let len = (c >> 4) as usize;
+            if op == 0 {
+                let n = len.min(tseq.len().saturating_sub(ti)).min(qseq.len().saturating_sub(qi));
+                let mm = tseq[ti..ti + n].iter().zip(&qseq[qi..qi + n]).filter(|&(&t, &q)| (t != q) | (t > 3) | (q > 3)).count();
+                neg += mm as i64 * max_pen;
+                ti += len;
+                qi += len;
+            } else if op == 1 || op == 2 || op == 3 {
+                neg += (q_gap + e_gap * len as i32) as i64;
+                if op == 1 { qi += len; } else { ti += len; }
+            }
+            if neg > lim as i64 { break; }
+        }
+        if neg <= lim as i64 { return 0; }
+    }
+
     let mut score: i32 = 0;
     let mut max: i32 = i32::MIN;
     let mut max_i: i32 = -1;
@@ -1189,7 +1217,7 @@ pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 #[allow(clippy::too_many_arguments)]
 fn gap_fill(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
             subanchor: bool, zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
-    let sub_min_len: usize = std::env::var("BONEFISH_SUB_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(800);
+    let sub_min_len = *crate::align::env_flags::SUB_MIN;
     if subanchor && qs.len().max(ts.len()) >= sub_min_len
         && let Some(r) = gap_subanchored(qs, ts, mat, q, e, q2, e2, bw1, narrow.unwrap_or(32), zdrop, end_bonus, flag) {
         GAP_SUB_USED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);

@@ -301,6 +301,92 @@ impl DiagBuckets {
     }
 }
 
+/// `compute_chain_scores_batch_avx2` for one scan chunk of at most 64 candidates `[start, end)`,
+/// returning a bitmask of the valid ones (bit b: candidate start + b; exactly the candidates
+/// whose score is not i32::MIN). Most groups are off the diagonal band, so the band test comes
+/// first, from the precomputed diagonals (ref - query): |diag_i - diag_j| (wrapping) is the batch
+/// kernel's |ref_diff - query_diff|, and a group where every lane exceeds `bw` costs one load and
+/// writes nothing. Scores are written only for groups with a candidate lane; others must not be
+/// read.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[allow(clippy::too_many_arguments)]
+unsafe fn chain_scores_masked_avx2(
+    qi: i32, ri: i32, rid_strand_i: u32, diag_i: i32,
+    soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32], soa_rid_strand: &[u32], soa_diag: &[i32],
+    max_dist_x: i32, max_dist_y: i32, bw: i32, chn_pen_gap: f32, chn_pen_skip: f32,
+    sc_buf: &mut [i32], start: usize, end: usize,
+) -> u64 { unsafe {
+    debug_assert!(end - start <= 64);
+    let diag_i_v = _mm256_set1_epi32(diag_i);
+    let qi_v = _mm256_set1_epi32(qi);
+    let ri_v = _mm256_set1_epi32(ri);
+    let rid_i_v = _mm256_set1_epi32(rid_strand_i as i32);
+    let max_dx_v = _mm256_set1_epi32(max_dist_x);
+    let max_dy_v = _mm256_set1_epi32(max_dist_y);
+    let bw_v = _mm256_set1_epi32(bw);
+    let zero_v = _mm256_setzero_si256();
+    let one_v = _mm256_set1_epi32(1);
+    let min_val_v = _mm256_set1_epi32(i32::MIN);
+    let pen_gap_v = _mm256_set1_ps(chn_pen_gap);
+    let pen_skip_v = _mm256_set1_ps(chn_pen_skip);
+    let half_v = _mm256_set1_ps(0.5f32);
+    let mut mask = 0u64;
+    let aligned_end = start + ((end - start) / 8) * 8;
+    let mut j = start;
+    while j < aligned_end {
+        let dj = _mm256_loadu_si256(soa_diag.as_ptr().add(j) as *const __m256i);
+        // Same signed test as the batch kernel (abs(i32::MIN) stays negative: not "too wide").
+        let gap_w = _mm256_abs_epi32(_mm256_sub_epi32(diag_i_v, dj));
+        let gw_gt_bw = _mm256_cmpgt_epi32(gap_w, bw_v);
+        if _mm256_movemask_epi8(gw_gt_bw) == -1 {
+            j += 8;
+            continue;
+        }
+        let qj_v = _mm256_loadu_si256(soa_query_pos.as_ptr().add(j) as *const __m256i);
+        let rj_v = _mm256_loadu_si256(soa_ref_pos.as_ptr().add(j) as *const __m256i);
+        let span_v = _mm256_loadu_si256(soa_query_span.as_ptr().add(j) as *const __m256i);
+        let rid_j_v = _mm256_loadu_si256(soa_rid_strand.as_ptr().add(j) as *const __m256i);
+        let qdiff = _mm256_sub_epi32(qi_v, qj_v);
+        let rdiff = _mm256_sub_epi32(ri_v, rj_v);
+        let mut valid = _mm256_cmpgt_epi32(qdiff, zero_v);
+        valid = _mm256_andnot_si256(_mm256_cmpgt_epi32(qdiff, max_dx_v), valid);
+        valid = _mm256_and_si256(valid, _mm256_cmpeq_epi32(rid_i_v, rid_j_v));
+        valid = _mm256_andnot_si256(_mm256_cmpeq_epi32(rdiff, zero_v), valid);
+        valid = _mm256_andnot_si256(_mm256_cmpgt_epi32(qdiff, max_dy_v), valid);
+        valid = _mm256_andnot_si256(gw_gt_bw, valid);
+        let vm = _mm256_movemask_ps(_mm256_castsi256_ps(valid)) as u32;
+        if vm == 0 {
+            j += 8;
+            continue;
+        }
+        let min_diff = _mm256_min_epi32(rdiff, qdiff);
+        let mut score = _mm256_min_epi32(span_v, min_diff);
+        let gw_gt_zero = _mm256_cmpgt_epi32(gap_w, zero_v);
+        let md_gt_span = _mm256_cmpgt_epi32(min_diff, span_v);
+        let needs_pen = _mm256_or_si256(gw_gt_zero, md_gt_span);
+        let lin_pen = _mm256_add_ps(_mm256_mul_ps(pen_gap_v, _mm256_cvtepi32_ps(gap_w)),
+                                    _mm256_mul_ps(pen_skip_v, _mm256_cvtepi32_ps(min_diff)));
+        let log2_val = simd_fast_log2_avx2(_mm256_cvtepi32_ps(_mm256_add_epi32(gap_w, one_v)));
+        let log_pen = _mm256_and_ps(_mm256_castsi256_ps(gw_gt_zero), log2_val);
+        let total_pen = _mm256_add_ps(lin_pen, _mm256_mul_ps(half_v, log_pen));
+        let pen_i32 = _mm256_cvttps_epi32(total_pen);
+        score = _mm256_sub_epi32(score, _mm256_and_si256(needs_pen, pen_i32));
+        score = _mm256_blendv_epi8(min_val_v, score, valid);
+        _mm256_storeu_si256(sc_buf.as_mut_ptr().add(j) as *mut __m256i, score);
+        mask |= (vm as u64) << (j - start);
+        j += 8;
+    }
+    if j < end {
+        compute_chain_scores_batch_avx2(qi, ri, rid_strand_i, soa_ref_pos, soa_query_pos, soa_query_span, soa_rid_strand,
+            max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip, sc_buf, j, end);
+        for k in j..end {
+            if sc_buf[k] != i32::MIN { mask |= 1u64 << (k - start); }
+        }
+    }
+    mask
+}}
+
 /// AVX2 SIMD-optimized chaining.
 /// Phase 1: Batch-compute scores with SIMD. Phase 2: Scalar skip/visited logic.
 /// Produces bit-exact output matching `chain_anchors_scalar`.
@@ -337,6 +423,8 @@ pub(crate) unsafe fn chain_anchors_avx2(
     let mut soa_query_span = std::mem::take(&mut ctx.soa_query_span);
     let mut soa_rid_strand = std::mem::take(&mut ctx.soa_ref_id_strand);
     let mut soa_sc_buf = std::mem::take(&mut ctx.soa_scores_buf);
+    let mut soa_diag = std::mem::take(&mut ctx.soa_diag);
+    soa_diag.resize(n, 0);
 
     soa_ref_pos.resize(n, 0);
     soa_query_pos.resize(n, 0);
@@ -349,6 +437,7 @@ pub(crate) unsafe fn chain_anchors_avx2(
         soa_query_pos[j] = a[j].query_pos();
         soa_query_span[j] = a[j].query_span();
         soa_rid_strand[j] = (a[j].x >> 32) as u32;
+        soa_diag[j] = soa_ref_pos[j].wrapping_sub(soa_query_pos[j]);
     }
 
     // --- DP buffers ---
@@ -505,32 +594,17 @@ pub(crate) unsafe fn chain_anchors_avx2(
                 let chunk_start = if chunk_end >= window_start + csize { chunk_end - csize } else { window_start };
                 csize = CHUNK_SIZE;
 
-                compute_chain_scores_batch_avx2(
-                    soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
-                    &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
+                // Bit b set: candidate chunk_start + b scored (invalid ones, mostly off the band,
+                // are no-ops below), so only those are visited, in the same descending order.
+                let mut valid = chain_scores_masked_avx2(
+                    soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i], soa_diag[i],
+                    &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand, &soa_diag,
                     max_dist_x, max_dist_y, bw,
                     opt.chn_pen_gap, opt.chn_pen_skip,
                     &mut soa_sc_buf, chunk_start, chunk_end,
                 );
-
                 // SAFETY: j < i < n and predecessors[j] < j, all within the n-sized buffers.
                 let (scb, scr, vis, pre) = (soa_sc_buf.as_ptr(), scores.as_ptr(), visited.as_mut_ptr(), predecessors.as_ptr());
-                // Bit b set: candidate chunk_start + b scored (invalid ones, mostly off the band,
-                // are no-ops below), so only those are visited, in the same descending order.
-                let len = chunk_end - chunk_start;
-                let min_v = _mm256_set1_epi32(i32::MIN);
-                let mut valid: u64 = 0;
-                let mut g = 0usize;
-                while g + 8 <= len {
-                    let v = _mm256_loadu_si256(scb.add(chunk_start + g) as *const __m256i);
-                    let inval = _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(v, min_v))) as u32;
-                    valid |= ((!inval & 0xff) as u64) << g;
-                    g += 8;
-                }
-                while g < len {
-                    if *scb.add(chunk_start + g) != i32::MIN { valid |= 1u64 << g; }
-                    g += 1;
-                }
                 while valid != 0 {
                     let b = 63 - valid.leading_zeros() as usize;
                     valid &= !(1u64 << b);
@@ -620,6 +694,7 @@ pub(crate) unsafe fn chain_anchors_avx2(
         ctx.soa_query_span = soa_query_span;
         ctx.soa_ref_id_strand = soa_rid_strand;
         ctx.soa_scores_buf = soa_sc_buf;
+        ctx.soa_diag = soa_diag;
         return (Vec::new(), Vec::new());
     }
 
@@ -672,6 +747,7 @@ pub(crate) unsafe fn chain_anchors_avx2(
     ctx.soa_query_span = soa_query_span;
     ctx.soa_ref_id_strand = soa_rid_strand;
     ctx.soa_scores_buf = soa_sc_buf;
+    ctx.soa_diag = soa_diag;
 
     (u2, b2)
 }}

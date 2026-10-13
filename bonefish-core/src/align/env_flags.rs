@@ -12,6 +12,9 @@ fn flag(name: &'static str) -> bool {
 }
 
 pub static FORCE_SCALAR: LazyLock<bool> = LazyLock::new(|| flag("BONEFISH_FORCE_SCALAR"));
+/// Minimum gap length for the sub-anchored gap fill (BONEFISH_SUB_MIN, default 800).
+pub static SUB_MIN: LazyLock<usize> =
+    LazyLock::new(|| std::env::var("BONEFISH_SUB_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(800));
 #[cfg(target_arch = "x86_64")]
 pub static FORCE_SSE: LazyLock<bool> = LazyLock::new(|| flag("BONEFISH_FORCE_SSE"));
 #[cfg(target_arch = "x86_64")]
