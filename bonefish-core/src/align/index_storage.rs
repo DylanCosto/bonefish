@@ -34,6 +34,23 @@ impl<T: Copy + 'static> Storage<T> {
     }
 }
 
+impl<T: Copy + 'static> Storage<T> {
+    /// A copy in anonymous memory advised for transparent huge pages (fewer TLB misses on
+    /// random lookups). Linux only; elsewhere a plain copy.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn to_huge_pages(&self) -> std::io::Result<Self> {
+        let bytes = std::mem::size_of_val(&self[..]);
+        if bytes == 0 { return Ok(Storage::Owned(Vec::new())); }
+        let mut m = memmap2::MmapMut::map_anon(bytes)?;
+        #[cfg(target_os = "linux")]
+        let _ = m.advise(memmap2::Advice::HugePage);
+        // SAFETY: plain-old-data copy into a fresh mapping of exactly `bytes` bytes.
+        unsafe { std::ptr::copy_nonoverlapping(self.as_ptr() as *const u8, m.as_mut_ptr(), bytes); }
+        let map = std::sync::Arc::new(m.make_read_only()?);
+        Ok(Storage::Mapped { map, off: 0, len: self.len(), _t: PhantomData })
+    }
+}
+
 impl<T: Copy + 'static> Deref for Storage<T> {
     type Target = [T];
     #[inline]

@@ -479,6 +479,15 @@ impl Index {
     /// cache: nothing is copied or rebuilt, and pages are faulted in as lookups touch them.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn load_raw_parts(path: &str) -> io::Result<Vec<Self>> {
+        Self::load_raw_parts_with(path, false)
+    }
+
+    /// As [`load_raw_parts`](Self::load_raw_parts); with `huge_pages`, the hash-table slots and
+    /// positions are copied into anonymous memory advised for transparent huge pages, which cuts
+    /// TLB misses on the random seed lookups (~1% less CPU on a genome-wide run) at the cost of
+    /// that memory (~6.5 GB for a human index) and a few seconds of copying.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn load_raw_parts_with(path: &str, huge_pages: bool) -> io::Result<Vec<Self>> {
         use super::index_storage::Storage;
         let bad = |m: String| io::Error::new(io::ErrorKind::InvalidData, format!("{}: {}", path, m));
         let f = File::open(path).map_err(|e| io::Error::new(e.kind(), format!("Failed to open index '{}': {}", path, e)))?;
@@ -513,9 +522,12 @@ impl Index {
             let (so, sn) = sec(1, 16)?;
             let (po, pn) = sec(2, 8)?;
             let (qo, qn) = sec(3, 4)?;
+            let (mut hs, mut ss, mut ps) = (Storage::mapped(map.clone(), ho, hn), Storage::mapped(map.clone(), so, sn), Storage::mapped(map.clone(), po, pn));
+            if huge_pages {
+                hs = hs.to_huge_pages()?; ss = ss.to_huge_pages()?; ps = ps.to_huge_pages()?;
+            }
             let lookup = super::index_bucket::BucketHashLookup::from_raw_parts(
-                hdr.bucket_bits, Storage::mapped(map.clone(), ho, hn), Storage::mapped(map.clone(), so, sn),
-                Storage::mapped(map.clone(), po, pn), Some(hdr.count_hist)).map_err(bad)?;
+                hdr.bucket_bits, hs, ss, ps, Some(hdr.count_hist)).map_err(bad)?;
             parts.push(Index {
                 kmer_size: hdr.kmer_size,
                 window_size: hdr.window_size,

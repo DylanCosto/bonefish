@@ -425,6 +425,11 @@ struct AlignArgs {
     #[arg(long)]
     pub idx_no_seq: bool,
 
+    /// Raw index: copy the seed hash table into transparent huge pages (Linux). About 1% less
+    /// CPU from fewer TLB misses, for ~6.5 GB more memory (human) and a few seconds of loading.
+    #[arg(long)]
+    pub hugepages: bool,
+
     /// Write the -d index in the raw format, which loads by memory-mapping (near-instant).
     /// With a pre-built index as the target, -d converts it.
     #[arg(long)]
@@ -801,7 +806,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
         // other formats are deserialized one part at a time.
         #[cfg(not(target_arch = "wasm32"))]
         let mut mapped_parts: Option<std::collections::VecDeque<Index>> = if Index::sniff_is_raw_index(target_path) {
-            Some(Index::load_raw_parts(target_path)
+            Some(Index::load_raw_parts_with(target_path, cli.hugepages)
                 .map_err(|e| anyhow::anyhow!("Error loading index: {}", e))?.into())
         } else {
             None
