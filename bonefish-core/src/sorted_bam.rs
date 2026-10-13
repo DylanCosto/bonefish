@@ -276,9 +276,25 @@ fn sort_key(tid: i32, pos: i32, flag: u16) -> u64 {
     ((tid as u32 as u64) << 32) | (((pos as i64 + 1) as u64 & 0x7fff_ffff) << 1) | ((flag >> 4) & 1) as u64
 }
 
+/// Tab-separated fields of a SAM line (as `line.split(|&b| b == b'\t')`).
+struct TabFields<'a> { rest: Option<&'a [u8]> }
+
+impl<'a> Iterator for TabFields<'a> {
+    type Item = &'a [u8];
+    #[inline]
+    fn next(&mut self) -> Option<&'a [u8]> {
+        let r = self.rest?;
+        match memchr::memchr(b'\t', r) {
+            Some(i) => { self.rest = Some(&r[i + 1..]); Some(&r[..i]) }
+            None => { self.rest = None; Some(r) }
+        }
+    }
+}
+
 /// Append one SAM line as a BAM record (with block_size) to `out`; returns its sort key.
 fn encode_record(line: &[u8], name2tid: &HashMap<Vec<u8>, i32>, out: &mut Vec<u8>, cig: &mut Vec<u32>) -> io::Result<u64> {
-    let mut f = line.split(|&b| b == b'\t');
+    // Fields split with memchr (SIMD) rather than a per-byte closure over the long SEQ/QUAL.
+    let mut f = TabFields { rest: Some(line) };
     let mut next = || f.next().ok_or_else(|| bad("SAM line with fewer than 11 fields"));
     let qname = next()?;
     let flag = parse_i64(next()?)? as u16;
@@ -338,11 +354,11 @@ fn encode_record(line: &[u8], name2tid: &HashMap<Vec<u8>, i32>, out: &mut Vec<u8
         for &c in cig.iter() { out.extend_from_slice(&c.to_le_bytes()); }
     }
     if l_seq > 0 {
-        for pair in seq.chunks(2) {
-            let hi = SEQ_NT16[pair[0] as usize];
-            let lo = if pair.len() > 1 { SEQ_NT16[pair[1] as usize] } else { 0 };
-            out.push(hi << 4 | lo);
-        }
+        out.reserve(l_seq.div_ceil(2) + l_seq);
+        let pairs = seq.chunks_exact(2);
+        let odd = pairs.remainder();
+        out.extend(pairs.map(|p| SEQ_NT16[p[0] as usize] << 4 | SEQ_NT16[p[1] as usize]));
+        if let [b] = odd { out.push(SEQ_NT16[*b as usize] << 4); }
         if qual == b"*" {
             out.extend(std::iter::repeat_n(0xffu8, l_seq));
         } else {
