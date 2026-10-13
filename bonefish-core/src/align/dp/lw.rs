@@ -94,6 +94,99 @@ pub fn lightweight_align_i16(qp: &mut LightweightProfile, target_len: i32, targe
     lightweight_align_i16_scalar(qp, target_len, target, gap_open, gap_extend)
 }
 
+/// Best local alignment score of `query` against `target` (the score of
+/// [`lightweight_align_i16`], without the end positions). Used by the z-drop inversion check,
+/// which needs only the score: with AVX2 it runs 16 lanes and skips the per-row copy of the
+/// best row. The score is independent of the SIMD width: padding cells past the query end never
+/// exceed a real cell and never feed one, and the lazy-F corrections never raise a row maximum.
+pub fn lightweight_score(query: &[u8], target: &[u8], score_matrix: &[i8], gap_open: i32, gap_extend: i32) -> i32 {
+    #[cfg(target_arch = "x86_64")]
+    if !query.is_empty() && !target.is_empty() && std::is_x86_feature_detected!("avx2") {
+        return unsafe { lightweight_score_avx2(query, target, score_matrix, gap_open, gap_extend) };
+    }
+    let mut qp = lightweight_profile_init(query.len() as i32, query, 5, score_matrix);
+    lightweight_align_i16(&mut qp, target.len() as i32, target, gap_open, gap_extend).0
+}
+
+#[cfg(target_arch = "x86_64")]
+thread_local! {
+    static LW_BUF: std::cell::RefCell<(Vec<i16>, Vec<i16>, Vec<i16>, Vec<i16>)> =
+        const { std::cell::RefCell::new((Vec::new(), Vec::new(), Vec::new(), Vec::new())) };
+}
+
+/// Shift a vector of 16 i16 lanes up by one lane (lane l -> l + 1), inserting 0 in lane 0.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+unsafe fn shl1_epi16(v: __m256i) -> __m256i {
+    _mm256_alignr_epi8(v, _mm256_permute2x128_si256(v, v, 0x08), 14)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn lightweight_score_avx2(query: &[u8], target: &[u8], score_matrix: &[i8], gap_open: i32, gap_extend: i32) -> i32 { unsafe {
+    const P: usize = 16;
+    let qlen = query.len();
+    let slen = qlen.div_ceil(P);
+    LW_BUF.with(|cell| {
+        let mut b = cell.borrow_mut();
+        let (prof, h0, h1, ev) = &mut *b;
+        prof.clear();
+        prof.resize(5 * slen * P, 0);
+        for a in 0..5 {
+            let row = &score_matrix[a * 5..a * 5 + 5];
+            for i in 0..slen {
+                for l in 0..P {
+                    let pos = i + l * slen;
+                    prof[(a * slen + i) * P + l] = if pos < qlen { row[query[pos] as usize] as i16 } else { -1 };
+                }
+            }
+        }
+        for v in [&mut *h0, &mut *h1, &mut *ev] {
+            v.clear();
+            v.resize(slen * P, 0);
+        }
+        let zero = _mm256_setzero_si256();
+        let gapoe = _mm256_set1_epi16((gap_open + gap_extend) as i16);
+        let gape = _mm256_set1_epi16(gap_extend as i16);
+        let mut vmax = zero;
+        let ld = |v: &Vec<i16>, j: usize| _mm256_loadu_si256(v.as_ptr().add(j * P) as *const __m256i);
+        let st = |v: &mut Vec<i16>, j: usize, x: __m256i| _mm256_storeu_si256(v.as_mut_ptr().add(j * P) as *mut __m256i, x);
+        for &c in target {
+            let pr = prof.as_ptr().add((c.min(4) as usize) * slen * P);
+            let mut f = zero;
+            let mut h = shl1_epi16(ld(h0, slen - 1));
+            for j in 0..slen {
+                h = _mm256_adds_epi16(h, _mm256_loadu_si256(pr.add(j * P) as *const __m256i));
+                let e = ld(ev, j);
+                h = _mm256_max_epi16(h, e);
+                h = _mm256_max_epi16(h, f);
+                vmax = _mm256_max_epi16(vmax, h);
+                st(h1, j, h);
+                let h_sub = _mm256_subs_epu16(h, gapoe);
+                st(ev, j, _mm256_max_epi16(_mm256_subs_epu16(e, gape), h_sub));
+                f = _mm256_max_epi16(_mm256_subs_epu16(f, gape), h_sub);
+                h = ld(h0, j);
+            }
+            'lazy: for _ in 0..P {
+                f = shl1_epi16(f);
+                for j in 0..slen {
+                    let x = _mm256_max_epi16(ld(h1, j), f);
+                    st(h1, j, x);
+                    f = _mm256_subs_epu16(f, gape);
+                    if _mm256_movemask_epi8(_mm256_cmpgt_epi16(f, _mm256_subs_epu16(x, gapoe))) == 0 {
+                        break 'lazy;
+                    }
+                }
+            }
+            std::mem::swap(h0, h1);
+        }
+        let mut lanes = [0i16; P];
+        _mm256_storeu_si256(lanes.as_mut_ptr() as *mut __m256i, vmax);
+        lanes.iter().copied().max().unwrap_or(0).max(0) as i32
+    })
+}}
+
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
 unsafe fn lightweight_align_i16_sse2(qp: &mut LightweightProfile, target_len: i32, target: &[u8], gap_open: i32, gap_extend: i32) -> (i32, i32, i32) { unsafe {
@@ -644,4 +737,34 @@ fn global_align_gotoh(
 
     cigar.reverse();
     result.cigar = cigar;
+}
+
+#[cfg(test)]
+mod lw_score_tests {
+    use super::*;
+
+    /// lightweight_score must equal the score of lightweight_align_i16 (the AVX2 path uses a
+    /// different lane layout and no best-row copy).
+    #[test]
+    fn lightweight_score_matches_align_i16() {
+        let mut mat = [0i8; 25];
+        for a in 0..5 { for b in 0..5 { mat[a * 5 + b] = if a == 4 || b == 4 { -1 } else if a == b { 2 } else { -4 }; } }
+        let mut x: u64 = 0x9e3779b97f4a7c15;
+        let mut rnd = |n: u64| { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x % n };
+        for case in 0..3000 {
+            let ql = 1 + rnd(if case % 10 == 0 { 3000 } else { 400 }) as usize;
+            let tl = 1 + rnd(if case % 10 == 0 { 3000 } else { 400 }) as usize;
+            let q: Vec<u8> = (0..ql).map(|_| if rnd(50) == 0 { 4 } else { rnd(4) as u8 }).collect();
+            // target: a mutated, sometimes reverse-complemented copy of part of q, or random
+            let t: Vec<u8> = if case % 3 == 0 {
+                (0..tl).map(|_| rnd(5) as u8).collect()
+            } else {
+                (0..tl).map(|i| { let c = q[(i + case) % ql]; if rnd(8) == 0 { rnd(4) as u8 } else { c } }).collect()
+            };
+            let (go, ge) = if case % 2 == 0 { (4, 2) } else { (6, 1) };
+            let mut qp = lightweight_profile_init(ql as i32, &q, 5, &mat);
+            let want = lightweight_align_i16(&mut qp, tl as i32, &t, go, ge).0;
+            assert_eq!(lightweight_score(&q, &t, &mat, go, ge), want, "case {case} ql {ql} tl {tl}");
+        }
+    }
 }

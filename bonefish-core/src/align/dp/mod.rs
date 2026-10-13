@@ -187,7 +187,7 @@ pub fn extend_dual_affine_dispatch(qseq: &[u8], tseq: &[u8], alphabet_size: i8, 
 // Re-export public API from lightweight/global
 pub use lw::{
     LightweightProfile,
-    lightweight_profile_init, lightweight_align_i16, lightweight_align_i16_scalar,
+    lightweight_profile_init, lightweight_align_i16, lightweight_align_i16_scalar, lightweight_score,
     global_align,
 };
 

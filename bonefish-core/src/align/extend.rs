@@ -506,7 +506,30 @@ fn test_zdrop(
         let op = c & 0xf;
         let len = (c >> 4) as i32;
         if op == 0 { // M
-            for _l in 0..len {
+            // Bases inside both sequences: no bounds checks (the general loop below handles any
+            // part of the run past a sequence end, where the score does not change).
+            let n_in = (len.min(tseq.len() as i32 - i).min(qseq.len() as i32 - j)).max(0);
+            let (tp, qp) = (&tseq[i as usize..(i + n_in) as usize], &qseq[j as usize..(j + n_in) as usize]);
+            for (&tc, &qc) in tp.iter().zip(qp) {
+                // SAFETY: nt4 codes are < 5, so the index is < 25.
+                score += unsafe { *mat.get_unchecked(tc as usize * 5 + qc as usize) } as i32;
+                if score < max {
+                    let diff = ((i - max_i) - (j - max_j)).abs();
+                    let z = max - score - diff * e_gap;
+                    if z > max_zdrop {
+                        max_zdrop = z;
+                        pos[0][0] = max_i; pos[0][1] = i;
+                        pos[1][0] = max_j; pos[1][1] = j;
+                    }
+                } else {
+                    max = score;
+                    max_i = i;
+                    max_j = j;
+                }
+                i += 1;
+                j += 1;
+            }
+            for _l in n_in..len {
                 let ti = i as usize;
                 let qi = j as usize;
                 if ti < tseq.len() && qi < qseq.len() {
@@ -568,14 +591,8 @@ fn test_zdrop(
             let c = qseq[pos[1][1] as usize - k - 1];
             qseq2[k] = if c >= 4 { 4 } else { 3 - c };
         }
-        let mut qp = dp::lightweight_profile_init(q_len, &qseq2, 5, mat);
-        let (inv_score, _q_off, _t_off) = dp::lightweight_align_i16(
-            &mut qp,
-            t_len,
-            &tseq[pos[0][0] as usize..],
-            q_gap,
-            e_gap,
-        );
+        let t0 = pos[0][0] as usize;
+        let inv_score = dp::lightweight_score(&qseq2, &tseq[t0..t0 + t_len as usize], mat, q_gap, e_gap);
         if inv_score >= min_chain_score * a && inv_score >= min_dp_max {
             return 2; // potential inversion
         }
