@@ -446,3 +446,28 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod leaf_sort_tests {
+    use super::*;
+
+    /// The composite-key leaf sort must give exactly the stable insertion-sort order,
+    /// including the order of equal keys.
+    #[test]
+    fn leaf_sort_matches_insertion_sort() {
+        let mut x: u64 = 0x2545f4914f6cdd1d;
+        let mut rnd = || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
+        for case in 0..20000 {
+            let n = 2 + (rnd() % 63) as usize;
+            let s = [8u32, 16, 24, 32, 40, 48, 56][case % 7];
+            let high = rnd() & !((1u64 << s) - 1);
+            let span = 1 + rnd() % if case % 3 == 0 { 8 } else { 1 << 20 }; // many ties when small
+            let v: Vec<Minimizer> = (0..n).map(|k| Minimizer { x: high | ((rnd() % span) & ((1u64 << s) - 1)), y: k as u64 }).collect();
+            let mut a = v.clone();
+            let mut b = v.clone();
+            rs_insertsort(&mut a);
+            Minimizer::leaf_sort(&mut b, s);
+            assert_eq!(a, b, "case {case} n {n} s {s}");
+        }
+    }
+}
