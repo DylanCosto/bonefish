@@ -348,9 +348,12 @@ pub(crate) fn collect_seed_hits_with_occ(
         // count of matched_seeds) before they are written; every slot below w is written.
         let out = anchors.as_mut_ptr();
         let mut w = 0usize;
+        // Positions are prefetched four seeds ahead (one ahead hides little of the miss).
+        let pd = 4;
+        for s0 in matched_seeds.iter().take(pd) { mi.prefetch_positions(s0.entry_range); }
         for (si, seed) in matched_seeds.iter().enumerate() {
-            if si + 1 < matched_seeds.len() {
-                mi.prefetch_positions(matched_seeds[si + 1].entry_range);
+            if si + pd < matched_seeds.len() {
+                mi.prefetch_positions(matched_seeds[si + pd].entry_range);
             }
             let m = &q_minimizers[seed.mi_idx];
             let q_span = seed.q_span as u64;
@@ -478,30 +481,29 @@ pub(crate) fn filter_minimizers_by_occ(minimizers: &mut Vec<Minimizer>, mid_occ:
     let n = minimizers.len();
     let q_occ_max = mid_occ;
     let q_frac_thresh = (n as f32 * q_occ_frac) as usize;
-
-    let mut sorted: Vec<(u64, usize)> = minimizers.iter().enumerate()
-        .map(|(i, m)| (m.x, i)).collect();
-    sorted.sort_unstable();
-
-    let mut to_remove = vec![false; n];
-    let mut st = 0;
-    for i in 0..=sorted.len() {
-        if i == sorted.len() || sorted[i].0 != sorted[st].0 {
-            let cnt = i - st;
-            if cnt > q_occ_max && cnt > q_frac_thresh {
-                for j in st..i {
-                    to_remove[sorted[j].1] = true;
-                }
+    thread_local! {
+        static KEYS: std::cell::RefCell<Vec<u64>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+    // Minimizers whose x occurs more than both thresholds are dropped. Such groups are rare, so
+    // sort only the keys (reused buffer) and touch the minimizers only when one is found.
+    let drop: Vec<u64> = KEYS.with(|cell| {
+        let mut keys = cell.borrow_mut();
+        keys.clear();
+        keys.extend(minimizers.iter().map(|m| m.x));
+        crate::align::sort::radix_sort_u64(&mut keys);
+        let mut drop = Vec::new();
+        let mut st = 0;
+        for i in 1..=keys.len() {
+            if i == keys.len() || keys[i] != keys[st] {
+                let cnt = i - st;
+                if cnt > q_occ_max && cnt > q_frac_thresh { drop.push(keys[st]); }
+                st = i;
             }
-            st = i;
         }
+        drop
+    });
+    if !drop.is_empty() {
+        minimizers.retain(|m| drop.binary_search(&m.x).is_err());
     }
-    let mut j = 0;
-    for i in 0..n {
-        if !to_remove[i] {
-            minimizers[j] = minimizers[i];
-            j += 1;
-        }
-    }
-    minimizers.truncate(j);
 }
+
