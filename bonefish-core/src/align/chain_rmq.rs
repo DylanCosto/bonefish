@@ -867,9 +867,18 @@ pub fn chain_anchors_rmq(
                         break;
                     }
                     let j = q_i;
-                    let (sc, _, width) = compute_chain_score_simple(&a[i], &a[j], opt.chn_pen_gap, opt.chn_pen_skip);
+                    let qd = a[i].query_pos().wrapping_sub(a[j].query_pos());
+                    let rd = a[i].ref_pos().wrapping_sub(a[j].ref_pos());
+                    let width = if rd > qd { rd - qd } else { qd - rd };
                     if width <= bw {
-                        let total_sc = scores[j] + sc;
+                        // A chain score never exceeds the predecessor's span (penalties are >= 0
+                        // for non-negative differences, and the score is negative otherwise), so
+                        // a candidate that cannot win even with it skips the float scoring.
+                        let total_sc = if scores[j] + a[j].query_span() <= best_score {
+                            best_score
+                        } else {
+                            scores[j] + compute_chain_score_simple(&a[i], &a[j], opt.chn_pen_gap, opt.chn_pen_skip).0
+                        };
                         if total_sc > best_score {
                             best_score = total_sc;
                             best_predecessor = j as i64;
