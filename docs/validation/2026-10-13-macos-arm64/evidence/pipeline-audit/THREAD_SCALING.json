@@ -1,0 +1,27 @@
+{
+  "threads": 8,
+  "command": [
+    "${SESSION}/outputs/bonefish-macos/bonefish",
+    "-a",
+    "-t",
+    "8",
+    "${REFERENCE}",
+    "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+  ],
+  "seconds_including_index_sam": 134.678,
+  "baseline_4_thread_seconds": 208.12,
+  "speedup_over_4_threads": 1.5453118884590227,
+  "peak_rss_bytes": 11554881536,
+  "baseline_output": {
+    "sha256_without_pg": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+    "records": 132946,
+    "primary": 86553
+  },
+  "new_output": {
+    "sha256_without_pg": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+    "records": 132946,
+    "primary": 86553
+  },
+  "output_identical_except_pg": true,
+  "scope": "One full 1x run compared with the earlier release run, same binary, input, reference, and SAM format. Thread count differs."
+}

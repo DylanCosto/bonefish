@@ -1,0 +1,24 @@
+{
+  "checked_at_utc": "2026-10-13T18:59:23.307131+00:00",
+  "platform": "aarch64-apple-darwin",
+  "base_commit": "2061243d0010e2895453a170c988ee54b37e7930",
+  "rust_tests": {
+    "core_passed": 129,
+    "integration_passed": 5,
+    "doctests_passed": 6,
+    "ignored_existing_benchmarks": 3,
+    "total_passed": 140,
+    "command": "CARGO_PROFILE_RELEASE_STRIP=true cargo test --release --locked --features jemalloc"
+  },
+  "python_fixture_tests": {
+    "passed": 13,
+    "command": "python3 -B -m unittest discover -s scripts/validation -p 'test_*.py' -v"
+  },
+  "x86_production_prefix_unchanged": true,
+  "retained_production_binary_sha256": "1cb876c7cef4d1e3bebd433f9a6bfeea9e145669638687e89107a242004e669b",
+  "sam_runner_synthetic_fixture_passed": true,
+  "native_bam_full_validation_and_subset_comparison_smoke_passed": true,
+  "all_four_public_sources_header_and_whole_primary_acquisition_smoke_passed": true,
+  "full_census_reanalysis_matches_original_summary": true,
+  "qualification": "Local Mac checks only. These new runners were exercised on small fixtures/prefixes; the archived 1x/10x timings came from their original local versions. Native CI and real WGS x86/ARM parity are separate."
+}

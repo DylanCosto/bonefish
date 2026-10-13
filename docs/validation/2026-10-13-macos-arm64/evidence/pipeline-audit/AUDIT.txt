@@ -1,0 +1,36 @@
+Bonefish macOS speed audit
+
+Audited commit: 2061243d0010e2895453a170c988ee54b37e7930
+Dataset: 86,553 HG002 ONT R10.4.1 reads, 3,088,602,282 bases (nominal 1x WGS).
+
+Measured changes using the existing release binary:
+- Four-thread SAM: 208.120 s.
+- Eight-thread SAM: 134.678 s, 1.55x faster (about 35% less time). Normalized SAM SHA256 matches exactly after removing @PG.
+- Eight-thread native sorted BAM plus BAI: 137.311 s. All 132,946 decoded records match the earlier samtools-sorted BAM, including 86,553 primary read records. BAM quickcheck and index querying passed.
+
+Recommended current command shape:
+bonefish -a -t 8 --sort --sort-mem 1G -o sample.bam reference.fa reads.fastq.gz
+
+The eight-thread SAM trial uses the same end product as the four-thread trial. The native sorted-BAM trial includes sorting, compression and indexing, and avoids a 6.8 GB SAM disk intermediate. These are single trials, not repeated-run performance qualification.
+
+Worker hotspots from the four-thread 1x run:
+- Alignment extension: 39.1% of summed worker-stage time.
+- Chaining: 32.4%.
+- Seed lookup: 16.8%.
+- Post-chain processing: 8.5%, mostly RMQ rescue.
+- Sketching: 3.2%.
+These percentages sum worker-thread durations; they are not elapsed wall-time percentages. Index construction took 12.713 seconds, so caching the reference index is useful but not the largest current cost.
+
+Code work worth pursuing, in order:
+1. Carry the AVX2 diagonal-bucket predecessor pruning into NEON chaining. This is intended to preserve output, but predecessor order, skip-counter side effects and ties need differential tests. It targets expensive scans on repeat-dense reads.
+2. Implement ARM64 clean/adaptive and shifted-band DP. The current adaptive function ignores its width argument outside AVX2 and falls back to ordinary static-band NEON; shifted bands also use a wider symmetric fallback on ARM. These gaps explain why the Mac does not execute all the Linux/x86 speed optimizations. Their speed gains have not been measured, and they may change existing Mac alignments.
+3. Test ARM seed prefetch only after the first two. Prefetch is x86-only, but an inherited source comment reports no benefit on Apple M2; an M4 benefit is unproven.
+4. Consider structured BAM encoding to remove internal SAM formatting/reparsing. The native sorted-BAM path already removes the large disk intermediate, and its observed overhead is small on this dataset.
+
+Already present: jemalloc, fat LTO, NEON kernels, overlapped reader/worker/writer stages, thread-local scratch reuse, one query encoding per read, and optimized gap/rescue paths. Reimplementing those would repeat existing work.
+
+An audit guard for any optimization: malformed-record errors and caught alignment panics can log warnings and skip reads while the CLI continues. Every measured run here accounted for all input reads. Future speed trials must retain that check and verify complete output, rather than only check exit status and elapsed time.
+
+The 1x placement-confidence discrepancies remain unresolved. Current thread/output settings preserve current records; new adaptive DP code needs accuracy qualification.
+
+Source evidence and full results: SPEED_AUDIT.json, THREAD_SCALING.json, NATIVE_SORTED_PIPELINE.json.

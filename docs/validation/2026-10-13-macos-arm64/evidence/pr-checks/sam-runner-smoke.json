@@ -1,0 +1,44 @@
+{
+  "run": "candidate-1",
+  "started_utc": "2026-10-13T18:52:49.830696+00:00",
+  "command": [
+    "${REPO}/target/release/bonefish",
+    "-a",
+    "-t",
+    "2",
+    "${REPO}/bonefish/tests/data/ref.fa.gz",
+    "${REPO}/bonefish/tests/data/reads.fq.gz"
+  ],
+  "binary_sha256": "1cb876c7cef4d1e3bebd433f9a6bfeea9e145669638687e89107a242004e669b",
+  "input_sha256": {
+    "bonefish/tests/data/ref.fa.gz": "e1f7027fd4f62b14bc5b201933a3c6197ca65194dc653ad940eb8f7fe189571a",
+    "bonefish/tests/data/reads.fq.gz": "9e39009a5847586b505c7a490a0eeaa2c1561d465cba95509d3461ac0ae5db65"
+  },
+  "returncode": 0,
+  "threads": 2,
+  "elapsed_seconds_including_index_and_sam": 0.07199966628104448,
+  "census_instrumented": false,
+  "timing_scope": "Fresh FASTA-built index, mapping and SAM output. Input/output hashing and read validation are outside the timer.",
+  "warnings": [],
+  "peak_rss_bytes": 42516480,
+  "instructions_retired": 2339107919,
+  "peak_memory_footprint_bytes": 40501656,
+  "worker_stage_sums_seconds": {
+    "Sequence Sketching": 0.007,
+    "Seeding (Lookup)": 0.002,
+    "Chaining": 0.004,
+    "Alignment (Ext)": 0.092,
+    "Post-chain": 0.001,
+    "Total Measured": 0.106
+  },
+  "sam_sha256_without_pg": "953395e624a9c9876918cc4f5bfc4f471dbfca5654ca3e59aa89ff6828384953",
+  "records": 185,
+  "primary": 160,
+  "unique_primary_names": 160,
+  "mapped_primary": 155,
+  "missing_primary_names": 0,
+  "unexpected_primary_names": 0,
+  "input_sequences_and_qualities_preserved": true,
+  "same_as_original_release_sam": null,
+  "all_checks_passed": true
+}

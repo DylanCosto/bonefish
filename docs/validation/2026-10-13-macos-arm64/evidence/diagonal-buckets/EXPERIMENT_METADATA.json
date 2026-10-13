@@ -1,0 +1,52 @@
+{
+  "repository": "https://github.com/DylanCosto/bonefish",
+  "base_commit": "2061243d0010e2895453a170c988ee54b37e7930",
+  "checkout": "${REPO}",
+  "change": "Port dense diagonal-bucket predecessor selection to ARM/NEON; unchanged contiguous fallback and score kernel.",
+  "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+  "build_command": "CARGO_PROFILE_RELEASE_STRIP=true cargo build --release --locked --features jemalloc",
+  "cpu_tuning_flags": null,
+  "test_command": "CARGO_PROFILE_RELEASE_STRIP=true cargo test --release --locked --features jemalloc",
+  "tests": {
+    "core_passed": 125,
+    "integration_passed": 5,
+    "doctests_passed": 6,
+    "existing_ignored_benchmarks": 3,
+    "new_neon_differential_tests": 5,
+    "randomized_cases": 24
+  },
+  "dataset_reads": 86553,
+  "dataset_bases": 3088602282,
+  "dataset_sha256": "960490bd561a62a82551a729abd97ed5f8fb27a228287b44c9fb6378b65b8116",
+  "reference_sha256": "3c8def6d325c5d1e934b2dd530c4d1709f027677a15859467071fddf3fff2026",
+  "committed": false,
+  "pushed": false,
+  "final_candidate_sha256": "07f305c3ca6731408a3dc5f69fa377bef98e0d7edf64f0462570731855afd414",
+  "control_sha256": "c964ff4c00c983ea34d3b8b46bbd11ba39bfb75893ddc8984ae64882e70eeefa",
+  "signed_coordinate_guard": "Use the original contiguous NEON scan for negative signed reference/query positions; compute query-span density in i64.",
+  "exploratory_trial_ids": [
+    "candidate-1",
+    "candidate-2"
+  ],
+  "final_candidate_trial_ids": [
+    "candidate-3",
+    "candidate-4"
+  ],
+  "final_control_trial_ids": [
+    "control-2",
+    "control-3"
+  ],
+  "final_comparison_order": [
+    "control-2",
+    "candidate-3",
+    "candidate-4",
+    "control-3"
+  ],
+  "hardware": {
+    "chip": "Apple M4 Pro",
+    "logical_cpus": 12,
+    "performance_cpus": 8,
+    "efficiency_cpus": 4,
+    "ram_bytes": 25769803776
+  }
+}

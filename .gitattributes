@@ -1,0 +1,4 @@
+# Recorded receipts and logs are generated evidence; keep the implementation diff readable.
+docs/validation/**/evidence/** linguist-generated=true
+# Unified-diff context lines contain a required space even on empty source lines.
+docs/validation/**/evidence/**/*.patch whitespace=-blank-at-eol

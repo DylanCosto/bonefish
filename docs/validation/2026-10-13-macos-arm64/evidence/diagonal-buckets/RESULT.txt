@@ -1,0 +1,77 @@
+Bonefish ARM/NEON chaining experiment — 2026-10-13
+
+The guarded port reduced mean full-run elapsed time by 12.6%
+(142.20s to 124.33s,
+1.144x throughput ratio). Keep it as an
+uncommitted candidate for this workload. Nothing was committed or pushed.
+
+Final comparison: same source base, compiler, release profile, jemalloc,
+input, reference, 8 threads, and SAM output destination. Time includes a fresh
+index build, mapping, and SAM writing; hashing/counting happens afterward.
+
+Run          Elapsed seconds    Peak RSS GiB
+control-2        137.34            14.06
+candidate-3      117.35            13.44
+candidate-4      131.32            14.97
+control-3        147.06            13.96
+
+Control mean: 142.20s.
+Candidate mean: 124.33s.
+Mean saving: 17.87s per run.
+Measured timing ranges: control 137.34–147.06s;
+candidate 117.35–131.32s.
+Peak RSS ranged 13.96–14.06 GiB
+for the control and 13.44–14.97 GiB for the candidate.
+
+Summed worker chaining durations fell 39.2%
+(280.30s to 170.45s).
+These are sums of per-read worker wall durations, not serial elapsed time or
+exact CPU shares. Alignment extension is now the largest measured worker
+stage (365.52s on average).
+
+All four final outputs matched the original release SAM exactly after
+excluding @PG. Each run had 132,946 records, 86,553 unique primary reads,
+77,376 mapped primaries, and no missing/extra primary names or warnings.
+Normalized SAM SHA256:
+4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66
+
+The change selects in-band predecessors from neighboring diagonal buckets
+on dense repetitive reads, then uses the existing NEON score kernel.
+Predecessor order, ties, skip/visited behavior, no-skip mode, ordinary-read
+fallback, and backtracking are preserved. An additional differential test
+caught a direct-port error at the signed 32-bit coordinate boundary. The
+final implementation uses the original contiguous scan for such positions.
+
+Validation passed: 125 core tests, 5 integration tests, and 6 doctests
+(136 total); 3 existing benchmark tests remained ignored. Five new NEON
+tests compare DP scores, predecessor choices, and chain output with the
+original optimized scan, plus scalar comparisons where skip semantics match.
+They cover dense tandem repeats, 24 randomized cases, target/strand changes,
+negative diagonals, bucket/window thresholds, no-skip mode, empty/no-chain
+reads, scratch reuse, and signed-coordinate crossings. Existing golden SAM/
+PAF variants, BAM/FASTQ/BGZF input, raw indexes, and sorted BAM checks passed.
+
+Scope: one nominal 1x HG002 ONT ultra-long dataset, 3,088,602,282 bases,
+equal-base prefixes of four Dorado 0.4.0 SUP 4.1.0 source parts, aligned to
+the full GRCh38 no-alt analysis set. This sample is not uniformly random.
+Two runs per final build establish an observed gain here, not a general
+speed guarantee. Alignment choices/MAPQ are preserved, not independently
+requalified. Linux/x86 execution was not tested; the production change is
+restricted to aarch64. Earlier candidate-1/2 receipts describe the exploratory
+port before the coordinate guard and are excluded from the final averages.
+
+Source base: 2061243d0010e2895453a170c988ee54b37e7930
+Local checkout: ${REPO}
+Compiler: rustc 1.98.1, aarch64-apple-darwin, LLVM 22.1.8.
+Build: CARGO_PROFILE_RELEASE_STRIP=true cargo build --release --locked --features jemalloc
+Test:  CARGO_PROFILE_RELEASE_STRIP=true cargo test --release --locked --features jemalloc
+Release settings: opt-level 3, fat LTO, codegen-units 1; no native CPU flags.
+
+Deliverables here: bonefish (guarded candidate), bonefish.control (unchanged
+same-toolchain build), neon-diagonal-buckets.patch, BENCHMARK_RESULTS.json,
+EXPERIMENT_METADATA.json, tests.log, and individual run logs/receipts.
+The patch includes the untracked test file and applies to the source base.
+Both modified files remain unstaged in the checkout; HEAD is unchanged.
+
+Next speed target: alignment extension. Its adaptive/shifted AVX2 paths
+need an ARM implementation and separate output/accuracy qualification.

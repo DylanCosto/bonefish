@@ -1,0 +1,375 @@
+--- a/bonefish-core/src/align/chain_simd.rs
++++ b/bonefish-core/src/align/chain_simd.rs
+@@ -1520,10 +1520,55 @@
+     sc_buf: &mut [i32],
+     start: usize,
+     end: usize,
+-) { unsafe {
++) {
++    unsafe {
++        compute_chain_scores_batch_neon_impl::<false>(
++            qi, ri, rid_strand_i, soa_ref_pos, soa_query_pos, soa_query_span,
++            soa_rid_strand, max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip,
++            sc_buf, start, end, 0, &[],
++        );
++    }
++}
++
++/// NEON counterpart of the AVX2 masked scan: skip off-band groups before loading
++/// the remaining fields, and return candidates to visit in the original order.
++/// Only scores whose bits are set may be read; skipped groups remain untouched.
++#[cfg(target_arch = "aarch64")]
++#[target_feature(enable = "neon")]
++#[inline]
++unsafe fn chain_scores_masked_neon(
++    qi: i32, ri: i32, rid_strand_i: u32, diag_i: i32,
++    soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32],
++    soa_rid_strand: &[u32], soa_diag: &[i32],
++    max_dist_x: i32, max_dist_y: i32, bw: i32, chn_pen_gap: f32, chn_pen_skip: f32,
++    sc_buf: &mut [i32], start: usize, end: usize,
++) -> u64 {
++    unsafe {
++        compute_chain_scores_batch_neon_impl::<true>(
++            qi, ri, rid_strand_i, soa_ref_pos, soa_query_pos, soa_query_span,
++            soa_rid_strand, max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip,
++            sc_buf, start, end, diag_i, soa_diag,
++        )
++    }
++}
++
++// Share the score arithmetic so masked and contiguous scans cannot drift.
++// The const flag removes mask/diagonal work from the existing contiguous kernel.
++#[cfg(target_arch = "aarch64")]
++#[target_feature(enable = "neon")]
++#[inline]
++unsafe fn compute_chain_scores_batch_neon_impl<const MASKED: bool>(
++    qi: i32, ri: i32, rid_strand_i: u32,
++    soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32],
++    soa_rid_strand: &[u32],
++    max_dist_x: i32, max_dist_y: i32, bw: i32, chn_pen_gap: f32, chn_pen_skip: f32,
++    sc_buf: &mut [i32], start: usize, end: usize, diag_i: i32, soa_diag: &[i32],
++) -> u64 { unsafe {
++    let mut mask = 0u64;
+     if start >= end {
+-        return;
+-    }
++        return mask;
++    }
++    debug_assert!(!MASKED || end - start <= 64);
+ 
+     let qi_v = vdupq_n_s32(qi);
+     let ri_v = vdupq_n_s32(ri);
+@@ -1537,12 +1582,27 @@
+     let pen_gap_v = vdupq_n_f32(chn_pen_gap);
+     let pen_skip_v = vdupq_n_f32(chn_pen_skip);
+     let half_v = vdupq_n_f32(0.5f32);
++    let diag_i_v = vdupq_n_s32(diag_i);
++    let lane_bits = vld1q_u32([1u32, 2, 4, 8].as_ptr());
+ 
+     // Process 4 predecessors at a time
+     let aligned_end = start + ((end - start) / 4) * 4;
+     let mut j = start;
+ 
+     while j < aligned_end {
++        let band_gap = if MASKED {
++            // Wrapping i32 diagonals match the score kernel even across the signed
++            // coordinate boundary. abs(i32::MIN) stays negative, as in the old kernel.
++            let dj = vld1q_s32(soa_diag.as_ptr().add(j));
++            let gap = vabsq_s32(vsubq_s32(diag_i_v, dj));
++            if vminvq_u32(vcgtq_s32(gap, bw_v)) == u32::MAX {
++                j += 4;
++                continue;
++            }
++            gap
++        } else {
++            zero_v
++        };
+         // Load 4 predecessors' SoA data
+         let qj_v = vld1q_s32(soa_query_pos.as_ptr().add(j));
+         let rj_v = vld1q_s32(soa_ref_pos.as_ptr().add(j));
+@@ -1575,10 +1635,17 @@
+         valid = vbicq_u32(valid, qdiff_gt_max_dy);
+ 
+         // 6. gap_width = abs(ref_diff - query_diff); gap_width <= bw
+-        let diff = vsubq_s32(rdiff, qdiff);
+-        let gap_w = vabsq_s32(diff);
++        let gap_w = if MASKED { band_gap } else { vabsq_s32(vsubq_s32(rdiff, qdiff)) };
+         let gw_gt_bw = vcgtq_s32(gap_w, bw_v);
+         valid = vbicq_u32(valid, gw_gt_bw);
++        let bits = if MASKED {
++            let bits = vaddvq_u32(vandq_u32(valid, lane_bits)) as u64;
++            if bits == 0 {
++                j += 4;
++                continue;
++            }
++            bits
++        } else { 0 };
+ 
+         // --- Score computation ---
+         let min_diff = vminq_s32(rdiff, qdiff);
+@@ -1619,6 +1686,7 @@
+ 
+         // Store 4 scores
+         vst1q_s32(sc_buf.as_mut_ptr().add(j), score);
++        if MASKED { mask |= bits << (j - start); }
+ 
+         j += 4;
+     }
+@@ -1665,8 +1733,10 @@
+         }
+ 
+         sc_buf[j] = sc;
++        if MASKED && sc != i32::MIN { mask |= 1u64 << (j - start); }
+         j += 1;
+     }
++    mask
+ }}
+ 
+ /// NEON SIMD-optimized chaining for aarch64.
+@@ -1681,14 +1751,14 @@
+     a: &mut [Minimizer],
+     ctx: &mut ChainingBuffers,
+ ) -> (Vec<u64>, Vec<Minimizer>) {
+-    unsafe { chain_anchors_neon_impl::<true>(opt, max_dist_x, max_dist_y, a, ctx) }
++    unsafe { chain_anchors_neon_impl::<true, true>(opt, max_dist_x, max_dist_y, a, ctx) }
+ }
+ 
+-// The const switch lets differential tests exercise the original contiguous NEON scan
+-// with the same scoring and backtracking code. Production enables buckets at compile time.
++// Const switches let differential tests disable either optimization while sharing the
++// score arithmetic and backtracking. Production enables both at compile time.
+ #[cfg(target_arch = "aarch64")]
+ #[target_feature(enable = "neon")]
+-unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool>(
++unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
+     opt: &ChainingParams,
+     max_dist_x: i32,
+     max_dist_y: i32,
+@@ -1719,18 +1789,23 @@
+     let mut soa_query_span = std::mem::take(&mut ctx.soa_query_span);
+     let mut soa_rid_strand = std::mem::take(&mut ctx.soa_ref_id_strand);
+     let mut soa_sc_buf = std::mem::take(&mut ctx.soa_scores_buf);
++    let mut soa_diag = std::mem::take(&mut ctx.soa_diag);
+ 
+     soa_ref_pos.resize(n, 0);
+     soa_query_pos.resize(n, 0);
+     soa_query_span.resize(n, 0);
+     soa_rid_strand.resize(n, 0);
+     soa_sc_buf.resize(n, 0);
++    if USE_MASKED_SCAN && !no_chain_skip { soa_diag.resize(n, 0); }
+ 
+     for j in 0..n {
+         soa_ref_pos[j] = a[j].ref_pos();
+         soa_query_pos[j] = a[j].query_pos();
+         soa_query_span[j] = a[j].query_span();
+         soa_rid_strand[j] = (a[j].x >> 32) as u32;
++        if USE_MASKED_SCAN && !no_chain_skip {
++            soa_diag[j] = soa_ref_pos[j].wrapping_sub(soa_query_pos[j]);
++        }
+     }
+ 
+     // --- DP buffers ---
+@@ -1871,20 +1946,37 @@
+             }
+         } else {
+             const CHUNK_SIZE: usize = 64;
++            const FIRST_CHUNK: usize = 32;
+             let mut chunk_end = i;
+             let mut skip_fired = false;
++            let mut csize = if USE_MASKED_SCAN { FIRST_CHUNK } else { CHUNK_SIZE };
+             while chunk_end > window_start {
+-                let chunk_start = if chunk_end >= window_start + CHUNK_SIZE { chunk_end - CHUNK_SIZE } else { window_start };
+-
+-                compute_chain_scores_batch_neon(
+-                    soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
+-                    &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
+-                    max_dist_x, max_dist_y, bw,
+-                    opt.chn_pen_gap, opt.chn_pen_skip,
+-                    &mut soa_sc_buf, chunk_start, chunk_end,
+-                );
+-
+-                for j in (chunk_start..chunk_end).rev() {
++                let chunk_start = if chunk_end >= window_start + csize { chunk_end - csize } else { window_start };
++                csize = CHUNK_SIZE;
++
++                let mut valid = if USE_MASKED_SCAN {
++                    chain_scores_masked_neon(
++                        soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i], soa_diag[i],
++                        &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand, &soa_diag,
++                        max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
++                        &mut soa_sc_buf, chunk_start, chunk_end,
++                    )
++                } else {
++                    compute_chain_scores_batch_neon(
++                        soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
++                        &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
++                        max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
++                        &mut soa_sc_buf, chunk_start, chunk_end,
++                    );
++                    (chunk_start..chunk_end).fold(0u64, |m, j| {
++                        m | (((soa_sc_buf[j] != i32::MIN) as u64) << (j - chunk_start))
++                    })
++                };
++
++                while valid != 0 {
++                    let bit = 63 - valid.leading_zeros() as usize;
++                    valid &= !(1u64 << bit);
++                    let j = chunk_start + bit;
+                     let sc = soa_sc_buf[j];
+                     if sc == i32::MIN { continue; }
+                     let total_sc = sc + scores[j];
+@@ -1968,6 +2060,7 @@
+         ctx.soa_query_span = soa_query_span;
+         ctx.soa_ref_id_strand = soa_rid_strand;
+         ctx.soa_scores_buf = soa_sc_buf;
++        ctx.soa_diag = soa_diag;
+         return (Vec::new(), Vec::new());
+     }
+ 
+@@ -2016,6 +2109,7 @@
+     ctx.soa_query_span = soa_query_span;
+     ctx.soa_ref_id_strand = soa_rid_strand;
+     ctx.soa_scores_buf = soa_sc_buf;
++    ctx.soa_diag = soa_diag;
+ 
+     (u2, b2)
+ }}
+@@ -2392,6 +2486,10 @@
+     (u2, b2)
+ }}
+ 
++#[cfg(all(test, any(target_arch = "aarch64", target_arch = "x86_64")))]
++#[path = "chain_simd_masked_tests.rs"]
++mod masked_tests;
++
+ #[cfg(all(test, target_arch = "aarch64"))]
+ #[path = "chain_simd_neon_tests.rs"]
+ mod neon_tests;
+--- a/bonefish-core/src/align/chain_simd_neon_tests.rs
++++ b/bonefish-core/src/align/chain_simd_neon_tests.rs
+@@ -28,10 +28,10 @@
+ ) {
+     let (mut a1, mut a2) = (anchors.to_vec(), anchors.to_vec());
+     let (u1, ch1) = unsafe {
+-        chain_anchors_neon_impl::<true>(opt, opt.max_dist_x, opt.max_dist_y, &mut a1, bucket_ctx)
++        chain_anchors_neon_impl::<true, true>(opt, opt.max_dist_x, opt.max_dist_y, &mut a1, bucket_ctx)
+     };
+     let (u2, ch2) = unsafe {
+-        chain_anchors_neon_impl::<false>(opt, opt.max_dist_x, opt.max_dist_y, &mut a2, contiguous_ctx)
++        chain_anchors_neon_impl::<false, false>(opt, opt.max_dist_x, opt.max_dist_y, &mut a2, contiguous_ctx)
+     };
+     assert_eq!(u1, u2, "chain scores/counts, bandwidth {}", opt.bandwidth);
+     assert_eq!(ch1, ch2, "chain anchor order, bandwidth {}", opt.bandwidth);
+@@ -185,3 +185,20 @@
+         assert!(buckets.diag_buckets.id.is_empty(), "signed-coordinate wrap must use the contiguous fallback");
+     }
+ }
++
++#[test]
++fn test_neon_masked_scan_sparse_anchors() {
++    let (mut buckets, mut contiguous) = (ChainingBuffers::new(), ChainingBuffers::new());
++    for n in [31, 32, 128, 1023, 1024, 4096] {
++        let mut seed = 0x2545_f491_4f6c_dd1d;
++        let mut anchors: Vec<_> = (0..n as u64).map(|j| {
++            let q = j * 13;
++            let shift = if j % 5 == 0 { random(&mut seed, 20000) } else { 0 };
++            Minimizer { x: 100_000 + q + shift, y: (19 << 32) | q }
++        }).collect();
++        anchors.sort_by_key(|a| (a.x, a.y));
++        for (bw, skip) in [(100, 1), (500, 25), (5000, 25), (500, 0)] {
++            assert_matches_contiguous(&anchors, &params(bw, skip), &mut buckets, &mut contiguous);
++        }
++    }
++}
+diff --git a/bonefish-core/src/align/chain_simd_masked_tests.rs b/bonefish-core/src/align/chain_simd_masked_tests.rs
+new file mode 100644
+index 0000000..c31b5cc
+--- /dev/null
++++ b/bonefish-core/src/align/chain_simd_masked_tests.rs
+@@ -0,0 +1,86 @@
++//! Shared masked-score conformance fixtures for native AVX2 and NEON backends.
++use super::*;
++
++fn available() -> bool {
++    #[cfg(target_arch = "x86_64")]
++    { is_x86_feature_detected!("avx2") }
++    #[cfg(target_arch = "aarch64")]
++    { true }
++}
++
++fn check(qi: i32, ri: i32, r: &[i32], q: &[i32], rid: &[u32], start: usize, end: usize, bw: i32) {
++    let spans: Vec<_> = (0..r.len()).map(|j| [1, 15, 19, 255][j % 4]).collect();
++    let diagonals: Vec<_> = r.iter().zip(q).map(|(&r, &q)| r.wrapping_sub(q)).collect();
++    let mut full = vec![1234567; r.len()];
++    let mut masked = full.clone();
++    let mask;
++    unsafe {
++        #[cfg(target_arch = "x86_64")]
++        {
++            compute_chain_scores_batch_avx2(qi, ri, 0, r, q, &spans, rid,
++                5000, 5000, bw, 0.152, 0.05, &mut full, start, end);
++            mask = chain_scores_masked_avx2(qi, ri, 0, ri.wrapping_sub(qi),
++                r, q, &spans, rid, &diagonals, 5000, 5000, bw, 0.152, 0.05,
++                &mut masked, start, end);
++        }
++        #[cfg(target_arch = "aarch64")]
++        {
++            compute_chain_scores_batch_neon(qi, ri, 0, r, q, &spans, rid,
++                5000, 5000, bw, 0.152, 0.05, &mut full, start, end);
++            mask = chain_scores_masked_neon(qi, ri, 0, ri.wrapping_sub(qi),
++                r, q, &spans, rid, &diagonals, 5000, 5000, bw, 0.152, 0.05,
++                &mut masked, start, end);
++        }
++    }
++    let expected = (start..end).fold(0u64, |m, j| m | (((full[j] != i32::MIN) as u64) << (j - start)));
++    assert_eq!(mask, expected, "mask start={start} end={end} bandwidth={bw}");
++    for j in start..end {
++        if mask & (1u64 << (j - start)) != 0 {
++            assert_eq!(masked[j], full[j], "score at {j}, bandwidth {bw}");
++        }
++    }
++    for j in (0..start).chain(end..r.len()) {
++        assert_eq!(masked[j], 1234567, "wrote outside the score chunk");
++    }
++}
++
++#[test]
++fn test_masked_scores_all_chunk_lengths_and_offsets() {
++    if !available() { return; }
++    let (qi, ri) = (10000, 80000);
++    let q: Vec<_> = (0..96i32).map(|j| if j % 11 == 0 { qi + 10 } else { qi - 10 - j * 3 }).collect();
++    let r: Vec<_> = q.iter().enumerate().map(|(j, &qj)| {
++        let delta = if (j / 8) % 3 == 0 { 10000 } else { (j % 21) as i32 - 10 };
++        ri - (qi - qj) + delta
++    }).collect();
++    let rid = vec![0; q.len()];
++    for start in [0, 1, 3, 8] {
++        for len in 0..=64 {
++            for bw in [0, 1, 19, 100, 500] {
++                check(qi, ri, &r, &q, &rid, start, start + len, bw);
++            }
++        }
++    }
++}
++
++#[test]
++fn test_masked_scores_mixed_targets_in_vector_groups() {
++    if !available() { return; }
++    let q: Vec<_> = (0..64i32).map(|j| 10000 - j - 1).collect();
++    let r: Vec<_> = (0..64i32).map(|j| 80000 - j - 1).collect();
++    let rid: Vec<_> = (0..64).map(|j| if j % 3 == 0 { 0x80000001 } else { 0 }).collect();
++    check(10000, 80000, &r, &q, &rid, 0, 64, 100);
++}
++
++#[test]
++fn test_masked_scores_signed_coordinate_crossings() {
++    if !available() { return; }
++    for (qi, ri) in [(5000i32, i32::MIN + 32), (i32::MIN + 32, 50000)] {
++        let q: Vec<_> = (0..80i32).map(|j| qi.wrapping_sub(j + 1)).collect();
++        let r: Vec<_> = (0..80i32).map(|j| ri.wrapping_sub(j + 1)).collect();
++        let rid = vec![0; q.len()];
++        for len in 0..=64 {
++            check(qi, ri, &r, &q, &rid, 1, 1 + len, 100);
++        }
++    }
++}

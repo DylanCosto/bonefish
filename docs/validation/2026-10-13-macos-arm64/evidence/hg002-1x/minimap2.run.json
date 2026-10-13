@@ -1,0 +1,18 @@
+{
+  "command": [
+    "${TOOLS}/minimap2",
+    "-ax",
+    "lr:hq",
+    "-t",
+    "4",
+    "${REFERENCE}",
+    "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+  ],
+  "exit_code": 0,
+  "wall_seconds_including_index": 667.657,
+  "peak_rss_bytes": 13690978304,
+  "peak_memory_footprint_bytes": 17657084328,
+  "sam_path": "${SESSION}/work/hg-ont-audit/one-x/minimap2.sam",
+  "sam_bytes": 6886744108,
+  "log_path": "${SESSION}/outputs/bonefish-hg002-1x/minimap2.alignment.log"
+}

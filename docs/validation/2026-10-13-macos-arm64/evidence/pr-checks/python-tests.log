@@ -1,0 +1,18 @@
+test_invalid_nt4_sample_is_rejected (test_validation.CensusValidationTests.test_invalid_nt4_sample_is_rejected) ... ok
+test_truncated_call_record_is_rejected (test_validation.CensusValidationTests.test_truncated_call_record_is_rejected) ... ok
+test_truncated_sample_frame_is_rejected (test_validation.CensusValidationTests.test_truncated_sample_frame_is_rejected) ... ok
+test_valid_fixed_and_variable_frames (test_validation.CensusValidationTests.test_valid_fixed_and_variable_frames) ... ok
+test_bsd_and_gnu_rss_units (test_validation.SamValidationTests.test_bsd_and_gnu_rss_units) ... ok
+test_changed_sequence_or_quality_is_rejected (test_validation.SamValidationTests.test_changed_sequence_or_quality_is_rejected) ... ok
+test_duplicate_and_truncated_fastq_are_rejected (test_validation.SamValidationTests.test_duplicate_and_truncated_fastq_are_rejected) ... ok
+test_duplicate_or_empty_reference_contigs_are_rejected (test_validation.SamValidationTests.test_duplicate_or_empty_reference_contigs_are_rejected) ... ok
+test_duplicate_primary_is_rejected (test_validation.SamValidationTests.test_duplicate_primary_is_rejected) ... ok
+test_missing_primary_is_rejected (test_validation.SamValidationTests.test_missing_primary_is_rejected) ... ok
+test_reference_lengths_from_plain_and_ordinary_gzip_fasta (test_validation.SamValidationTests.test_reference_lengths_from_plain_and_ordinary_gzip_fasta) ... ok
+test_reverse_quality_unmapped_inventory_and_pg_normalization (test_validation.SamValidationTests.test_reverse_quality_unmapped_inventory_and_pg_normalization) ... ok
+test_unexpected_secondary_read_is_rejected (test_validation.SamValidationTests.test_unexpected_secondary_read_is_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.186s
+
+OK

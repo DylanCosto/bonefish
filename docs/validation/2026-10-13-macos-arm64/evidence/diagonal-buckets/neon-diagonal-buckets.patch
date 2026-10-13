@@ -1,0 +1,346 @@
+diff --git a/bonefish-core/src/align/chain_simd.rs b/bonefish-core/src/align/chain_simd.rs
+index 8443f32..ea20201 100644
+--- a/bonefish-core/src/align/chain_simd.rs
++++ b/bonefish-core/src/align/chain_simd.rs
+@@ -1680,6 +1680,20 @@ pub(crate) unsafe fn chain_anchors_neon(
+     max_dist_y: i32,
+     a: &mut [Minimizer],
+     ctx: &mut ChainingBuffers,
++) -> (Vec<u64>, Vec<Minimizer>) {
++    unsafe { chain_anchors_neon_impl::<true>(opt, max_dist_x, max_dist_y, a, ctx) }
++}
++
++// The const switch lets differential tests exercise the original contiguous NEON scan
++// with the same scoring and backtracking code. Production enables buckets at compile time.
++#[cfg(target_arch = "aarch64")]
++#[target_feature(enable = "neon")]
++unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool>(
++    opt: &ChainingParams,
++    max_dist_x: i32,
++    max_dist_y: i32,
++    a: &mut [Minimizer],
++    ctx: &mut ChainingBuffers,
+ ) -> (Vec<u64>, Vec<Minimizer>) { unsafe {
+     let n = a.len();
+     if n == 0 {
+@@ -1734,6 +1748,18 @@ pub(crate) unsafe fn chain_anchors_neon(
+     let mut window_start: usize = 0;
+     let mut best_anchor_idx: i64 = -1;
+ 
++    let mut bk = std::mem::take(&mut ctx.diag_buckets);
++    let use_buckets = USE_DIAG_BUCKETS && !no_chain_skip && n >= DIAG_BUCKET_MIN_N && {
++        let (lo, hi) = soa_query_pos.iter().fold((i32::MAX, i32::MIN), |(l, h), &q| (l.min(q), h.max(q)));
++        // The score kernel uses wrapping i32 position differences. The i64 bucket
++        // diagonals are equivalent only without a signed-coordinate wrap; retain the
++        // contiguous scan for larger positions and widen the density arithmetic too.
++        lo >= 0
++            && n >= DIAG_BUCKET_MIN_DENSITY * (hi as i64 - lo as i64 + 1) as usize
++            && soa_ref_pos.iter().all(|&r| r >= 0)
++    };
++    if use_buckets { bk.build(&soa_ref_pos, &soa_query_pos, bw); }
++
+     for i in 0..n {
+         let mut best_predecessor: i64 = -1;
+         let mut best_score = a[i].query_span();
+@@ -1772,6 +1798,77 @@ pub(crate) unsafe fn chain_anchors_neon(
+                 let total_sc = sc + scores[j];
+                 if total_sc > best_score { best_score = total_sc; best_predecessor = j as i64; }
+             }
++        } else if use_buckets && i - window_start > DIAG_BUCKET_MIN_WINDOW {
++            // Merge only the in-band predecessors, in the original descending visit order.
++            const CHUNK_SIZE: usize = 64;
++            let nb = bk.nbr[bk.id[i] as usize];
++            let mut lp: [*const u32; 3] = [std::ptr::null(); 3];
++            let mut cur = [0usize; 3];
++            for t in 0..3 {
++                if nb[t] != u32::MAX {
++                    let list = &bk.lists[nb[t] as usize];
++                    lp[t] = list.as_ptr();
++                    cur[t] = list.len();
++                }
++            }
++            // SAFETY: a nonzero cursor belongs to a present bucket, and its list is not
++            // modified until this anchor's scan ends. All stored indices precede i.
++            let tail = |t: usize, c: usize| -> i64 {
++                if c > 0 { *lp[t].add(c - 1) as i64 } else { -1 }
++            };
++            let (mut v0, mut v1, mut v2) = (tail(0, cur[0]), tail(1, cur[1]), tail(2, cur[2]));
++            let di = bk.diag[i];
++            let ws = window_start as i64;
++            let mut skip_fired = false;
++            let mut exhausted = false;
++            loop {
++                bk.g_idx.clear();
++                while bk.g_idx.len() < CHUNK_SIZE {
++                    let t = if v0 >= v1 && v0 >= v2 { 0 } else if v1 >= v2 { 1 } else { 2 };
++                    let j = [v0, v1, v2][t];
++                    if j < ws { exhausted = true; break; }
++                    cur[t] -= 1;
++                    match t {
++                        0 => v0 = tail(0, cur[0]),
++                        1 => v1 = tail(1, cur[1]),
++                        _ => v2 = tail(2, cur[2]),
++                    }
++                    // Out-of-band pairs score i32::MIN and have no skip/visited effects.
++                    if (bk.diag[j as usize] - di).abs() > bw as i64 { continue; }
++                    bk.g_idx.push(j as u32);
++                }
++                let m = bk.g_idx.len();
++                if m == 0 { break; }
++                bk.g_ref.clear(); bk.g_qry.clear(); bk.g_span.clear(); bk.g_rid.clear();
++                for &j in &bk.g_idx {
++                    let j = j as usize;
++                    bk.g_ref.push(soa_ref_pos[j]); bk.g_qry.push(soa_query_pos[j]);
++                    bk.g_span.push(soa_query_span[j]); bk.g_rid.push(soa_rid_strand[j]);
++                }
++                bk.g_sc.resize(m, 0);
++                compute_chain_scores_batch_neon(
++                    soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
++                    &bk.g_ref, &bk.g_qry, &bk.g_span, &bk.g_rid,
++                    max_dist_x, max_dist_y, bw,
++                    opt.chn_pen_gap, opt.chn_pen_skip,
++                    &mut bk.g_sc, 0, m,
++                );
++                for t in 0..m {
++                    let sc = bk.g_sc[t];
++                    if sc == i32::MIN { continue; }
++                    let j = bk.g_idx[t] as usize;
++                    let total_sc = sc + scores[j];
++                    if total_sc > best_score {
++                        best_score = total_sc; best_predecessor = j as i64;
++                        if skip_count > 0 { skip_count -= 1; }
++                    } else if visited[j] == i as i32 {
++                        skip_count += 1;
++                        if skip_count > opt.max_chain_skip { end_j = j as i64; skip_fired = true; break; }
++                    }
++                    if predecessors[j] >= 0 { visited[predecessors[j] as usize] = i as i32; }
++                }
++                if skip_fired || exhausted { break; }
++            }
+         } else {
+             const CHUNK_SIZE: usize = 64;
+             let mut chunk_end = i;
+@@ -1804,7 +1901,9 @@ pub(crate) unsafe fn chain_anchors_neon(
+                 if skip_fired { break; }
+                 chunk_end = chunk_start;
+             }
++        }
+ 
++        if !no_chain_skip {
+             if best_anchor_idx < 0 || a[i].x - a[best_anchor_idx as usize].x > max_dist_x as u64 {
+                 let mut best = i32::MIN; best_anchor_idx = -1;
+                 for j in (window_start..i).rev() {
+@@ -1842,7 +1941,9 @@ pub(crate) unsafe fn chain_anchors_neon(
+         if global_max_score < best_score {
+             global_max_score = best_score;
+         }
++        if use_buckets { bk.lists[bk.id[i] as usize].push(i as u32); }
+     }
++    ctx.diag_buckets = bk;
+ 
+     // --- Backtrack and compact (identical to AVX2/scalar) ---
+     let (u, n_u, n_v) = chain_backtrack(
+@@ -2291,6 +2392,10 @@ pub(crate) unsafe fn chain_anchors_wasm(
+     (u2, b2)
+ }}
+ 
++#[cfg(all(test, target_arch = "aarch64"))]
++#[path = "chain_simd_neon_tests.rs"]
++mod neon_tests;
++
+ #[cfg(all(test, target_arch = "x86_64"))]
+ mod tests {
+     use super::*;
+diff --git a/bonefish-core/src/align/chain_simd_neon_tests.rs b/bonefish-core/src/align/chain_simd_neon_tests.rs
+new file mode 100644
+index 0000000..296300e
+--- /dev/null
++++ b/bonefish-core/src/align/chain_simd_neon_tests.rs
+@@ -0,0 +1,187 @@
++//! Differential tests for the NEON diagonal-bucket path and its contiguous fallback.
++use super::*;
++use crate::align::chain::chain_anchors_scalar;
++
++fn params(bandwidth: i32, max_chain_skip: i32) -> ChainingParams {
++    ChainingParams {
++        min_cnt: 3, min_chain_score: 40, max_gap: 5000, max_gap_ref: -1,
++        max_dist_x: 5000, max_dist_y: 5000, bandwidth, bandwidth_long: 20000,
++        max_chain_skip, max_chain_iter: 5000, chn_pen_gap: 0.152, chn_pen_skip: 0.0,
++        chain_gap_scale: 0.8, rmq_rescue_size: 1000, rmq_rescue_ratio: 0.1,
++        rmq_inner_dist: 1000, rmq_size_cap: 100000, seg_rmq: false,
++        rescue_join: false, rescue_max_density: 0,
++    }
++}
++
++fn random(seed: &mut u64, modulus: u64) -> u64 {
++    *seed ^= *seed << 13;
++    *seed ^= *seed >> 7;
++    *seed ^= *seed << 17;
++    *seed % modulus
++}
++
++fn assert_matches_contiguous(
++    anchors: &[Minimizer],
++    opt: &ChainingParams,
++    bucket_ctx: &mut ChainingBuffers,
++    contiguous_ctx: &mut ChainingBuffers,
++) {
++    let (mut a1, mut a2) = (anchors.to_vec(), anchors.to_vec());
++    let (u1, ch1) = unsafe {
++        chain_anchors_neon_impl::<true>(opt, opt.max_dist_x, opt.max_dist_y, &mut a1, bucket_ctx)
++    };
++    let (u2, ch2) = unsafe {
++        chain_anchors_neon_impl::<false>(opt, opt.max_dist_x, opt.max_dist_y, &mut a2, contiguous_ctx)
++    };
++    assert_eq!(u1, u2, "chain scores/counts, bandwidth {}", opt.bandwidth);
++    assert_eq!(ch1, ch2, "chain anchor order, bandwidth {}", opt.bandwidth);
++    let n = anchors.len();
++    assert_eq!(&bucket_ctx.scores[..n], &contiguous_ctx.scores[..n], "DP scores");
++    assert_eq!(&bucket_ctx.predecessors[..n], &contiguous_ctx.predecessors[..n], "DP predecessor ties");
++    // The scalar chainer always applies the skip heuristic, including when skip <= 0.
++    // For positive skip, it is an independent oracle for both NEON scan strategies.
++    if opt.max_chain_skip > 0 {
++        let mut scalar_ctx = ChainingBuffers::new();
++        let mut a3 = anchors.to_vec();
++        let (u3, ch3) = chain_anchors_scalar(
++            opt, opt.max_dist_x, opt.max_dist_y, &mut a3, &mut scalar_ctx,
++        );
++        assert_eq!(u1, u3, "scalar chains");
++        assert_eq!(ch1, ch3, "scalar anchor order");
++        assert_eq!(&bucket_ctx.scores[..n], &scalar_ctx.scores[..n], "scalar DP scores");
++        assert_eq!(&bucket_ctx.predecessors[..n], &scalar_ctx.predecessors[..n], "scalar predecessor ties");
++    }
++}
++
++fn tandem_anchors() -> Vec<Minimizer> {
++    let mut seed = 0x2545_f491_4f6c_dd1d;
++    let mut anchors = Vec::new();
++    let mut q = 0;
++    while q < 20_000 {
++        for _ in 0..30 {
++            let shift = random(&mut seed, 400) * 37;
++            anchors.push(Minimizer { x: 1_000_000 + q + shift, y: (19 << 32) | q });
++        }
++        if random(&mut seed, 4) == 0 {
++            anchors.push(Minimizer { x: 1_000_000 + q + 900, y: (19 << 32) | q });
++        }
++        if random(&mut seed, 3) == 0 {
++            anchors.push(Minimizer { x: 1_000_000 + random(&mut seed, 40_000), y: (19 << 32) | q });
++        }
++        q += 7 + random(&mut seed, 6);
++    }
++    anchors.sort_by_key(|a| (a.x, a.y));
++    anchors.dedup();
++    anchors
++}
++
++#[test]
++fn test_neon_diag_buckets_dense() {
++    let anchors = tandem_anchors();
++    assert!(anchors.len() > 4 * DIAG_BUCKET_MIN_N);
++    let (mut buckets, mut contiguous) = (ChainingBuffers::new(), ChainingBuffers::new());
++    for (bw, skip) in [(500, 25), (100, 10), (5000, 25)] {
++        assert_matches_contiguous(&anchors, &params(bw, skip), &mut buckets, &mut contiguous);
++        assert_eq!(buckets.diag_buckets.id.len(), anchors.len());
++        let nb = buckets.diag_buckets.nbr.len();
++        assert_eq!(buckets.diag_buckets.lists[..nb].iter().map(Vec::len).sum::<usize>(), anchors.len());
++    }
++}
++
++#[test]
++fn test_neon_diag_buckets_negative_diagonals_and_reuse() {
++    let mut anchors = Vec::new();
++    // Neighboring buckets on either side of zero and of power-of-two boundaries;
++    // three target/strand groups also share bucket lists across target transitions.
++    for rid_strand in [0u64, 1, 0x8000_0000] {
++        for q in 8000..8256u64 {
++            for diagonal in [-129i64, -128, -127, -1, 0, 1, 127, 128, 129, 4000] {
++                let r = (q as i64 + diagonal) as u64;
++                anchors.push(Minimizer { x: (rid_strand << 32) | r, y: (19 << 32) | q });
++            }
++        }
++    }
++    anchors.sort_by_key(|a| (a.x, a.y));
++    let (mut buckets, mut contiguous) = (ChainingBuffers::new(), ChainingBuffers::new());
++    for bw in [1, 127, 128, 129, 500] {
++        assert_matches_contiguous(&anchors, &params(bw, 1), &mut buckets, &mut contiguous);
++    }
++    // Check restoration even when backtracking returns no chains, then exercise a
++    // small read, an empty read, and the dense input again with the same scratch.
++    let mut no_chains = params(128, 25);
++    no_chains.min_cnt = anchors.len() as i32 + 1;
++    assert_matches_contiguous(&anchors, &no_chains, &mut buckets, &mut contiguous);
++    assert_matches_contiguous(&anchors[..100], &params(128, 25), &mut buckets, &mut contiguous);
++    assert_matches_contiguous(&[], &params(128, 25), &mut buckets, &mut contiguous);
++    assert_matches_contiguous(&anchors, &params(128, 25), &mut buckets, &mut contiguous);
++}
++
++#[test]
++fn test_neon_diag_buckets_window_and_activation_boundaries() {
++    let mut anchors = Vec::new();
++    // Exactly 1024 anchors over a 512-base query interval: both activation thresholds.
++    for q in 0..512u64 {
++        for shift in [0, 1000] {
++            anchors.push(Minimizer { x: 100_000 + q + shift, y: (19 << 32) | q });
++        }
++    }
++    anchors.sort_by_key(|a| (a.x, a.y));
++    let (mut buckets, mut contiguous) = (ChainingBuffers::new(), ChainingBuffers::new());
++    for max_iter in [127, 128, 129, 5000] {
++        let mut opt = params(100, 10);
++        opt.max_chain_iter = max_iter;
++        assert_matches_contiguous(&anchors, &opt, &mut buckets, &mut contiguous);
++    }
++    for skip in [0, -1] {
++        assert_matches_contiguous(&anchors, &params(100, skip), &mut buckets, &mut contiguous);
++    }
++    assert_matches_contiguous(&anchors[..1023], &params(100, 25), &mut buckets, &mut contiguous);
++    let sparse: Vec<_> = (0..1100u64).map(|q| Minimizer {
++        x: 100_000 + q * 20, y: (19 << 32) | (q * 20),
++    }).collect();
++    assert_matches_contiguous(&sparse, &params(500, 25), &mut buckets, &mut contiguous);
++}
++
++#[test]
++fn test_neon_diag_buckets_randomized() {
++    let (mut buckets, mut contiguous) = (ChainingBuffers::new(), ChainingBuffers::new());
++    for case in 0..24u64 {
++        let mut seed = 0x9e37_79b9_7f4a_7c15u64.wrapping_mul(case + 1);
++        let mut anchors = Vec::new();
++        for q in (0..1200u64).step_by(6) {
++            for _ in 0..20 {
++                let rid_strand = random(&mut seed, 3);
++                let r = 100_000 + q + random(&mut seed, 12000);
++                let span = 9 + random(&mut seed, 22);
++                anchors.push(Minimizer { x: (rid_strand << 32) | r, y: (span << 32) | q });
++            }
++        }
++        anchors.sort_by_key(|a| (a.x, a.y));
++        let mut opt = params([1, 16, 31, 100, 500, 2000][case as usize % 6], [1, 10, 25][case as usize % 3]);
++        opt.chn_pen_gap = [0.0, 0.152, 0.5][case as usize % 3];
++        opt.chn_pen_skip = [0.0, 0.05][case as usize % 2];
++        opt.max_chain_iter = [129, 500, 5000][case as usize % 3];
++        assert_matches_contiguous(&anchors, &opt, &mut buckets, &mut contiguous);
++    }
++}
++
++#[test]
++fn test_neon_diag_buckets_signed_coordinate_boundary() {
++    for query_boundary in [false, true] {
++        let mut anchors = Vec::new();
++        for q in 0..64u64 {
++            for shift in 0..32u64 {
++                let (r, query) = if query_boundary {
++                    (100_000 + q + shift, i32::MAX as u64 - 40 + q)
++                } else {
++                    (i32::MAX as u64 - 40 + q + shift, q)
++                };
++                anchors.push(Minimizer { x: r, y: (19 << 32) | query });
++            }
++        }
++        anchors.sort_by_key(|a| (a.x, a.y));
++        let (mut buckets, mut contiguous) = (ChainingBuffers::new(), ChainingBuffers::new());
++        assert_matches_contiguous(&anchors, &params(100, 25), &mut buckets, &mut contiguous);
++        assert!(buckets.diag_buckets.id.is_empty(), "signed-coordinate wrap must use the contiguous fallback");
++    }
++}

@@ -64,6 +64,12 @@ Variant calling (Clair3 + rtg vcfeval vs GIAB v4.2.1; Sniffles2 + Truvari vs GIA
 The measurements, methods and every optimisation tried (adopted or rejected) are written up in the
 development repository's README.
 
+Apple Silicon chaining experiments and the nominal 1×/10× HG002 ONT WGS runs are documented in
+[the macOS validation report](docs/validation/2026-10-13-macos-arm64/README.md), with source
+provenance, trial logs, output checks and [reproduction scripts](scripts/validation/README.md).
+The Mac output-preservation checks do not establish real-data x86/ARM equality or new accuracy
+qualification; those limits are recorded with the measurements.
+
 ## How it differs from minimap2
 
 Same seeding and scoring as minimap2's `lr:hq`, with cheaper alignment and chaining: narrower,

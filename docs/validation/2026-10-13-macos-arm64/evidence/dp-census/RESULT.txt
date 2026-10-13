@@ -1,0 +1,113 @@
+Bonefish: remaining optimization opportunities, 2026-10-13
+
+The strongest remaining target is dual-affine DP. After the two NEON chaining
+changes, alignment accounts for 48.45% of summed worker-stage time in
+the three uninstrumented full nominal-1x HG002 runs. Seeding accounts for
+21.59%. These are worker wall-duration fractions, not exact CPU shares or
+promises about elapsed speedup.
+
+Uninstrumented production candidate: mean 106.888 seconds over three trials,
+range 101.805-112.393 seconds, eight threads, fresh index plus SAM output.
+
+Stage                    Worker seconds   Fraction
+Sequence Sketching        25.505      3.47%
+Seeding (Lookup)         158.604     21.59%
+Chaining                 116.003     15.79%
+Alignment (Ext)          355.895     48.45%
+Post-chain                78.601     10.70%
+
+A full nominal-1x run of the existing census feature recorded 7,241,438 alignment
+helper calls and 36,208 sampled input frames. Fixed-record and variable-frame
+boundaries, matching sample counts, nt4 inputs, and CIGAR consumption passed
+validation. No duration saturated the recorder's u32 nanosecond field.
+
+Helper                   Calls       Worker seconds   Recorded share
+left_extension        223,202      69.531     23.84%
+gap_fill            6,848,118     138.508     47.49%
+gap_rerun              10,733      19.315      6.62%
+right_extension       159,385      64.316     22.05%
+
+Read-end extensions together consumed 133.847 worker seconds (45.89% of recorded
+helper time). Gap fills consumed 138.508 seconds (47.49%). Gap reruns consumed
+19.315 seconds (6.62%). This establishes two substantial DP targets.
+
+Priority 1: implement efficient adaptive-band DP for ARM/Apple silicon.
+The default DNA preset requests ext_adaptive=64 and ext_bw=200. On x86 with AVX2,
+extend_dual_affine_adaptive routes to the clean adaptive kernel. On ARM, the
+function discards width and falls back to the static NEON implementation.
+An ARM implementation can reduce cells processed while following indel drift.
+Retain wide-band rescue, z-drop, traceback and scoring behavior; measure the
+actual reduction with paired full-dataset production builds.
+
+Priority 2: bring specialized narrow-band DP to NEON.
+The AVX2 clean kernel fuses score calculation with DP and has a specialized
+register-state path for APPROX_MAX with bandwidth <=31. ARM always uses the
+general 16-lane NEON kernel, including a separate score pass and memory-backed
+state. The workload is already using narrow gap bands: 8,048,389 successful
+inner narrow attempts were reported, with 4,146 edge fallbacks. That count is
+not the census's helper count; helpers can contain multiple subanchor pieces,
+and the census omits one equal-length gap branch.
+
+Avoid prioritizing by call count alone. Among recorded gap helpers, 5,923,275
+with max input length 128-255 consumed 48.147 seconds. Only 117,812 helpers with
+max input length >=1024 consumed 75.527 seconds, over half of recorded gap-fill
+time. The snapshots contain representative real inputs for both classes.
+
+Priority 3: reduce common DP memory traffic, then profile seed lookup.
+Legacy NEON, SSE, AVX2 and AVX512 kernels zero their entire scratch prefix, then
+overwrite six state arrays with gap boundaries. Selective initialization is
+a small experiment that could retain existing output semantics. Fusing scoring
+and recurrence is another candidate, but must preserve the legacy treatment
+of cells outside the logical band. Scratch allocation caching already exists;
+adding the same cache again would not address the remaining cost. Measure any
+memory-traffic changes before claiming a material gain. Seed lookup is the
+next large shared pipeline stage and warrants cache-miss/lookup profiling
+after the DP work, rather than assuming prefetching will improve it.
+
+Semantic and measurement limits
+The AVX2 clean DP uses scalar exact-band semantics; the legacy NEON kernel uses
+rounded vector bands and stale scores outside the logical band. A direct port
+can change scores, CIGARs and downstream mapping decisions. Differential
+validation against the intended scalar/AVX2 semantics, full output comparisons,
+and alignment-quality checks are needed before enabling such a port by default.
+No further DP implementation was changed during this audit. ARM/Linux and x86
+runtime/performance qualification remain pending native machines.
+
+Census hooks surround helpers, not every individual SIMD invocation. Their
+durations include probes, subanchor selection and retries. Recorded bandwidth
+is the outer parameter, not necessarily the actual inner kernel bandwidth.
+The equal-length ungapped-first branch is not covered by the gap hooks, so
+the category shares describe recorded work only. Instrumentation adds overhead;
+the profile's 114.658-second elapsed time is not a new optimization result.
+Snapshot replay must reconstruct helper/probe arguments or capture the actual
+inner-kernel inputs; simply passing outer parameters to a kernel is insufficient.
+
+Validation and retained evidence
+The instrumented run returned 0 with 132,946 records, 86,553 unique primaries,
+77,376 mapped primaries, no missing or extra read names, and an exact match to
+the original release SAM after removing @PG:
+4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66
+Output equality is preservation evidence, not independent alignment accuracy.
+
+The normal production binary was rebuilt without census and its SHA256 again
+matches the previous masked-chaining candidate:
+1cb876c7cef4d1e3bebd433f9a6bfeea9e145669638687e89107a242004e669b
+Source HEAD remains 2061243d0010e2895453a170c988ee54b37e7930, with only the previous
+three chaining files changed/untracked. No commit or push was made.
+
+Source pointers in the isolated checkout:
+bonefish-core/src/api.rs:568-575 - preset bands and clean-DP selection
+bonefish-core/src/align/dp/dual.rs:103-116 - ARM and AVX2 dispatch
+bonefish-core/src/align/dp/dual.rs:241-263 - repeated scratch initialization
+bonefish-core/src/align/dp/dual.rs:364-399 - separate NEON score pass
+bonefish-core/src/align/dp/dual.rs:2660-2678 - ARM adaptive-width fallback
+bonefish-core/src/align/dp/dual_clean.rs:1-11,47-74 - exact-band and narrow kernels
+bonefish-core/src/align/extend.rs:1183-1224,1365-1403 - probes and narrow rescue
+bonefish-core/src/align/extend.rs:1846-1864,1941-2014,2112-2131 - census scope
+bonefish-core/src/align/dp/common.rs:358-422 - existing scratch cache
+
+To reproduce census analysis from this directory:
+python3 analyze_census.py profile CENSUS_SUMMARY.json
+The raw profile.calls.bin and profile.seqs.bin are retained with SHA256 checksums.
+profile-1.json and profile-1.log preserve the completed run and output receipt.
+AUDIT_METADATA.json preserves build, source state and production-stage fractions.

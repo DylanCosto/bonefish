@@ -1,0 +1,227 @@
+warning: unused import: `super::common::*`
+  --> bonefish-core/src/align/dp/dual_clean.rs:18:5
+   |
+18 | use super::common::*;
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `half`
+    --> bonefish-core/src/align/dp/dual.rs:2690:9
+     |
+2690 |     let half = (diag_hi - shift).max(shift - diag_lo);
+     |         ^^^^ help: if this is intentional, prefix it with an underscore: `_half`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `go`
+    --> bonefish-core/src/align/dp/dual.rs:2691:10
+     |
+2691 |     let (go, ge, go2, ge2) = if (gap_open2 as i32 + gap_extend2 as i32) < (gap_open as i32 + gap_extend as i32) {
+     |          ^^ help: if this is intentional, prefix it with an underscore: `_go`
+
+warning: unused variable: `ge`
+    --> bonefish-core/src/align/dp/dual.rs:2691:14
+     |
+2691 |     let (go, ge, go2, ge2) = if (gap_open2 as i32 + gap_extend2 as i32) < (gap_open as i32 + gap_extend as i32) {
+     |              ^^ help: if this is intentional, prefix it with an underscore: `_ge`
+
+warning: unused variable: `go2`
+    --> bonefish-core/src/align/dp/dual.rs:2691:18
+     |
+2691 |     let (go, ge, go2, ge2) = if (gap_open2 as i32 + gap_extend2 as i32) < (gap_open as i32 + gap_extend as i32) {
+     |                  ^^^ help: if this is intentional, prefix it with an underscore: `_go2`
+
+warning: unused variable: `ge2`
+    --> bonefish-core/src/align/dp/dual.rs:2691:23
+     |
+2691 |     let (go, ge, go2, ge2) = if (gap_open2 as i32 + gap_extend2 as i32) < (gap_open as i32 + gap_extend as i32) {
+     |                       ^^^ help: if this is intentional, prefix it with an underscore: `_ge2`
+
+warning: static `REG1_OFF` is never used
+   --> bonefish-core/src/align/dp/dual_clean.rs:560:8
+    |
+560 | static REG1_OFF: std::sync::LazyLock<bool> =
+    |        ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: static `SKETCH_SCALAR` is never used
+   --> bonefish-core/src/align/sketch.rs:201:8
+    |
+201 | static SKETCH_SCALAR: std::sync::LazyLock<bool> =
+    |        ^^^^^^^^^^^^^
+
+warning: `bonefish-core` (lib) generated 8 warnings (run `cargo fix --lib -p bonefish-core` to apply 6 suggestions)
+warning: `bonefish-core` (lib test) generated 8 warnings (8 duplicates)
+   Compiling bonefish-core v0.1.0 (${REPO}/bonefish-core)
+   Compiling bonefish v0.1.0 (${REPO}/bonefish)
+    Finished `release` profile [optimized] target(s) in 6.10s
+     Running unittests src/main.rs (target/release/deps/bonefish-90d94f1232984bef)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/regression.rs (target/release/deps/regression-6165aa91949c9a4c)
+
+running 5 tests
+test bam_input_gives_same_output ... ok
+test bgzipped_fastq_gives_same_output ... ok
+test raw_index_gives_same_output ... ok
+test sorted_bam_output ... ok
+test outputs_match_expected ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+     Running unittests src/lib.rs (target/release/deps/bonefish-ebf60e2990aa042b)
+
+running 132 tests
+test align::align_simple::tests::test_simple_aligner_empty ... ok
+test align::align_simple::tests::test_simple_aligner_single_anchor ... ok
+test align::chain_rmq::tests::test_rmq_tree_basic ... ok
+test align::align_simple::tests::test_nw_identical ... ok
+test align::align_simple::tests::test_nw_with_gap ... ok
+test align::align_simple::tests::test_simple_aligner_two_anchors_with_gap ... ok
+test align::chain::tests::test_chain_synthetic ... ok
+test align::chain_rmq::tests::test_chain_rmq_simple ... ok
+test align::chain_simd::masked_tests::test_masked_scores_mixed_targets_in_vector_groups ... ok
+test align::chain_simd::masked_tests::test_masked_scores_signed_coordinate_crossings ... ok
+test align::chain_simple::tests::test_greedy_chain_break ... ok
+test align::chain_simple::tests::test_greedy_empty ... ok
+test align::chain_simple::tests::test_greedy_single_chain ... ok
+test align::dp::bench_gap::bench_gap_fill ... ignored
+test align::chain_simple::tests::test_greedy_sorted_by_score ... ok
+test align::dp::tests::test_cigar_all_matches ... ok
+test align::chain_simd::masked_tests::test_masked_scores_all_chunk_lengths_and_offsets ... ok
+test align::dp::tests::test_1_mismatch ... ok
+test align::dp::tests::test_cigar_with_deletion ... ok
+test align::dp::tests::test_dp_cache_cap_setter ... ok
+test align::dp::tests::test_cigar_with_insertion ... ok
+test align::dp::tests::test_empty_sequences ... ok
+test align::dp::tests::test_dual_affine_long_gap ... ok
+test align::dp::tests::test_extd2 ... ok
+test align::dp::tests::test_extd2_scalar ... ok
+test align::dp::tests::test_extd2_score_only ... ok
+test align::dp::tests::test_gap ... ok
+test align::dp::tests::test_long_gap_uses_second_penalty ... ok
+test align::dp::tests::test_medium_gap_at_crossover ... ok
+test align::dp::tests::test_neon_dual_affine_small ... ok
+test align::dp::tests::test_neon_vs_scalar_dual_affine ... ok
+test align::dp::tests::test_scalar_dual_affine ... ok
+test align::dp::tests::test_short_gap_uses_first_penalty ... ok
+test align::dp::tests::test_simple_match ... ok
+test align::dp::tests::test_single_affine_basic ... ok
+test align::dp::tests::test_single_base_match ... ok
+test align::dp::tests::test_scalar_neon_consistency_various_sizes ... ok
+test align::dp::tests::test_single_base_mismatch ... ok
+test align::filter::tests::test_parent_assignment_no_overlap ... ok
+test align::filter::tests::test_parent_assignment_with_overlap ... ok
+test align::filter::tests::test_secondary_filter_fails ... ok
+test align::filter::tests::test_secondary_filter_passes_min_diff ... ok
+test align::filter::tests::test_secondary_filter_passes_ratio ... ok
+test align::filter::tests::test_secondary_filter_passes_strand ... ok
+test align::dp::tests::test_neon_dual_affine_tiebreak_regression ... ok
+test align::chain_simd::neon_tests::test_neon_diag_buckets_signed_coordinate_boundary ... ok
+test align::index_bucket::bench_layout::bench_layout_region ... ignored
+test align::index_bucket::tests::test_bucket_hash_basic ... ok
+test align::chain_simd::neon_tests::test_neon_diag_buckets_window_and_activation_boundaries ... ok
+test align::index::tests::test_idx_build ... ok
+test align::index::tests::test_cal_mid_occ ... ok
+test align::pipeline::tests::test_count_cigar_ops ... ok
+test align::pipeline::tests::test_write_cigar_as_bam_uints ... ok
+test align::pipeline::tests::test_align_and_format_simple ... ok
+test align::sketch::tests::test_kmer_hash_wraps_instead_of_overflowing ... ok
+test align::sketch::tests::test_sketch_basic ... ok
+test align::sketch::tests::test_sketch_empty ... ok
+test align::map::tests::test_repetitive_filtering ... ok
+test align::map::tests::test_secondary_alignment ... ok
+test align::sort::tests::test_radix_sort_basic ... ok
+test align::sort::tests::test_radix_sort_deterministic ... ok
+test align::strobemer::tests::test_randstrobe_deterministic ... ok
+test align::strobemer::tests::test_randstrobe_handles_ambiguous_bases ... ok
+test align::sort::tests::test_radix_sort_large ... ok
+test align::strobemer::tests::test_randstrobe_handles_short_sequence ... ok
+test align::strobemer::tests::test_randstrobe_positions_valid ... ok
+test align::strobemer::tests::test_randstrobe_produces_output ... ok
+test align::strobemer::tests::test_randstrobe_span_in_range ... ok
+test align::syncmer::tests::test_syncmer_density_varies_with_s ... ok
+test align::syncmer::tests::test_syncmer_empty_and_short ... ok
+test align::syncmer::tests::test_syncmer_handles_ambiguous_bases ... ok
+test align::syncmer::tests::test_syncmer_produces_output ... ok
+test align::wfa::vs_ksw2::wfa_vs_gap_dp ... ignored
+test api::tests::test_apply_preset_aliases_and_unknown ... ok
+test align::chain_simd::neon_tests::test_neon_masked_scan_sparse_anchors ... ok
+test api::tests::test_builder_rejects_invalid_params ... ok
+test api::tests::test_dp_align_identical ... ok
+test api::tests::test_dp_align_with_insertion ... ok
+test api::tests::test_dp_align_with_mismatch ... ok
+test api::tests::test_dp_dual_affine ... ok
+test api::tests::test_dp_extension ... ok
+test api::tests::test_dp_global_identical ... ok
+test api::tests::test_dp_global_with_indel ... ok
+test api::tests::test_dp_local_finds_best_region ... ok
+test api::tests::test_encode_nt4 ... ok
+test api::tests::test_builder_k_override_rescales_chn_pen_gap ... ok
+test align::sort::leaf_sort_tests::leaf_sort_matches_insertion_sort ... ok
+test api::tests::test_map_result_empty ... ok
+test api::tests::test_mid_occ_only_calibrated_when_unset ... ok
+test api::tests::test_from_index_reader_bounded_and_trailing ... ok
+test api::tests::test_preset_as_str_roundtrip ... ok
+test fasta::reader::tests::test_bad_input_errors_once_then_fused ... ok
+test fasta::reader::tests::test_consumer_loop_terminates_on_bad_input ... ok
+test fasta::reader::tests::test_detect_format_fasta ... ok
+test fasta::reader::tests::test_detect_format_fastq ... ok
+test fasta::reader::tests::test_empty_input_is_clean_eof ... ok
+test fasta::reader::tests::test_for_each_record_fasta ... ok
+test fasta::reader::tests::test_for_each_record_fastq ... ok
+test fasta::reader::tests::test_read_fasta_owned ... ok
+test fasta::reader::tests::test_read_fastq_owned ... ok
+test fasta::record::tests::test_ref_record_to_owned ... ok
+test fasta::record::tests::test_ref_record_to_owned_no_desc ... ok
+test fasta::stream::tests::fasta_byte_by_byte ... ok
+test fasta::stream::tests::fasta_chunk_splits_header ... ok
+test fasta::stream::tests::fasta_chunk_splits_sequence ... ok
+test fasta::stream::tests::fasta_crlf_line_endings ... ok
+test fasta::stream::tests::fasta_multiline_sequence ... ok
+test fasta::stream::tests::fasta_name_strips_at_whitespace ... ok
+test fasta::stream::tests::fasta_no_trailing_newline ... ok
+test fasta::stream::tests::fasta_rna_to_dna ... ok
+test fasta::stream::tests::fasta_single_record ... ok
+test fasta::stream::tests::fasta_two_records ... ok
+test fasta::stream::tests::fastq_byte_by_byte ... ok
+test fasta::stream::tests::fastq_chunk_splits_record ... ok
+test fasta::stream::tests::fastq_crlf_line_endings ... ok
+test fasta::stream::tests::fastq_name_strips_at_whitespace ... ok
+test fasta::stream::tests::fastq_no_trailing_newline ... ok
+test fasta::stream::tests::fastq_single_record ... ok
+test fasta::stream::tests::fastq_two_records ... ok
+test sorted_bam::tests::int_tag_types ... ok
+test sorted_bam::tests::reg2bin_matches_htslib ... ok
+test api::tests::test_from_index_derives_chn_pen_gap_from_index_k ... ok
+test api::tests::test_out_cigar_flag_matches_output_config ... ok
+test align::chain_simd::neon_tests::test_neon_diag_buckets_negative_diagonals_and_reuse ... ok
+test align::index::tests::test_lookup_matches_minimizers ... ok
+test align::index::tests::test_bincode_roundtrip ... ok
+test align::sketch::tests::chunked_sketch_matches_one_pass ... ok
+test align::index::tests::test_raw_roundtrip ... ok
+test align::chain_simd::neon_tests::test_neon_diag_buckets_randomized ... ok
+test align::dp::lw::lw_score_tests::lightweight_score_matches_align_i16 ... ok
+test align::chain_simd::neon_tests::test_neon_diag_buckets_dense ... ok
+test align::wfa::tests::wfa_matches_dp_score ... ok
+
+test result: ok. 129 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 2.00s
+
+   Doc-tests bonefish
+
+running 6 tests
+test bonefish-core/src/api.rs - api (line 9) - compile ... ok
+test bonefish-core/src/api.rs - api::Aligner (line 145) - compile ... ok
+test bonefish-core/src/api.rs - api::Aligner::builder (line 350) - compile ... ok
+test bonefish-core/src/api.rs - api::Aligner::from_seqs (line 386) - compile ... ok
+test bonefish-core/src/api.rs - api::AlignerBuilder (line 186) - compile ... ok
+test bonefish-core/src/api.rs - api::dp_align (line 648) ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+all doctests ran in 1.92s; merged doctests compilation took 1.81s

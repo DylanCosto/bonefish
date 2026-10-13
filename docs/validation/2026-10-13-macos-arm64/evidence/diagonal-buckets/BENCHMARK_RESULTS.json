@@ -1,0 +1,238 @@
+{
+  "decision": "Keep the guarded ARM/NEON port as an uncommitted experimental candidate; it reduced elapsed time on this full 1x HG002 workload while preserving every alignment record.",
+  "order": [
+    "control-2",
+    "candidate-3",
+    "candidate-4",
+    "control-3"
+  ],
+  "control": {
+    "runs": [
+      "control-2",
+      "control-3"
+    ],
+    "n": 2,
+    "elapsed_seconds": [
+      137.33533962490037,
+      147.06146608432755
+    ],
+    "mean_elapsed_seconds": 142.19840285461396,
+    "min_elapsed_seconds": 137.33533962490037,
+    "max_elapsed_seconds": 147.06146608432755,
+    "mean_worker_chaining_seconds": 280.3025,
+    "mean_worker_extension_seconds": 365.93399999999997,
+    "peak_rss_bytes": [
+      15098249216,
+      14993883136
+    ],
+    "min_peak_rss_bytes": 14993883136,
+    "max_peak_rss_bytes": 15098249216,
+    "mean_instructions_retired": 14057337154368
+  },
+  "candidate": {
+    "runs": [
+      "candidate-3",
+      "candidate-4"
+    ],
+    "n": 2,
+    "elapsed_seconds": [
+      117.34883829206228,
+      131.31733300024644
+    ],
+    "mean_elapsed_seconds": 124.33308564615436,
+    "min_elapsed_seconds": 117.34883829206228,
+    "max_elapsed_seconds": 131.31733300024644,
+    "mean_worker_chaining_seconds": 170.446,
+    "mean_worker_extension_seconds": 365.522,
+    "peak_rss_bytes": [
+      14426587136,
+      16068706304
+    ],
+    "min_peak_rss_bytes": 14426587136,
+    "max_peak_rss_bytes": 16068706304,
+    "mean_instructions_retired": 11917253189149.5
+  },
+  "elapsed_reduction_percent": 12.563655322293176,
+  "elapsed_speedup_ratio": 1.1436891645985798,
+  "seconds_saved_per_run": 17.8653172084596,
+  "worker_chaining_duration_reduction_percent": 39.19212279590799,
+  "all_final_sam_outputs_identical_except_pg": true,
+  "runs": [
+    {
+      "run": "control-2",
+      "started_utc": "2026-10-13T15:33:18.930229+00:00",
+      "command": [
+        "${SESSION}/outputs/bonefish-neon-experiment/bonefish.control",
+        "-a",
+        "-t",
+        "8",
+        "${REFERENCE}",
+        "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+      ],
+      "binary_sha256": "c964ff4c00c983ea34d3b8b46bbd11ba39bfb75893ddc8984ae64882e70eeefa",
+      "returncode": 0,
+      "threads": 8,
+      "elapsed_seconds_including_index_and_sam": 137.33533962490037,
+      "peak_rss_bytes": 15098249216,
+      "sam_sha256_without_pg": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+      "same_as_original_release_sam": true,
+      "records": 132946,
+      "primary": 86553,
+      "mapped_primary": 77376,
+      "unique_primary_names": 86553,
+      "missing_primary_names": 0,
+      "unexpected_primary_names": 0,
+      "worker_stage_sums_seconds": {
+        "Sequence Sketching": 27.666,
+        "Seeding (Lookup)": 212.535,
+        "Chaining": 278.794,
+        "Alignment (Ext)": 363.028,
+        "Post-chain": 80.377,
+        "Total Measured": 962.401
+      },
+      "warnings": [],
+      "timing_scope": "One fresh FASTA-built index plus mapping and SAM writing to the same internal-SSD file; validation occurs after the timed command.",
+      "instructions_retired": 14021970430217,
+      "peak_memory_footprint_bytes": 18512017424,
+      "user_seconds": 811.38,
+      "system_seconds": 115.09
+    },
+    {
+      "run": "candidate-3",
+      "started_utc": "2026-10-13T15:38:30.924087+00:00",
+      "command": [
+        "${SESSION}/outputs/bonefish-neon-experiment/bonefish",
+        "-a",
+        "-t",
+        "8",
+        "${REFERENCE}",
+        "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+      ],
+      "binary_sha256": "07f305c3ca6731408a3dc5f69fa377bef98e0d7edf64f0462570731855afd414",
+      "returncode": 0,
+      "threads": 8,
+      "elapsed_seconds_including_index_and_sam": 117.34883829206228,
+      "peak_rss_bytes": 14426587136,
+      "sam_sha256_without_pg": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+      "same_as_original_release_sam": true,
+      "records": 132946,
+      "primary": 86553,
+      "mapped_primary": 77376,
+      "unique_primary_names": 86553,
+      "missing_primary_names": 0,
+      "unexpected_primary_names": 0,
+      "worker_stage_sums_seconds": {
+        "Sequence Sketching": 26.394,
+        "Seeding (Lookup)": 174.648,
+        "Chaining": 167.891,
+        "Alignment (Ext)": 359.394,
+        "Post-chain": 78.929,
+        "Total Measured": 807.256
+      },
+      "warnings": [],
+      "timing_scope": "One fresh FASTA-built index plus mapping and SAM writing to the same internal-SSD file; validation occurs after the timed command.",
+      "instructions_retired": 11869997587817,
+      "peak_memory_footprint_bytes": 18031671096,
+      "user_seconds": 711.53,
+      "system_seconds": 85.08
+    },
+    {
+      "run": "candidate-4",
+      "started_utc": "2026-10-13T15:40:32.607126+00:00",
+      "command": [
+        "${SESSION}/outputs/bonefish-neon-experiment/bonefish",
+        "-a",
+        "-t",
+        "8",
+        "${REFERENCE}",
+        "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+      ],
+      "binary_sha256": "07f305c3ca6731408a3dc5f69fa377bef98e0d7edf64f0462570731855afd414",
+      "returncode": 0,
+      "threads": 8,
+      "elapsed_seconds_including_index_and_sam": 131.31733300024644,
+      "peak_rss_bytes": 16068706304,
+      "sam_sha256_without_pg": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+      "same_as_original_release_sam": true,
+      "records": 132946,
+      "primary": 86553,
+      "mapped_primary": 77376,
+      "unique_primary_names": 86553,
+      "missing_primary_names": 0,
+      "unexpected_primary_names": 0,
+      "worker_stage_sums_seconds": {
+        "Sequence Sketching": 26.876,
+        "Seeding (Lookup)": 260.678,
+        "Chaining": 173.001,
+        "Alignment (Ext)": 371.65,
+        "Post-chain": 82.554,
+        "Total Measured": 914.758
+      },
+      "warnings": [],
+      "timing_scope": "One fresh FASTA-built index plus mapping and SAM writing to the same internal-SSD file; validation occurs after the timed command.",
+      "instructions_retired": 11964508790482,
+      "peak_memory_footprint_bytes": 18160039808,
+      "user_seconds": 715.26,
+      "system_seconds": 131.36
+    },
+    {
+      "run": "control-3",
+      "started_utc": "2026-10-13T15:42:48.208150+00:00",
+      "command": [
+        "${SESSION}/outputs/bonefish-neon-experiment/bonefish.control",
+        "-a",
+        "-t",
+        "8",
+        "${REFERENCE}",
+        "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+      ],
+      "binary_sha256": "c964ff4c00c983ea34d3b8b46bbd11ba39bfb75893ddc8984ae64882e70eeefa",
+      "returncode": 0,
+      "threads": 8,
+      "elapsed_seconds_including_index_and_sam": 147.06146608432755,
+      "peak_rss_bytes": 14993883136,
+      "sam_sha256_without_pg": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+      "same_as_original_release_sam": true,
+      "records": 132946,
+      "primary": 86553,
+      "mapped_primary": 77376,
+      "unique_primary_names": 86553,
+      "missing_primary_names": 0,
+      "unexpected_primary_names": 0,
+      "worker_stage_sums_seconds": {
+        "Sequence Sketching": 28.161,
+        "Seeding (Lookup)": 281.848,
+        "Chaining": 281.811,
+        "Alignment (Ext)": 368.84,
+        "Post-chain": 82.557,
+        "Total Measured": 1043.218
+      },
+      "warnings": [],
+      "timing_scope": "One fresh FASTA-built index plus mapping and SAM writing to the same internal-SSD file; validation occurs after the timed command.",
+      "instructions_retired": 14092703878519,
+      "peak_memory_footprint_bytes": 18638354448,
+      "user_seconds": 815.87,
+      "system_seconds": 150.73
+    }
+  ],
+  "tests": {
+    "core_passed": 125,
+    "integration_passed": 5,
+    "doctests_passed": 6,
+    "existing_ignored_benchmarks": 3,
+    "new_neon_differential_tests": 5,
+    "randomized_cases": 24
+  },
+  "base_commit_after_testing": "2061243d0010e2895453a170c988ee54b37e7930",
+  "git_status": "## main...origin/main\n M bonefish-core/src/align/chain_simd.rs\n?? bonefish-core/src/align/chain_simd_neon_tests.rs\n",
+  "staged_changes": false,
+  "committed": false,
+  "pushed": false,
+  "limitations": [
+    "Two measured runs per final build on one Apple M4 Pro Mac with 24 GiB RAM; elapsed times varied. No formal confidence interval or broader workload speedup is claimed.",
+    "Dataset is nominal 1x HG002 ONT ultra-long WGS from equal-base prefixes of four source parts, not a uniform random sample.",
+    "Summed per-read worker-stage durations are not serial elapsed time or exact CPU-time shares.",
+    "Current alignment choices and MAPQ are preserved. This is a speed/regression experiment, not an independent accuracy qualification.",
+    "Linux/x86 execution was not tested in this experiment; production changes are restricted to aarch64."
+  ]
+}

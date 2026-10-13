@@ -1,0 +1,58 @@
+   Compiling bonefish-core v0.1.0 (${REPO}/bonefish-core)
+   Compiling bonefish v0.1.0 (${REPO}/bonefish)
+warning: unused import: `super::common::*`
+  --> bonefish-core/src/align/dp/dual_clean.rs:18:5
+   |
+18 | use super::common::*;
+   |     ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `half`
+    --> bonefish-core/src/align/dp/dual.rs:2690:9
+     |
+2690 |     let half = (diag_hi - shift).max(shift - diag_lo);
+     |         ^^^^ help: if this is intentional, prefix it with an underscore: `_half`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `go`
+    --> bonefish-core/src/align/dp/dual.rs:2691:10
+     |
+2691 |     let (go, ge, go2, ge2) = if (gap_open2 as i32 + gap_extend2 as i32) < (gap_open as i32 + gap_extend as i32) {
+     |          ^^ help: if this is intentional, prefix it with an underscore: `_go`
+
+warning: unused variable: `ge`
+    --> bonefish-core/src/align/dp/dual.rs:2691:14
+     |
+2691 |     let (go, ge, go2, ge2) = if (gap_open2 as i32 + gap_extend2 as i32) < (gap_open as i32 + gap_extend as i32) {
+     |              ^^ help: if this is intentional, prefix it with an underscore: `_ge`
+
+warning: unused variable: `go2`
+    --> bonefish-core/src/align/dp/dual.rs:2691:18
+     |
+2691 |     let (go, ge, go2, ge2) = if (gap_open2 as i32 + gap_extend2 as i32) < (gap_open as i32 + gap_extend as i32) {
+     |                  ^^^ help: if this is intentional, prefix it with an underscore: `_go2`
+
+warning: unused variable: `ge2`
+    --> bonefish-core/src/align/dp/dual.rs:2691:23
+     |
+2691 |     let (go, ge, go2, ge2) = if (gap_open2 as i32 + gap_extend2 as i32) < (gap_open as i32 + gap_extend as i32) {
+     |                       ^^^ help: if this is intentional, prefix it with an underscore: `_ge2`
+
+warning: static `REG1_OFF` is never used
+   --> bonefish-core/src/align/dp/dual_clean.rs:560:8
+    |
+560 | static REG1_OFF: std::sync::LazyLock<bool> =
+    |        ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: static `SKETCH_SCALAR` is never used
+   --> bonefish-core/src/align/sketch.rs:201:8
+    |
+201 | static SKETCH_SCALAR: std::sync::LazyLock<bool> =
+    |        ^^^^^^^^^^^^^
+
+warning: `bonefish-core` (lib) generated 8 warnings (run `cargo fix --lib -p bonefish-core` to apply 6 suggestions)
+    Finished `release` profile [optimized] target(s) in 23.71s

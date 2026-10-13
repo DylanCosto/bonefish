@@ -23,3 +23,6 @@ Thumbs.db
 
 # Release packages built by scripts/package-release.sh
 /dist/
+
+# Python validation helpers
+__pycache__/

@@ -1,0 +1,69 @@
+Bonefish masked chaining experiment — 2026-10-13
+
+The NEON masked scan reduced observed average full-run elapsed time by
+8.4% beyond the previous diagonal-bucket build
+(116.65s to 106.89s).
+Summed worker chaining durations fell 30.2% and retired
+instructions fell 9.7%. Keep this as an uncommitted
+experimental candidate; elapsed ranges overlap, so the runtime result is
+provisional. No commits or pushes were made.
+
+Control: the previously successful guarded ARM diagonal-bucket implementation,
+not the original release. Same rustc 1.98.1, generic ARM64 release target,
+jemalloc, opt-level 3, fat LTO and one codegen unit; no native CPU tuning flags.
+Each timed run includes a fresh GRCh38 index, mapping and SAM writing to the
+same internal-SSD scratch file. Output validation occurs after timing.
+
+Run           Seconds    Peak RSS GiB
+control-1      121.98        11.62
+candidate-1    106.47        14.61
+candidate-2    112.39        14.81
+control-2      110.87        15.17
+control-3      117.09        13.73
+candidate-3    101.80        15.21
+
+Three runs per build. Control range: 110.87–121.98s;
+candidate range: 101.80–112.39s.
+Mean summed worker chaining durations: 166.15s
+control, 116.00s candidate. These are
+worker wall-duration sums, not sequential elapsed time or exact CPU shares.
+
+All six outputs matched the original release SAM after excluding @PG:
+4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66
+Each had 132,946 records, 86,553 unique primary reads, 77,376 mapped primaries,
+zero missing/extra primary names, and no warnings. Current CIGAR and MAPQ
+choices are preserved; this does not independently qualify their accuracy.
+
+The ordinary ARM64 scan now rejects off-band four-lane blocks before loading
+the other fields, skips score arithmetic when no lane is valid, and visits
+candidate bits in descending order. Its first chunk has 32 candidates,
+followed by 64-candidate chunks, matching the AVX2 strategy. Masked and
+unmasked NEON arithmetic share one const-specialized kernel. Wrapping i32
+diagonals preserve coordinate-boundary behavior. The earlier dense bucket
+optimization and its signed-coordinate guard remain enabled.
+
+Validation: 129 core tests, 5 integration tests and 6 doctests passed
+(140 total); 3 existing benchmark tests remained ignored. Shared AVX2/NEON
+fixtures check 1,431 score chunks across lengths 0–64, unaligned starts,
+mixed targets, and signed-coordinate crossings. Sparse-anchor chain tests
+also compare DP scores, predecessors, ties and final chains to the previous
+unmasked scan and to scalar where skip semantics agree. Existing dense,
+scratch-reuse, no-skip and golden output/BAM tests passed.
+
+Project direction: native efficiency across Apple silicon, ARM64 and x86,
+with shared conformance fixtures and portable release defaults. This code
+uses target_arch=aarch64, so Apple silicon and Linux ARM64 share the backend.
+The x86 production kernels were verified byte-for-byte unchanged. Native
+Linux ARM64 and x86 build/runtime/performance qualification remains pending;
+this Mac has only the aarch64-apple-darwin Rust target installed.
+
+Input: nominal 1x HG002 ONT ultra-long WGS, 86,553 reads and 3,088,602,282
+bases, equal-base prefixes of four source parts; not a uniform random sample.
+Reference: full GRCh38 no-alt analysis set. Hardware: Apple M4 Pro, 24 GiB.
+
+Local checkout: ${REPO}
+Base commit: 2061243d0010e2895453a170c988ee54b37e7930
+Source changes remain unstaged. The incremental patch applies after the
+previous diagonal-bucket patch; all-chaining-changes.patch applies to the
+original base and includes both optimizations and their tests. Experimental
+executable, unchanged control, logs, receipts and rerun scripts are here.

@@ -1,0 +1,44 @@
+{
+  "design_goal": "Efficient native implementations in one codebase across Apple silicon, ARM64, and x86; shared conformance checks and portable release defaults.",
+  "base_commit": "2061243d0010e2895453a170c988ee54b37e7930",
+  "control": "Previous guarded ARM diagonal-bucket implementation; not the original release.",
+  "control_sha256": "07f305c3ca6731408a3dc5f69fa377bef98e0d7edf64f0462570731855afd414",
+  "candidate_sha256": "1cb876c7cef4d1e3bebd433f9a6bfeea9e145669638687e89107a242004e669b",
+  "changes": [
+    "Add NEON masked predecessor scoring with cheap off-band block rejection.",
+    "Share masked and unmasked score arithmetic through const specialization.",
+    "Use a 32-candidate first chunk followed by 64-candidate chunks, matching the AVX2 strategy.",
+    "Precompute wrapping i32 diagonals; visit only set mask bits in descending order.",
+    "Add shared AVX2/NEON score-conformance fixtures and sparse-anchor differential coverage."
+  ],
+  "native_platform_executed": "Apple M4 Pro, aarch64-apple-darwin, 24 GiB RAM",
+  "linux_arm64_runtime_tested": false,
+  "x86_runtime_tested": false,
+  "x86_production_kernels_unchanged": true,
+  "shared_conformance_fixtures_available_on": [
+    "aarch64 NEON",
+    "x86_64 AVX2"
+  ],
+  "tests": {
+    "core_passed": 129,
+    "integration_passed": 5,
+    "doctests_passed": 6,
+    "existing_ignored_benchmarks": 3
+  },
+  "build_command": "CARGO_PROFILE_RELEASE_STRIP=true cargo build --release --locked --features jemalloc",
+  "test_command": "CARGO_PROFILE_RELEASE_STRIP=true cargo test --release --locked --features jemalloc",
+  "cpu_tuning_flags": null,
+  "threads": 8,
+  "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8\n",
+  "comparison_order": [
+    "control-1",
+    "candidate-1",
+    "candidate-2",
+    "control-2",
+    "control-3",
+    "candidate-3"
+  ],
+  "committed": false,
+  "pushed": false,
+  "additional_pair_reason": "Initial elapsed ranges overlapped despite a stable chaining-stage reduction; run a third matched pair."
+}
