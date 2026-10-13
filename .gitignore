@@ -17,3 +17,9 @@ Thumbs.db
 
 # Local cargo config overrides (keep the committed .cargo/config.toml, ignore personal overrides)
 .cargo/config.local.toml
+
+# Extra cargo target dirs used for local experiments and profiling (target-native, target-prof, ...)
+/target-*/
+
+# Release packages built by scripts/package-release.sh
+/dist/

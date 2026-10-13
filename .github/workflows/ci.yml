@@ -1,0 +1,21 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # x86_64 Linux (AVX2/AVX-512 kernels), arm64 Linux and arm64 macOS (NEON kernels).
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: Tests (unit, golden-output regression, doctests)
+        run: cargo test --release --locked --features jemalloc

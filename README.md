@@ -6,10 +6,24 @@ in one step. It is tuned and validated for variant calling: against GIAB truth s
 indel accuracy match minimap2's and its structural-variant recall is at or above minimap2's, while
 aligning 2.6-8x faster.
 
+## Install
+
+Prebuilt binaries are attached to each GitHub release: Linux x86_64 and arm64 (glibc 2.28 or
+newer: RHEL/Rocky 8+, Ubuntu 20.04+, Debian 10+) and macOS on Apple silicon. Unpack and run
+`./bonefish`. To build from source with a recent stable Rust toolchain:
+
+```bash
+cargo build --release --features jemalloc    # jemalloc is ~10% faster than the system allocator
+```
+
+The SIMD kernels are chosen at run time (AVX-512/AVX2 on x86_64, NEON on arm64), so one binary
+runs on any CPU of its architecture. The speed and accuracy figures below were measured on x86_64
+with AVX2. The release workflow builds each platform's binary only after that platform passes
+the golden-output regression tests.
+
 ## Quick start
 
 ```bash
-cargo build --release --features jemalloc
 ./target/release/bonefish -d ref.raw --idx-raw ref.fa          # optional: build a fast-loading index
 ./target/release/bonefish -t 16 -y --sort -o sample.bam ref.raw reads.bam   # sorted BAM + .bai
 ./target/release/bonefish -t 16 -a ref.fa reads.fq.gz > sample.sam
