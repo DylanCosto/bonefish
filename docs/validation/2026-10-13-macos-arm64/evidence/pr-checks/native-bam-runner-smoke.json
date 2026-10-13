@@ -1,0 +1,8 @@
+{
+  "sam_and_native_bam_fixture_reads": 160,
+  "sorted_bam_records": 185,
+  "primary_sequence_quality_inventory_passed": true,
+  "full_bam_cigar_bounds_sort_header_passed": true,
+  "previous_subset_record_multisets_passed": true,
+  "fixture_bam_sha256": "aa0e891078b4878dc72482f0e06501f1038b9113ba7aecfd2d59719c31d6e5c4"
+}

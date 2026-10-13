@@ -1,0 +1,219 @@
+{
+  "dataset": {
+    "sample": "HG002",
+    "platform": "ONT",
+    "basecaller": "Dorado 0.4.0",
+    "model_label": "SUP 4.1.0",
+    "reads": 1000,
+    "bases": 33304765,
+    "sampling": "First 1000 primary records in file order from part 1; not a random or coverage-normalized sample. Remote stream stopped after the complete 1000th record."
+  },
+  "versions": {
+    "minimap2": "2.30-r1287",
+    "samtools": "1.23.1+htslib-1.23.1",
+    "bonefish": "bonefish 0.1.0",
+    "reference_sha256": "3c8def6d325c5d1e934b2dd530c4d1709f027677a15859467071fddf3fff2026"
+  },
+  "threads": 4,
+  "reference": "${REFERENCE}",
+  "runs": {
+    "bonefish": {
+      "command": [
+        "${SESSION}/outputs/bonefish-macos/bonefish",
+        "-a",
+        "-t",
+        "4",
+        "${REFERENCE}",
+        "${SESSION}/outputs/bonefish-hg002-test/HG002_R1041_UL_dorado0.4.0_sup4.1.0.first1000.fastq.gz"
+      ],
+      "wall_seconds_including_index": 18.516,
+      "peak_rss_bytes": 9711616000,
+      "exit_code": 0,
+      "counts": {
+        "records": 1509,
+        "primary_mapped": 915,
+        "supplementary": 251,
+        "secondary": 258,
+        "primary_unmapped": 85
+      },
+      "contigs": {
+        "chr21": 17,
+        "chr11": 37,
+        "chr3": 63,
+        "chr13": 31,
+        "chr17": 25,
+        "chr2": 85,
+        "chr6": 42,
+        "chr10": 43,
+        "chr12": 44,
+        "chr22": 13,
+        "chr4": 64,
+        "chr5": 46,
+        "chr18": 35,
+        "chr15": 33,
+        "chr1": 76,
+        "chr9": 27,
+        "chrX": 17,
+        "chr7": 61,
+        "chrUn_KI270438v1": 3,
+        "chr16": 22,
+        "chr16_KI270728v1_random": 2,
+        "chr8": 36,
+        "chr14": 30,
+        "chr19": 16,
+        "chr20": 21,
+        "chrUn_GL000220v1": 2,
+        "chrY": 5,
+        "chrM": 6,
+        "chrUn_KI270467v1": 3,
+        "chrEBV": 2,
+        "chr14_GL000225v1_random": 3,
+        "chr1_KI270706v1_random": 1,
+        "chr9_KI270719v1_random": 1,
+        "chrUn_KI270743v1": 1,
+        "chr22_KI270733v1_random": 1,
+        "chr22_KI270737v1_random": 1
+      },
+      "sam_validation_errors": [],
+      "bam_quickcheck_passed": true
+    },
+    "minimap2": {
+      "command": [
+        "${TOOLS}/minimap2",
+        "-ax",
+        "lr:hq",
+        "-t",
+        "4",
+        "${REFERENCE}",
+        "${SESSION}/outputs/bonefish-hg002-test/HG002_R1041_UL_dorado0.4.0_sup4.1.0.first1000.fastq.gz"
+      ],
+      "wall_seconds_including_index": 33.797,
+      "peak_rss_bytes": 11130044416,
+      "exit_code": 0,
+      "counts": {
+        "records": 1579,
+        "primary_mapped": 915,
+        "supplementary": 302,
+        "secondary": 277,
+        "primary_unmapped": 85
+      },
+      "contigs": {
+        "chr21": 18,
+        "chr11": 37,
+        "chr3": 63,
+        "chr13": 31,
+        "chr17": 26,
+        "chr2": 85,
+        "chr6": 42,
+        "chr10": 43,
+        "chr12": 44,
+        "chr22": 12,
+        "chr4": 65,
+        "chr5": 46,
+        "chr18": 35,
+        "chr15": 33,
+        "chr1": 76,
+        "chr9": 27,
+        "chrX": 17,
+        "chr7": 61,
+        "chrUn_KI270438v1": 3,
+        "chr16": 22,
+        "chr16_KI270728v1_random": 2,
+        "chr8": 36,
+        "chr14": 30,
+        "chr19": 16,
+        "chr20": 20,
+        "chrUn_GL000220v1": 2,
+        "chrY": 5,
+        "chrM": 6,
+        "chrUn_KI270467v1": 3,
+        "chrEBV": 2,
+        "chr14_GL000225v1_random": 3,
+        "chr1_KI270706v1_random": 1,
+        "chr9_KI270719v1_random": 1,
+        "chrUn_KI270743v1": 1,
+        "chr22_KI270733v1_random": 1
+      },
+      "sam_validation_errors": [],
+      "bam_quickcheck_passed": true
+    }
+  },
+  "primary_comparison": {
+    "same_mapped_state": 1000,
+    "both_mapped": 915,
+    "same_contig_and_strand": 912,
+    "same_start_within_100bp": 884,
+    "identical_primary_locus_and_cigar": 845,
+    "both_unmapped": 85
+  },
+  "scope": "Functionality and alignment concordance on the first 1000 reads of HG002 R10.4.1 ultra-long part 1. No variant calling or truth-set accuracy evaluation. Single-run elapsed times include full-genome index construction and are not a throughput benchmark.",
+  "all_structural_checks_passed": true,
+  "primary_placement_disagreements": 3,
+  "primary_placement_disagreements_all_mapq_zero": false,
+  "primary_placement_disagreements_max_mapq": 57,
+  "primary_placement_disagreements_summary": [
+    {
+      "read": "150d45e9-c33b-41e2-8af6-85aaa0d302e4",
+      "bonefish": {
+        "reference": "chr20",
+        "position": 31051515,
+        "mapq": 1,
+        "alignment_score": 3660,
+        "nm": 1419,
+        "reverse": true,
+        "reported_alignments": 6
+      },
+      "minimap2": {
+        "reference": "chr17",
+        "position": 21971223,
+        "mapq": 1,
+        "alignment_score": 4044,
+        "nm": 1489,
+        "reverse": true,
+        "reported_alignments": 6
+      }
+    },
+    {
+      "read": "0a790532-8983-4fef-88f7-a344b5033fc9",
+      "bonefish": {
+        "reference": "chr22",
+        "position": 18202810,
+        "mapq": 57,
+        "alignment_score": 2608,
+        "nm": 1322,
+        "reverse": true,
+        "reported_alignments": 18
+      },
+      "minimap2": {
+        "reference": "chr21",
+        "position": 10269872,
+        "mapq": 1,
+        "alignment_score": 2647,
+        "nm": 1542,
+        "reverse": false,
+        "reported_alignments": 25
+      }
+    },
+    {
+      "read": "18ef78cd-677f-48e9-be3a-17f535bfd117",
+      "bonefish": {
+        "reference": "chr22_KI270737v1_random",
+        "position": 24094,
+        "mapq": 1,
+        "alignment_score": 7300,
+        "nm": 3511,
+        "reverse": false,
+        "reported_alignments": 3
+      },
+      "minimap2": {
+        "reference": "chr4",
+        "position": 49117789,
+        "mapq": 1,
+        "alignment_score": 16073,
+        "nm": 5827,
+        "reverse": false,
+        "reported_alignments": 6
+      }
+    }
+  ]
+}

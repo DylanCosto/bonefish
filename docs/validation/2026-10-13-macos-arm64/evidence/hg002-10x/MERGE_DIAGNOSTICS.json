@@ -1,0 +1,11 @@
+{
+  "method": "One-second, 10-ms-interval native process stack sample during final BAM merge",
+  "timed_run_includes_brief_sampling": true,
+  "thread_count": 228,
+  "sort_run_threads": 105,
+  "sort_decode_threads": 105,
+  "peak_footprint_from_sample": "21.8G",
+  "observation": "Most sampled sort threads were waiting; read and write syscalls were present. A nearby ps snapshot showed 0.1 percent CPU while an iostat device snapshot showed 890 MB/s aggregate disk6 traffic. Device-wide traffic does not attribute all IO to this process.",
+  "source": "sorted_bam.rs creates one run-reader and one decoder thread per spilled run; 105 runs in this benchmark. Output already uses a 4-MiB BufWriter.",
+  "scope": "Diagnostic observation, not a controlled storage comparison or confirmed root cause. No code or output settings changed."
+}

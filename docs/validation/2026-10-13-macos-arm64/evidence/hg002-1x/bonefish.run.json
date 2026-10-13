@@ -1,0 +1,17 @@
+{
+  "command": [
+    "${SESSION}/outputs/bonefish-macos/bonefish",
+    "-a",
+    "-t",
+    "4",
+    "${REFERENCE}",
+    "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+  ],
+  "exit_code": 0,
+  "wall_seconds_including_index": 208.12,
+  "peak_rss_bytes": 11487461376,
+  "peak_memory_footprint_bytes": 17158681704,
+  "sam_path": "${SESSION}/work/hg-ont-audit/one-x/bonefish.sam",
+  "sam_bytes": 6793609956,
+  "log_path": "${SESSION}/outputs/bonefish-hg002-1x/bonefish.alignment.log"
+}

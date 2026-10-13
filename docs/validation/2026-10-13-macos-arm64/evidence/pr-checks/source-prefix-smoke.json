@@ -1,0 +1,33 @@
+{
+  "all_four_public_source_headers_match": true,
+  "whole_primary_prefix_acquisition_passed": true,
+  "fastq_crc_unique_id_sequence_quality_validation_passed": true,
+  "reads": 4,
+  "bases": 2899,
+  "parts": [
+    {
+      "part": 1,
+      "reads": 1,
+      "bases": 890,
+      "fastq_sha256": "a337487c1ea081e8c7b865e047d6616afb685c5f72d25f9f323f7408273dd07a"
+    },
+    {
+      "part": 2,
+      "reads": 1,
+      "bases": 19,
+      "fastq_sha256": "ed5d1131384d98fb38e782f8976b51de27261500add9625233f8a0be4dc003d5"
+    },
+    {
+      "part": 3,
+      "reads": 1,
+      "bases": 64,
+      "fastq_sha256": "49da7d83c3725f3c53bcb1687f384866c7b8a09c27bfa06939f38213190cb158"
+    },
+    {
+      "part": 4,
+      "reads": 1,
+      "bases": 1926,
+      "fastq_sha256": "7565a124b0eeb23d8acf29a8c049b56952b4aec6ff1a865285efd1cf2377ae6c"
+    }
+  ]
+}

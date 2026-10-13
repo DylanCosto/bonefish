@@ -1,0 +1,765 @@
+{
+  "transform": "Text-only replacement of local machine paths with documented placeholders; numerical results, public-source headers and data/binary hashes are unchanged. Historical committed/pushed/status fields describe the measurement time.",
+  "artifacts": [
+    {
+      "source": "outputs/bonefish-macos/MACOS_TEST_RESULTS.json",
+      "path": "release-smoke/MACOS_TEST_RESULTS.json",
+      "original_sha256": "68e63ca4aeacb98936c02559b3a383450dfd02e3ee3f80405ff0aa0f2bfcfe60",
+      "packaged_sha256": "68e63ca4aeacb98936c02559b3a383450dfd02e3ee3f80405ff0aa0f2bfcfe60",
+      "bytes": 2350,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-test/COMPARISON_RESULTS.json",
+      "path": "hg002-smoke/COMPARISON_RESULTS.json",
+      "original_sha256": "fd9bd2aa79140b15c35f4de17d602395e55804fdfc2a93fffd40260a24fe22d0",
+      "packaged_sha256": "e90cd9a3ed342bf3c836b98c8c71151c62582ff376d7a5953d0e6e12b8ed36a6",
+      "bytes": 5910,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-test/PRIMARY_PLACEMENT_DIFFERENCES.json",
+      "path": "hg002-smoke/PRIMARY_PLACEMENT_DIFFERENCES.json",
+      "original_sha256": "43b963ff52f04bbd1985817553a0347c4bca338ae3bad5351cf3c5e432ce5a5d",
+      "packaged_sha256": "43b963ff52f04bbd1985817553a0347c4bca338ae3bad5351cf3c5e432ce5a5d",
+      "bytes": 86323,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-test/PRIMARY_PLACEMENT_REVIEW.json",
+      "path": "hg002-smoke/PRIMARY_PLACEMENT_REVIEW.json",
+      "original_sha256": "b97ba015eb69a0ed76640a75149821875509074f60245769253a4014eedf5e37",
+      "packaged_sha256": "b97ba015eb69a0ed76640a75149821875509074f60245769253a4014eedf5e37",
+      "bytes": 12294,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-test/PROVENANCE.json",
+      "path": "hg002-smoke/PROVENANCE.json",
+      "original_sha256": "7d9f3d94e84534ec37bd49ff8676110c188984e471303429798e93cc6452224d",
+      "packaged_sha256": "49b917267421028cf1fa01fa0ed7ec67e5100b567b1d9b083adc7fa7e312de2f",
+      "bytes": 1657,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-test/bonefish.log",
+      "path": "hg002-smoke/bonefish.log",
+      "original_sha256": "ad515ae90d201a5ee62c9ec0877df4fb6f456659cceb94552bb086efbb84135f",
+      "packaged_sha256": "e9900f4d95c95803894d99d95df61e95e7117625a5ae7b0b27dc78fca814bed1",
+      "bytes": 1720,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-test/minimap2.log",
+      "path": "hg002-smoke/minimap2.log",
+      "original_sha256": "7bae7af2b477178bf0991f160a958270ff4a6fb8ce29df991b89f243fd7d3894",
+      "packaged_sha256": "0ea1afc786f43a2c6a892242b302d72c31ce3f76adb72fda4d2072244578888e",
+      "bytes": 1534,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-test/primary-placement-review.bonefish.log",
+      "path": "hg002-smoke/primary-placement-review.bonefish.log",
+      "original_sha256": "81cdb834595aae33ede1c070c91239f2538f1be3eecea2b32d78eb9debf7f899",
+      "packaged_sha256": "297a48efafece799109975339ec9200dffd74e9d0320c63a60222bff860af412",
+      "bytes": 912,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/COMPARISON_RESULTS.json",
+      "path": "hg002-1x/COMPARISON_RESULTS.json",
+      "original_sha256": "466d9b780b820a22c3c4b6b97ac30e2b9a6af2e72201d38c5356797f15f40f0b",
+      "packaged_sha256": "3c2b853870b8c53ddded08dc05f1aeef8d6c050e7fc17cf4c6f9dab324fd6501",
+      "bytes": 125473,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/DATASET_PROVENANCE.json",
+      "path": "hg002-1x/DATASET_PROVENANCE.json",
+      "original_sha256": "8adc489c65cf0027734e2bc1e0d24d38a369b6be234a4a386181d6405761ab80",
+      "packaged_sha256": "0abc17d53e864b0372d3ae89d7d224fb9f933b8e5f8c83d9913fb58d470e42d1",
+      "bytes": 9283,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/HG002_R1041_UL.part1.prefix.receipt.json",
+      "path": "hg002-1x/HG002_R1041_UL.part1.prefix.receipt.json",
+      "original_sha256": "141a3606af870572e474af361c0b93af7d99472bdea093d55522b07024961900",
+      "packaged_sha256": "229680082f1b3177d69ff863f63f92ec461ce4ef1ae7796217e228fc9e76a136",
+      "bytes": 1741,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/HG002_R1041_UL.part2.prefix.receipt.json",
+      "path": "hg002-1x/HG002_R1041_UL.part2.prefix.receipt.json",
+      "original_sha256": "7e93aaf608cde0b0eddb271f1b8efd26018e3e085baccd44c93f8e77e115b6d5",
+      "packaged_sha256": "dd09dd6358679d36ef0754023b246b35a85240f33c4fa87dd2e264302e621c2f",
+      "bytes": 1741,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/HG002_R1041_UL.part3.prefix.receipt.json",
+      "path": "hg002-1x/HG002_R1041_UL.part3.prefix.receipt.json",
+      "original_sha256": "7aec3bba104ab38bd8a64cc050bbf2a7e62023aea2f5a48b3f2512b44f0db7d1",
+      "packaged_sha256": "6a2f86528d182ae66a134138f651d2bc900f7afe96f526cd03d020ce5e70adc4",
+      "bytes": 2061,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/HG002_R1041_UL.part4.prefix.receipt.json",
+      "path": "hg002-1x/HG002_R1041_UL.part4.prefix.receipt.json",
+      "original_sha256": "2d92f26a0d625ac0bc35dd7dfed3e51c904b938502f9fcb5bc12afbb6f90b190",
+      "packaged_sha256": "7ac50349c4e2ee13d6a8ccfdf8dd8d21b250164eaad606a02e3af7ab91dcd1ab",
+      "bytes": 1741,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/PRIMARY_PLACEMENT_DIFFERENCES.jsonl",
+      "path": "hg002-1x/PRIMARY_PLACEMENT_DIFFERENCES.jsonl",
+      "original_sha256": "8e45578a25afa64e02d61ece98d4d1926aa20339bf196922df4906942c7b35a6",
+      "packaged_sha256": "8e45578a25afa64e02d61ece98d4d1926aa20339bf196922df4906942c7b35a6",
+      "bytes": 230050,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/bonefish.alignment.log",
+      "path": "hg002-1x/bonefish.alignment.log",
+      "original_sha256": "e7fccafc006587483c35fc1a938bf32502cca0200c1a043cd7117cc3b89de3f9",
+      "packaged_sha256": "42d5fbe9fbf463879158b49660e008fc568b14c60f8700347ba212659b67ca7d",
+      "bytes": 1756,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/bonefish.bam-validation.json",
+      "path": "hg002-1x/bonefish.bam-validation.json",
+      "original_sha256": "6f3e7f893fef88c632347b164896554a2d36bce014b4c4189efc1d2a21b1c46d",
+      "packaged_sha256": "9d2c9c70a8c7a26bd8bf5c0f1f60c5a0adfd8e54dfeaedb3357746fba64fe5fe",
+      "bytes": 48615,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/bonefish.run.json",
+      "path": "hg002-1x/bonefish.run.json",
+      "original_sha256": "5289a4feb6aac943ed46f7b7232d11f16949d0b5140d9d57de2a9d2d5fa86b7e",
+      "packaged_sha256": "d3b6c45154822bdee346e5a418cde2ef160ccc00b62598f91035858d7edbbb79",
+      "bytes": 528,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/bonefish.sam-validation.json",
+      "path": "hg002-1x/bonefish.sam-validation.json",
+      "original_sha256": "167dfd0efa18be40da8258e00c9d0b64f31361e39d8baeab56db95d8c80ff686",
+      "packaged_sha256": "167dfd0efa18be40da8258e00c9d0b64f31361e39d8baeab56db95d8c80ff686",
+      "bytes": 3058,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/minimap2.alignment.log",
+      "path": "hg002-1x/minimap2.alignment.log",
+      "original_sha256": "98ced9b4181c1e938509ca8ee025bc8bfc33aa9f3bfa3920f8471caf01061e6b",
+      "packaged_sha256": "23cb264002c3f59d76d2a813ec96062828a92b74b3015d93afbf237149c320d7",
+      "bytes": 1884,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/minimap2.bam-validation.json",
+      "path": "hg002-1x/minimap2.bam-validation.json",
+      "original_sha256": "ef473521f657ddc774713b3daa0a5526db47b43f7b538f3daf145c8f5a539b6e",
+      "packaged_sha256": "5ddb6cd3a8e9329b7b575afbbdc29bfad5ce67e1d90623ca047d73e88c617b09",
+      "bytes": 48599,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/minimap2.run.json",
+      "path": "hg002-1x/minimap2.run.json",
+      "original_sha256": "9b5f5bf6dd41425b87ed12db7ef0887092951681fc962d69ba6eb9f9a3be0be0",
+      "packaged_sha256": "b2d296667edf445d2038b1f4a09d97289e14260a982530dfe7fa84bb48fffa32",
+      "bytes": 518,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-1x/minimap2.sam-validation.json",
+      "path": "hg002-1x/minimap2.sam-validation.json",
+      "original_sha256": "871c0975c616c8ee50399522ff86dc0ed10a87e6765d5c21e54c4281bf3f065a",
+      "packaged_sha256": "871c0975c616c8ee50399522ff86dc0ed10a87e6765d5c21e54c4281bf3f065a",
+      "bytes": 3033,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-speed-audit/AUDIT.txt",
+      "path": "pipeline-audit/AUDIT.txt",
+      "original_sha256": "16574105fbf5764b0330eb97a9894ceb3c50a47acc7b8201ac6e7271c9d5eeff",
+      "packaged_sha256": "16574105fbf5764b0330eb97a9894ceb3c50a47acc7b8201ac6e7271c9d5eeff",
+      "bytes": 3255,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-speed-audit/NATIVE_SORTED_PIPELINE.json",
+      "path": "pipeline-audit/NATIVE_SORTED_PIPELINE.json",
+      "original_sha256": "e4d6bf85008eff9ef34cfa3abae932d631ed3b73f3be7dba590b2f18830ffb80",
+      "packaged_sha256": "b3a8d36b5930b70522a97a0e912ce85868448f833999b0d0ada0306a14ce463f",
+      "bytes": 1393,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-speed-audit/SPEED_AUDIT.json",
+      "path": "pipeline-audit/SPEED_AUDIT.json",
+      "original_sha256": "4ec7954570b2a38ab73545efc1dabd164903263a952a37e3b98c4dcc50d64a94",
+      "packaged_sha256": "08b389da7554a25976bd3b9accce467064fb049ff7e1eae64bfb92eb9527425c",
+      "bytes": 10148,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-speed-audit/THREAD_SCALING.json",
+      "path": "pipeline-audit/THREAD_SCALING.json",
+      "original_sha256": "abef7883a3e9d6c695ac89550ba9b48af71132da535536be766cfc485659c8b4",
+      "packaged_sha256": "6e17689cc34dfe381c00bc568ab33b6965bb1f2eab467cbcf00b0af9823957ad",
+      "bytes": 899,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-speed-audit/native-sorted-t8.log",
+      "path": "pipeline-audit/native-sorted-t8.log",
+      "original_sha256": "4474b445da90669e741040bc41a862667c6a92065f016f37604a5d8993f64bb0",
+      "packaged_sha256": "45ec3a12c0d80b94fce83fb08200efa82cccc120cc59b6e25cbf0926498c8b4a",
+      "bytes": 1830,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-speed-audit/release-t8.log",
+      "path": "pipeline-audit/release-t8.log",
+      "original_sha256": "9bd77189fa8df2364936062ef9892e36cb621c3f0b2deb1f5d383419b1f487fc",
+      "packaged_sha256": "cca9da782eefd8061270f1970dd97b2d5a0efac249b1a04297b30978d76b877a",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/BENCHMARK_RESULTS.json",
+      "path": "diagonal-buckets/BENCHMARK_RESULTS.json",
+      "original_sha256": "0285ca7ba887dab56f52bcc711fc1dfdc9183655bc3a2d61a980180cddc6d00d",
+      "packaged_sha256": "62b77fce1ada1ab9caa87f561a06ca76522c19fa9ad89078896c0ff352d0d6a6",
+      "bytes": 8994,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/EXPERIMENT_METADATA.json",
+      "path": "diagonal-buckets/EXPERIMENT_METADATA.json",
+      "original_sha256": "efda2251caefed6dbf852fa994d33507192f30abf3fd123bb8e398c63d83a6d8",
+      "packaged_sha256": "459a7543a2fd8f8fcb2e619f0038fb24db4192b75a01c2d5002f3684967d7aae",
+      "bytes": 2015,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/RESULT.txt",
+      "path": "diagonal-buckets/RESULT.txt",
+      "original_sha256": "1edfedb37458e7e74f9fdbb6004cdb83a91618a432cd72f7f7428e13d8e78105",
+      "packaged_sha256": "b5e01abd4a97b267724e441940ef1750ef2dcf193897e0cbc6535686df1dba63",
+      "bytes": 4038,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/boundary-before-guard.log",
+      "path": "diagonal-buckets/boundary-before-guard.log",
+      "original_sha256": "5c261aa5a43ec43b59d309bf87083a94328064909fc301bab487a0db079f5030",
+      "packaged_sha256": "ef7378f31fdb057c0aafc7f6400617a7877e88f5d5237c0301b69eabb734b686",
+      "bytes": 4701,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/build.log",
+      "path": "diagonal-buckets/build.log",
+      "original_sha256": "a1d9cf54a7f22c27f90ce94ec7c6f67cf574a2e692b7819dba53d0be23283e32",
+      "packaged_sha256": "a1d9cf54a7f22c27f90ce94ec7c6f67cf574a2e692b7819dba53d0be23283e32",
+      "bytes": 2401,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/candidate-1.json",
+      "path": "diagonal-buckets/candidate-1.json",
+      "original_sha256": "574fb5ac9d3440b272143a0defc57d447da09df8488dd6946ccb136315b0ef32",
+      "packaged_sha256": "f85f520956fea610865285b7f94a1bb2ebd60013751b7bcb2e3f66494bb3743c",
+      "bytes": 1211,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/candidate-1.log",
+      "path": "diagonal-buckets/candidate-1.log",
+      "original_sha256": "efb99107f49ef1d8c7f6d9617e3c4ff5559838f71d1c2add51ccfbf6f5ae4abb",
+      "packaged_sha256": "b613f30979f10723ebca7365f8cd7674097520e27df6bb60129a15eedcbde3df",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/candidate-2.json",
+      "path": "diagonal-buckets/candidate-2.json",
+      "original_sha256": "b24fd76b3b1b73ac0d5d9c895b15ad5a12e3fd1511f6b7907ef1f096f15e16f6",
+      "packaged_sha256": "435b9331e852a6eec5b3f081a7a5482140208b77319bf35706021f93415c0328",
+      "bytes": 1214,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/candidate-2.log",
+      "path": "diagonal-buckets/candidate-2.log",
+      "original_sha256": "1396c3f3852502bf99801cfbfc8f4648a66ef14b4a5d830547bcecbb05925452",
+      "packaged_sha256": "8e2efd4dec8edd8ef3b7e1068fa1bc1fbdb0263aea7693527d876c32be746375",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/candidate-3.json",
+      "path": "diagonal-buckets/candidate-3.json",
+      "original_sha256": "d777d7bced7d699d596b3ee9338d838f2445341a4bf91efef57a620148957086",
+      "packaged_sha256": "60694d0eb67be9a3b948d1d74fc62451740c3f0c4dec7ead9cd6dd3ea84e4bea",
+      "bytes": 1214,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/candidate-3.log",
+      "path": "diagonal-buckets/candidate-3.log",
+      "original_sha256": "a1b287cf32f0ed22f75429ed06266383faaad2984d5ba2090c5cde87f5984b67",
+      "packaged_sha256": "cfe6a6aefaf99ea0c7b598557ad4c8ae5eddbeddf7c3f050d9a8795bf8a59fd3",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/candidate-4.json",
+      "path": "diagonal-buckets/candidate-4.json",
+      "original_sha256": "c319933ce78155aa38069fb560cc9d0ad67d79bc57278aa000dc9b0b8abfd499",
+      "packaged_sha256": "49276701fbab700302ec7d2123a7b7f7f2bdc0089bdc74c2b3d0d7c4933bf2f0",
+      "bytes": 1213,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/candidate-4.log",
+      "path": "diagonal-buckets/candidate-4.log",
+      "original_sha256": "30d2787602d757da0d30a46131350410dea9d52cc78c738c095dd028b19a7874",
+      "packaged_sha256": "943f7cb66a1a2e4e33401f686694b078e0c85d89712842e90f447cc832658f7e",
+      "bytes": 1756,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/control-1.json",
+      "path": "diagonal-buckets/control-1.json",
+      "original_sha256": "44906b170f4bb313863ce91029150c2996b158650a7cd439d42733d1c4feefdb",
+      "packaged_sha256": "246745d604748dec556682cf087eb0cabe953668e383356d94bce92f15578a1d",
+      "bytes": 1228,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/control-1.log",
+      "path": "diagonal-buckets/control-1.log",
+      "original_sha256": "00895a169caa2f8860fde10f2f77918b5f09713eed02957733dc0b2213170b4a",
+      "packaged_sha256": "c470bc5ec3b47c4ecf57f84463d0a721a8b3f179688e0003dc59169525244a1c",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/control-2.json",
+      "path": "diagonal-buckets/control-2.json",
+      "original_sha256": "618118abe26b48c92b320d42bc17fa8db38d8e65ab5e0abefd2166e79565ed7a",
+      "packaged_sha256": "2e96e647d2c55a694b5a30c37d53aa13f44043b18486df67564009230bcf2f4d",
+      "bytes": 1220,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/control-2.log",
+      "path": "diagonal-buckets/control-2.log",
+      "original_sha256": "3f3ab7825fc0891603f73767d6341f71570f40b9b710d60c4bb12529937a7694",
+      "packaged_sha256": "6b91db8c9a22802b00ac02f241a9a216e379fe3db9fc6c305498e62ee7b1419f",
+      "bytes": 1756,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/control-3.json",
+      "path": "diagonal-buckets/control-3.json",
+      "original_sha256": "756c10da330198a1839f36448c84462104928cb4a2819b9b066b8c5d98fab8a0",
+      "packaged_sha256": "a369332113f3cab994ec1df01dcd210df807632331c96ccbdae6ab1f21da6aa6",
+      "bytes": 1220,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/control-3.log",
+      "path": "diagonal-buckets/control-3.log",
+      "original_sha256": "473a61706c9868ee4da630bb12133c54f102ebeef3c583a70851a88aa35979c2",
+      "packaged_sha256": "db0388a93df5c1f9d50c5f890c8fa28e3d9eaacc1df6ead3e5828e911ff4e483",
+      "bytes": 1757,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/neon-diagonal-buckets.patch",
+      "path": "diagonal-buckets/neon-diagonal-buckets.patch",
+      "original_sha256": "e3d7958d5118a00002299a6e32404d0921fe41e6d2514e0cff7624c971a22e2c",
+      "packaged_sha256": "e3d7958d5118a00002299a6e32404d0921fe41e6d2514e0cff7624c971a22e2c",
+      "bytes": 15822,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-neon-experiment/tests.log",
+      "path": "diagonal-buckets/tests.log",
+      "original_sha256": "af696563a8793ac7960969a1d31672cdcce839e561b611f00e1d40f45cfb5cd8",
+      "packaged_sha256": "6582e669282c9df48a3158345a82c0479fd532677f69b87bb90a18ef4e38e43f",
+      "bytes": 11779,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/BENCHMARK_RESULTS.json",
+      "path": "masked-scan/BENCHMARK_RESULTS.json",
+      "original_sha256": "cc3be6103eecb6720a87c8e6116e8e6bf37845d84611f7d6be109746b90879df",
+      "packaged_sha256": "aad2e26c8153cf854a25f96fe037d99c51a7da2944c78693d1f6b75047d1843a",
+      "bytes": 11217,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/EXPERIMENT_METADATA.json",
+      "path": "masked-scan/EXPERIMENT_METADATA.json",
+      "original_sha256": "192c7041f9cc6a207921637d16ee507bd55df212034f4411d69d75cbfe74b78b",
+      "packaged_sha256": "192c7041f9cc6a207921637d16ee507bd55df212034f4411d69d75cbfe74b78b",
+      "bytes": 2164,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/RESULT.txt",
+      "path": "masked-scan/RESULT.txt",
+      "original_sha256": "3e85096134c2ca6015031e0e57ca8561b557681bc8a7d1b7a0e2f643d02eecc7",
+      "packaged_sha256": "f28223bf81550afb9266841e3336a61855abebf2fd563f281b9093312ef9e7b5",
+      "bytes": 3723,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/all-chaining-changes.patch",
+      "path": "masked-scan/all-chaining-changes.patch",
+      "original_sha256": "c39883db4d93520597da14c30cd0279222be5a9d7dd17e2fe5a015dd33d555e7",
+      "packaged_sha256": "c39883db4d93520597da14c30cd0279222be5a9d7dd17e2fe5a015dd33d555e7",
+      "bytes": 28892,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/build.log",
+      "path": "masked-scan/build.log",
+      "original_sha256": "a1d9cf54a7f22c27f90ce94ec7c6f67cf574a2e692b7819dba53d0be23283e32",
+      "packaged_sha256": "a1d9cf54a7f22c27f90ce94ec7c6f67cf574a2e692b7819dba53d0be23283e32",
+      "bytes": 2401,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/candidate-1.json",
+      "path": "masked-scan/candidate-1.json",
+      "original_sha256": "70a1ec01a1f12000b0c0496febb394400f751cd949bdefa64947a40fd80f447c",
+      "packaged_sha256": "ff1213f3b50f0b3242a454e356809479edad023762ee0c0d71d33901df82b287",
+      "bytes": 1212,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/candidate-1.log",
+      "path": "masked-scan/candidate-1.log",
+      "original_sha256": "05704f74f2c49b40f146bcce19327c2cf6c5723ca2477f03b6f01569f09a3647",
+      "packaged_sha256": "55e91e7218de8d062e3b770db0f5e9febfeed33cc791137e01f360ad4f9ebd5e",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/candidate-2.json",
+      "path": "masked-scan/candidate-2.json",
+      "original_sha256": "f44e1cf13c8e0e55df529fc639360fd13ce794246975f550aff4f3a09cda62a5",
+      "packaged_sha256": "3339b8bfd29e73b0847c4b88a9db0d26d6cf8447c04b401d742131ba924806d1",
+      "bytes": 1214,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/candidate-2.log",
+      "path": "masked-scan/candidate-2.log",
+      "original_sha256": "33d0397e57235f4b13214dc775850db7922c65cee1a66f8f0e62e0fc39aa46aa",
+      "packaged_sha256": "650a8b3d9bfb00c594243d4e306617e5a7d80008a3adb2c928d6a8aaf73f934d",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/candidate-3.json",
+      "path": "masked-scan/candidate-3.json",
+      "original_sha256": "cd7a8d64d60b8cfc0d5107aa36c4ae97ac45a86364c9b91489e5ba3e069b7915",
+      "packaged_sha256": "b5a67c18224d5d86eaea4c44dddc446c789c65de979cd3bd3479ce3c1000db5d",
+      "bytes": 1214,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/candidate-3.log",
+      "path": "masked-scan/candidate-3.log",
+      "original_sha256": "b9b8aadb8bac6edfcb07769c98b5be131d7acaeaa5a7cce1272a16f0d1aa6670",
+      "packaged_sha256": "214d2f8ef6e31a5b1eace61821ec950743b95d3bc8b7ffc2bc0699ff5db100db",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/control-1.json",
+      "path": "masked-scan/control-1.json",
+      "original_sha256": "a1f8abd6609b6c93f94be934390e591158fc20934d8ccd260f7092df6381fd90",
+      "packaged_sha256": "549efbe3430a4842c2e7b9493f2185ed2e87ceac46d9379b82935d3797556daf",
+      "bytes": 1219,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/control-1.log",
+      "path": "masked-scan/control-1.log",
+      "original_sha256": "5c1f5fefef2563880bbf46e0f25dbc74fca3904cd4aec79d018fe59f7c6641bb",
+      "packaged_sha256": "a5cd5b996a5c092eb710a2ad2f762fdb9f157e8350323bd784b92d1304a44be2",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/control-2.json",
+      "path": "masked-scan/control-2.json",
+      "original_sha256": "c7fc6b1d25806ab99fae7c4db75604b0fff3bd0128bb0c37ccbe29f5482905bb",
+      "packaged_sha256": "f3e2116edf9c698679e53c72c1a2407f1ac3c06e4ca8ff5ae341fc6133433f60",
+      "bytes": 1219,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/control-2.log",
+      "path": "masked-scan/control-2.log",
+      "original_sha256": "90075768a1c1e9555a32961d8f6628ce8ef67dbb45709543136a5846c21d1208",
+      "packaged_sha256": "12e73427ab460223574691b41174bd99ffb987ab2e5ca33893cb5dba7b1895ce",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/control-3.json",
+      "path": "masked-scan/control-3.json",
+      "original_sha256": "9c505d0bb3b08b9310d9aa8f1961b93159db92f92c2257610b4cbce45c947bcd",
+      "packaged_sha256": "3faab39961c7335e6a573f1f66f8b085e642beaa293f6592fdcf406e0d5e2750",
+      "bytes": 1220,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/control-3.log",
+      "path": "masked-scan/control-3.log",
+      "original_sha256": "b1c3ab2ddf7535c4dce82fa2d9f498fc3310c71847a5bfe633629e41f1d0694a",
+      "packaged_sha256": "d91cb37b10dca1e583f137763f83b9e355278abc90fe79f5264875e571db38e2",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/masked-chaining.incremental.patch",
+      "path": "masked-scan/masked-chaining.incremental.patch",
+      "original_sha256": "815f2bddb6bb5889930704d3a4922325554b35ce44e70695170b7beb41fc86dd",
+      "packaged_sha256": "815f2bddb6bb5889930704d3a4922325554b35ce44e70695170b7beb41fc86dd",
+      "bytes": 15162,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-masked-chaining/tests.log",
+      "path": "masked-scan/tests.log",
+      "original_sha256": "b94c4d456947dd23ae76e014e1f590328850ef1f60e954484602771e0011c0b8",
+      "packaged_sha256": "518efa013d99be19378b44a3ae4d6e6444f200e5cb1fe6d6759972fa60b24809",
+      "bytes": 12225,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-dp-census/AUDIT_METADATA.json",
+      "path": "dp-census/AUDIT_METADATA.json",
+      "original_sha256": "17d490a160ce13a2a3b5c6cd7ebd4b8bd5a3500a3c7782f99a955efb4052abc0",
+      "packaged_sha256": "c838c6093a613b5fe7ec3989c0c41c9e2aefa149ca33f7afb3fe6534caac7160",
+      "bytes": 2067,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-dp-census/CENSUS_SUMMARY.json",
+      "path": "dp-census/CENSUS_SUMMARY.json",
+      "original_sha256": "9967d6ebe905182b9179b9aef3c33e5318c77c85a3fd836765945fd9e409bd93",
+      "packaged_sha256": "9967d6ebe905182b9179b9aef3c33e5318c77c85a3fd836765945fd9e409bd93",
+      "bytes": 29257,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-dp-census/RESULT.txt",
+      "path": "dp-census/RESULT.txt",
+      "original_sha256": "cbf5ac39c662df68f2a57db77f96bb75ea87f5bedd095faed0c9df5a8172d0e9",
+      "packaged_sha256": "cbf5ac39c662df68f2a57db77f96bb75ea87f5bedd095faed0c9df5a8172d0e9",
+      "bytes": 6774,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-dp-census/build.log",
+      "path": "dp-census/build.log",
+      "original_sha256": "655781542704e688881f7e0862d93a6e350369e3dadd4639855c759f9952b6ca",
+      "packaged_sha256": "1999cff4c4a7d0c350949e23a146069702a5a606ecc5e7c4b96c32227b390a08",
+      "bytes": 2508,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-dp-census/profile-1.json",
+      "path": "dp-census/profile-1.json",
+      "original_sha256": "86dbcdafae31925235ee35c7c044e897a5af6fefcddf99db5f041d1683987fdd",
+      "packaged_sha256": "d175f80c1d435414946be47ba962790bf209db1d554863262585887b2a49547e",
+      "bytes": 1223,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-dp-census/profile-1.log",
+      "path": "dp-census/profile-1.log",
+      "original_sha256": "3c72682bd5c4d42a6b4e19ffe56771d8a3404db876b6dc37a2f9a84d7a58b8eb",
+      "packaged_sha256": "df7b35fcc2084ef388df4a19619a046220fdaa7e64f7e2764bb213d3d1c56bb3",
+      "bytes": 1755,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/BAM_VALIDATION.json",
+      "path": "hg002-10x/BAM_VALIDATION.json",
+      "original_sha256": "9d1343b52631d9d9ab375b794e6d08e5e5ef3ee212daabd225155be5e5553057",
+      "packaged_sha256": "9d1343b52631d9d9ab375b794e6d08e5e5ef3ee212daabd225155be5e5553057",
+      "bytes": 4628,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/DATASET_PROVENANCE.json",
+      "path": "hg002-10x/DATASET_PROVENANCE.json",
+      "original_sha256": "18229472185f77b504f6cced133aab0eff30ae035388f64b762990dcd3c9ae82",
+      "packaged_sha256": "f0ba7c0fe1d6347925a9d20283033aff5f24e220535fb62ef70bb93b12e5a582",
+      "bytes": 8546,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/MERGE_DIAGNOSTICS.json",
+      "path": "hg002-10x/MERGE_DIAGNOSTICS.json",
+      "original_sha256": "c30dc56f3b2b09b0492e897e1e86f4dd93f9ca945ae99794746a92302a3aa4e2",
+      "packaged_sha256": "c30dc56f3b2b09b0492e897e1e86f4dd93f9ca945ae99794746a92302a3aa4e2",
+      "bytes": 834,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/MERGE_SAMPLE.txt",
+      "path": "hg002-10x/MERGE_SAMPLE.txt",
+      "original_sha256": "f3a960e08fe2796830b5319d7c96b8e8aa9168ea18dcd8c6d61d7c415ef820ec",
+      "packaged_sha256": "f3a960e08fe2796830b5319d7c96b8e8aa9168ea18dcd8c6d61d7c415ef820ec",
+      "bytes": 208108,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/PRIMARY_COVERAGE.tsv",
+      "path": "hg002-10x/PRIMARY_COVERAGE.tsv",
+      "original_sha256": "473f500459bdd15e877e2911e1f0aa7cd437cbbcd19e250dbfa6bc8cc85d98bd",
+      "packaged_sha256": "473f500459bdd15e877e2911e1f0aa7cd437cbbcd19e250dbfa6bc8cc85d98bd",
+      "bytes": 10212,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/RESULT.txt",
+      "path": "hg002-10x/RESULT.txt",
+      "original_sha256": "291c765d0baf01927b1099d0750a0c4fd0c5be8a1278109826a9975710026445",
+      "packaged_sha256": "ba93be8fd0df753bef981f8bee46857a9f394e97e2997fb0734e3d115834c251",
+      "bytes": 2880,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/RESULTS.json",
+      "path": "hg002-10x/RESULTS.json",
+      "original_sha256": "cbfa6d24947348e059af3034edc46ecd5cc7047621d0fa0516d4b020014082ce",
+      "packaged_sha256": "cba2d935d95da3662bfc2afc1c8cf7dc6699cbbc14f3d4ff8612a6b2fb037868",
+      "bytes": 70975,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/SOURCE_HTTP_HEADERS.json",
+      "path": "hg002-10x/SOURCE_HTTP_HEADERS.json",
+      "original_sha256": "bb1c8625f3c16bb9e9ff718a2253c4bb555cffc447feef3d6e6e383eaf242124",
+      "packaged_sha256": "bb1c8625f3c16bb9e9ff718a2253c4bb555cffc447feef3d6e6e383eaf242124",
+      "bytes": 1851,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/bam-decode.log",
+      "path": "hg002-10x/bam-decode.log",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "packaged_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/bonefish.run.json",
+      "path": "hg002-10x/bonefish.run.json",
+      "original_sha256": "1434a97dc340afa3ac264fb1a8b657c4584f92ad13651b395645a6671a965916",
+      "packaged_sha256": "dc9cad780b66f6667f37ed840b6efe1fda1cfa6d5c3397078a8770cad2b1b2cc",
+      "bytes": 1804,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/bonefish.run.log",
+      "path": "hg002-10x/bonefish.run.log",
+      "original_sha256": "c6ab9d1b836c067cd5345a857aa4c57ef31ea4e2b64f1d61f9c191b5521b8bb2",
+      "packaged_sha256": "74afd75deb20880584ea491e3560d3eec867f6da476806f42f7eed2051a54b03",
+      "bytes": 2156,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/part1.receipt.json",
+      "path": "hg002-10x/part1.receipt.json",
+      "original_sha256": "3a281f86206fe61cfc82be246093b68f16028fa1d0743d934c7ccca8dd0b2daf",
+      "packaged_sha256": "278db95d90c2c6c6a48e1f6845fbe084486961078a99828bc28fc095f5c918ae",
+      "bytes": 1539,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/part1.remote.log",
+      "path": "hg002-10x/part1.remote.log",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "packaged_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/part2.receipt.json",
+      "path": "hg002-10x/part2.receipt.json",
+      "original_sha256": "ae6550b0f9a499830864a7f131c6d7907004de2a5a329731186f318f3d8a73c6",
+      "packaged_sha256": "07a8b56be21209cc527d13fc954571b7dd2ec343c1e8c90ee713b95ca55c5e84",
+      "bytes": 1539,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/part2.remote.log",
+      "path": "hg002-10x/part2.remote.log",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "packaged_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/part3.receipt.json",
+      "path": "hg002-10x/part3.receipt.json",
+      "original_sha256": "c28075d312fb8657e77c15d2fe5c8e01c1f4d9440c35b9f4c86e8de0401087ee",
+      "packaged_sha256": "f3d022c537bc46362b4f3b1e104686e21bba2a8a79465ab11a1fd9fbdc969bd0",
+      "bytes": 1858,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/part3.remote.log",
+      "path": "hg002-10x/part3.remote.log",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "packaged_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/part4.receipt.json",
+      "path": "hg002-10x/part4.receipt.json",
+      "original_sha256": "d9158a341878cabbb301cc330a973157ded75d107c37bd84574945ce6ee923f4",
+      "packaged_sha256": "50f67ffb17f9e57363527610850c195806eabf5b80ee9592a6ea7a00b4da78f2",
+      "bytes": 1539,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/part4.remote.log",
+      "path": "hg002-10x/part4.remote.log",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "packaged_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg002-10x/previous-bam-decode.log",
+      "path": "hg002-10x/previous-bam-decode.log",
+      "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "packaged_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "local_paths_redacted": false
+    }
+  ]
+}

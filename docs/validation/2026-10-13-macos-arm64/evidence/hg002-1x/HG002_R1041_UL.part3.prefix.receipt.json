@@ -1,0 +1,27 @@
+{
+  "part": 3,
+  "source": {
+    "url": "https://s3.us-west-2.amazonaws.com/human-pangenomics/submissions/5b73fa0e-658a-4248-b2b8-cd16155bc157--UCSC_GIAB_R1041_nanopore/HG002_R1041_UL/dorado/v0.4.0_wMods/11_16_22_R1041_UL_HG002_3_dorado0.4.0_sup4.1.0_5mCG_5hmCG.bam",
+    "bytes": 27055004765,
+    "etag": "\"615b3f689ec8ad49c57c24c9421fcb48-404\"",
+    "last_modified": "Wed, 01 Nov 2023 20:34:37 GMT",
+    "accept_ranges": "bytes"
+  },
+  "source_headers": [
+    "@HD\tVN:1.6\tSO:unknown",
+    "@PG\tID:basecaller\tPN:dorado\tVN:0.4.0+0aaf16d\tCL:dorado basecaller /private/nanopore/tools/dorado/models/dna_r10.4.1_e8.2_400bps_sup@v4.1.0 /data/scratch/iviolich/temp/HG002/11_16_22_R1041_UL_HG002_3/pod5_dir/output.pod5 --recursive --modified-bases 5mCG_5hmCG",
+    "@RG\tID:b6a09cb7053ad8f26ff90ef84dfe5fdb19b97908_dna_r10.4.1_e8.2_400bps_sup@v4.1.0\tPU:PAM69324\tPM:PC48B200\tDT:2022-11-16T22:05:54.969+00:00\tPL:ONT\tDS:basecall_model=dna_r10.4.1_e8.2_400bps_sup@v4.1.0 runid=b6a09cb7053ad8f26ff90ef84dfe5fdb19b97908\tLB:11_16_22_R1041_UL_HG002_3\tSM:11_16_22_R1041_UL_HG002_3",
+    "@RG\tID:52b1953d967345b81fb77ceca0d78adcd7001985_dna_r10.4.1_e8.2_400bps_sup@v4.1.0\tPU:PAM69324\tPM:PC48B200\tDT:2022-11-16T23:41:41.785+00:00\tPL:ONT\tDS:basecall_model=dna_r10.4.1_e8.2_400bps_sup@v4.1.0 runid=52b1953d967345b81fb77ceca0d78adcd7001985\tLB:11_16_22_R1041_UL_HG002_3\tSM:11_16_22_R1041_UL_HG002_3"
+  ],
+  "target_bases": 772067458,
+  "reads": 22767,
+  "bases": 772150656,
+  "skipped_nonprimary": 0,
+  "bam_path": "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.part3.prefix.ubam",
+  "fastq_path": "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.part3.prefix.fastq.gz",
+  "bam_sha256": "f2c9957cddfa64e91f8ce7f4dde349eb69d4a8f4bb65a629092e2bc83f2a1034",
+  "fastq_sha256": "8d9d12225cc8128de804a06e615c1f3b323748f29f650723c69300b8c0737b03",
+  "seconds": 110.875,
+  "source_complete_file_downloaded": false,
+  "sampling": "First complete primary records from this source in file order, stopped at the read-base target. No length or quality filter."
+}

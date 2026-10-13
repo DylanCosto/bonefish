@@ -1,0 +1,60 @@
+{
+  "created_utc": "2026-10-13T17:00:10.483647+00:00",
+  "source_directory": "${REPO}",
+  "source_head": "2061243d0010e2895453a170c988ee54b37e7930",
+  "git_status": "M bonefish-core/src/align/chain_simd.rs\n?? bonefish-core/src/align/chain_simd_masked_tests.rs\n?? bonefish-core/src/align/chain_simd_neon_tests.rs",
+  "production_binary_sha256": "1cb876c7cef4d1e3bebd433f9a6bfeea9e145669638687e89107a242004e669b",
+  "production_build_restored": true,
+  "profile_build_features": [
+    "jemalloc",
+    "census"
+  ],
+  "production_build_features": [
+    "jemalloc"
+  ],
+  "release_build": {
+    "opt_level": 3,
+    "lto": "fat",
+    "codegen_units": 1,
+    "strip": true,
+    "target_cpu_native": false
+  },
+  "profile_environment": {
+    "BONEFISH_CENSUS": "${SESSION}/work/bonefish-speed-audit/dp-census/profile",
+    "BONEFISH_CENSUS_SEQ_EVERY": "200"
+  },
+  "census_files_retained_in": "${SESSION}/outputs/bonefish-dp-census",
+  "uninstrumented_pipeline_stages": {
+    "Sequence Sketching": {
+      "mean_worker_seconds": 25.50533333333333,
+      "percent": 3.4719619425490027
+    },
+    "Seeding (Lookup)": {
+      "mean_worker_seconds": 158.604,
+      "percent": 21.590270738252478
+    },
+    "Chaining": {
+      "mean_worker_seconds": 116.00333333333333,
+      "percent": 15.791174076356299
+    },
+    "Alignment (Ext)": {
+      "mean_worker_seconds": 355.8953333333333,
+      "percent": 48.44692820576579
+    },
+    "Post-chain": {
+      "mean_worker_seconds": 78.60066666666667,
+      "percent": 10.69966503707643
+    }
+  },
+  "uninstrumented_pipeline_source": "${SESSION}/outputs/bonefish-masked-chaining/BENCHMARK_RESULTS.json",
+  "uninstrumented_trial_count": 3,
+  "no_new_dp_source_changes": true,
+  "committed": false,
+  "pushed": false,
+  "qualification": "Apple M4 Pro/macOS ARM64 only. Linux ARM and x86 native runtime/performance have not been tested here.",
+  "cleanup": {
+    "duplicate_generated_profile_sam_removed": true,
+    "original_dataset_and_alignment_outputs_preserved": true,
+    "duplicate_generated_profile_sam_bytes": 6793609977
+  }
+}

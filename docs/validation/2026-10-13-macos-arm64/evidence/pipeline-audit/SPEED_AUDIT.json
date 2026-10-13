@@ -1,0 +1,193 @@
+{
+  "repository": "DylanCosto/bonefish",
+  "commit": "2061243d0010e2895453a170c988ee54b37e7930",
+  "isolated_audit_checkout_clean": true,
+  "scope": "Source audit of runtime platform dispatch, seeding, chaining, DP, scheduling, parser/output paths, and allocator/build settings; two output-preserving configuration trials on the existing 1x dataset. No kernel modifications.",
+  "hardware": {
+    "cpu_count": 12,
+    "performance_cores": 8,
+    "efficiency_cores": 4,
+    "memory_bytes": 25769803776
+  },
+  "dataset": {
+    "reads": 86553,
+    "bases": 3088602282,
+    "fastq_sha256": "960490bd561a62a82551a729abd97ed5f8fb27a228287b44c9fb6378b65b8116",
+    "reference_sha256": "3c8def6d325c5d1e934b2dd530c4d1709f027677a15859467071fddf3fff2026"
+  },
+  "summed_worker_stage_timings": {
+    "sketching": {
+      "summed_worker_seconds": 24.147,
+      "fraction_of_summed_worker_stage_time": 0.03182001470623117
+    },
+    "seeding": {
+      "summed_worker_seconds": 127.49,
+      "fraction_of_summed_worker_stage_time": 0.16800156023097743
+    },
+    "chaining": {
+      "summed_worker_seconds": 245.659,
+      "fraction_of_summed_worker_stage_time": 0.323720254802586
+    },
+    "alignment_extension": {
+      "summed_worker_seconds": 296.994,
+      "fraction_of_summed_worker_stage_time": 0.3913676004332804
+    },
+    "post_chain": {
+      "summed_worker_seconds": 64.572,
+      "fraction_of_summed_worker_stage_time": 0.08509056982692506
+    }
+  },
+  "summed_worker_seconds": 758.862,
+  "stage_timing_interpretation": "These times sum per-read wall-clock durations over worker threads and are not sequential wall times. Fractions identify broad hotspots, not precise Amdahl speedup promises.",
+  "index_build_seconds": 12.713,
+  "existing_optimizations": [
+    "jemalloc in packaged release",
+    "opt-level 3, fat LTO, one codegen unit",
+    "native NEON ordinary DP and chaining",
+    "read-ahead, Rayon workers, dedicated writer",
+    "per-thread reusable map/chaining and DP scratch buffers",
+    "query encoding once per read",
+    "segment-tree RMQ rescue, sub-anchored gap fills and narrow-gap retries"
+  ],
+  "thread_scaling": {
+    "threads": 8,
+    "command": [
+      "${SESSION}/outputs/bonefish-macos/bonefish",
+      "-a",
+      "-t",
+      "8",
+      "${REFERENCE}",
+      "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+    ],
+    "seconds_including_index_sam": 134.678,
+    "baseline_4_thread_seconds": 208.12,
+    "speedup_over_4_threads": 1.5453118884590227,
+    "peak_rss_bytes": 11554881536,
+    "baseline_output": {
+      "sha256_without_pg": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+      "records": 132946,
+      "primary": 86553
+    },
+    "new_output": {
+      "sha256_without_pg": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+      "records": 132946,
+      "primary": 86553
+    },
+    "output_identical_except_pg": true,
+    "scope": "One full 1x run compared with the earlier release run, same binary, input, reference, and SAM format. Thread count differs."
+  },
+  "native_sorted_pipeline": {
+    "command": [
+      "${SESSION}/outputs/bonefish-macos/bonefish",
+      "-a",
+      "-t",
+      "8",
+      "--sort",
+      "--sort-mem",
+      "1G",
+      "--sort-tmp",
+      "${SESSION}/work/bonefish-speed-audit/native-sort",
+      "-o",
+      "${SESSION}/outputs/bonefish-speed-audit/bonefish.t8.native-sorted.bam",
+      "${REFERENCE}",
+      "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+    ],
+    "wall_seconds_including_index_sort_bam_and_bai": 137.311,
+    "threads": 8,
+    "sort_mem": "1G",
+    "peak_rss_bytes": 15396765696,
+    "bam_path": "${SESSION}/outputs/bonefish-speed-audit/bonefish.t8.native-sorted.bam",
+    "bam_bytes": 2751390462,
+    "bai_path": "${SESSION}/outputs/bonefish-speed-audit/bonefish.t8.native-sorted.bam.bai",
+    "bam_quickcheck_passed": true,
+    "chr20_index_query_records": 2554,
+    "original_samtools_sorted_records": {
+      "record_sha256": "a1d14e32770d9827c2231bea3bd13cd4ebab657c5b6935cf5871f362493122db",
+      "records": 132946,
+      "primary": 86553
+    },
+    "native_sorted_records": {
+      "record_sha256": "a1d14e32770d9827c2231bea3bd13cd4ebab657c5b6935cf5871f362493122db",
+      "records": 132946,
+      "primary": 86553
+    },
+    "records_identical_to_previous_bonefish_sorted_bam": true,
+    "scope": "Full 1x native sorted BAM + BAI with the existing release binary. Record hashes compare decoded coordinate-sorted BAM records, excluding headers."
+  },
+  "prioritized_findings": [
+    {
+      "priority": 1,
+      "opportunity": "Use eight alignment threads on this Mac",
+      "status": "measured_on_full_1x_with_identical_normalized_SAM",
+      "evidence": "THREAD_SCALING.json",
+      "seconds_4_threads": 208.12,
+      "seconds_8_threads": 134.678,
+      "speedup": 1.5453118884590227
+    },
+    {
+      "priority": 2,
+      "opportunity": "Use the existing native sorted BAM + BAI path",
+      "status": "measured_on_full_1x_with_identical_decoded_sorted_records",
+      "evidence": "NATIVE_SORTED_PIPELINE.json",
+      "seconds": 137.311,
+      "sort_memory_setting": "1G",
+      "note": "Timing ends after sorted BAM and BAI creation. It has a different end product from the SAM-only run; do not subtract their times as an exact isolated sorting cost."
+    },
+    {
+      "priority": 3,
+      "opportunity": "Port the diagonal-bucket predecessor pruning from AVX2 chaining to NEON chaining",
+      "status": "source_confirmed_candidate_not_implemented_or_benchmarked",
+      "worker_stage_fraction": 0.323720254802586,
+      "evidence": [
+        "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish-core/src/align/chain_simd.rs#L241-L274",
+        "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish-core/src/align/chain_simd.rs#L458-L510",
+        "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish-core/src/align/chain_simd.rs#L1734-L1815"
+      ],
+      "acceptance": "Preserve descending predecessor visitation, skip-counter behavior, ties, floating-point semantics, chain scores, and anchor ordering. Run dense-repeat differential tests against current NEON/scalar and the full 1x normalized-output hash check."
+    },
+    {
+      "priority": 4,
+      "opportunity": "Add ARM64 implementations for the clean adaptive and shifted-band DP paths",
+      "status": "source_confirmed_platform_gap_not_implemented_or_benchmarked",
+      "worker_stage_fraction": 0.3913676004332804,
+      "evidence": [
+        "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish-core/src/align/dp/dual.rs#L2660-L2677",
+        "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish-core/src/align/dp/dual.rs#L2679-L2703",
+        "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish-core/src/align/dp/dual.rs#L103-L137"
+      ],
+      "finding": "Adaptive width is discarded outside the AVX2 fast path and ordinary NEON static-band DP is used on ARM64. Shifted-band DP falls back to a symmetric band on ARM64. The clean_dual flag only routes the AVX2 branch to the clean kernel. ARM DP is not wholly scalar; ordinary NEON DP already exists.",
+      "acceptance": "These algorithm paths can change present Mac alignments. Qualify scores, tie breaking, CIGAR, z-drop and MAPQ against the intended x86/reference semantics, then evaluate biological accuracy including the existing placement-confidence disagreements."
+    },
+    {
+      "priority": 5,
+      "opportunity": "Benchmark ARM64 seed/index prefetch hints",
+      "status": "source_confirmed_lower_priority_candidate_not_benchmarked",
+      "worker_stage_fraction": 0.16800156023097743,
+      "evidence": [
+        "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish-core/src/align/index_bucket.rs#L380-L410"
+      ],
+      "note": "The current source explicitly skips these hints on ARM64 and comments that they did not help an Apple M2. That is prior source commentary, not an M4 measurement; a speed win here is uncertain."
+    },
+    {
+      "priority": 6,
+      "opportunity": "Encode native sorted BAM from structured alignment records instead of formatting SAM text and reparsing it",
+      "status": "source_confirmed_candidate_not_benchmarked",
+      "evidence": [
+        "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish/src/main.rs#L1284-L1294",
+        "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish-core/src/sorted_bam.rs#L107-L139",
+        "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish-core/src/sorted_bam.rs#L205-L241"
+      ],
+      "note": "The existing native sorter removes the disk SAM intermediate, but internally consumes SAM text and encodes it again. Its small observed total overhead on this 1x test places this below the kernel work."
+    }
+  ],
+  "correctness_guard": {
+    "finding": "Input record errors and caught alignment panics can log warnings and omit records while the CLI continues.",
+    "status": "confirmed_from_source_error_branches; not triggered in the measured datasets",
+    "evidence": [
+      "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish/src/main.rs#L1262-L1274",
+      "https://github.com/DylanCosto/bonefish/blob/2061243d0010e2895453a170c988ee54b37e7930/bonefish/src/main.rs#L1393-L1401"
+    ],
+    "benchmark_rule": "Require complete input-read accounting and matching normalized output; faster execution alone can mask dropped work."
+  },
+  "qualification_limit": "Thread and native-output trials preserve current Mac records. New adaptive/shifted DP ports may alter output and still require accuracy qualification. The 1x comparison has unresolved primary-placement/MAPQ differences; it is not a variant-accuracy benchmark."
+}

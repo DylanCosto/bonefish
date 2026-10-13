@@ -1,0 +1,54 @@
+Bonefish HG002 ONT nominal 10x WGS test
+
+Sample: HG002, ONT R10.4.1 ultra-long, Dorado 0.4.0 SUP 4.1.0.
+Input: 825,955 unique reads, 30,883,069,835 sequenced bases;
+nominal coverage 10.000120x, read N50 108,853 bp.
+Sampling: equal-base prefixes of four runs, retaining complete primary reads;
+this is file-order sampling, not a uniform random subset.
+Reference: GRCh38 no-alt; coverage denominator chr1-22 + X + Y including Ns.
+
+Eight-thread elapsed time: 2439.845 seconds (40.66 minutes),
+including fresh index, mapping, native coordinate sort, compressed BAM and BAI.
+Peak RSS: 13.974 GiB.
+Throughput: 338.53 reads/s, 12.66 Mbases/s.
+This is a single run; older 1x SAM timings use a different output pipeline.
+Measured phase split: 22.77 minutes for index,
+mapping and overlapping sort spills; 17.89 minutes for the final
+105-run merge, BGZF BAM write and index. Large input, spills and output were
+on an external USB/exFAT SSD, so the total is not a CPU-only alignment time.
+Peak process memory footprint: 21.811 GiB (different accounting from RSS).
+The time command reported 0 swaps.
+
+Output: 1,285,384 total records;
+734,325 mapped primary reads
+(88.9062%); all 825,955 input reads accounted for.
+Full BAM decode, coordinate order, input sequence/quality fingerprints,
+reference bounds, CIGAR lengths, reference header and index query passed.
+All 132,946 alignment records for the original 86,553 1x reads matched exactly
+as decoded per-read record multisets. This checks preservation as input grows
+on this Mac; cross-platform verification is left to the user.
+
+Measured primary-only nuclear mean depth: 9.0196x.
+Nuclear covered fraction: 94.1549%.
+Coverage includes MAPQ 0 reads. Structural checks and output preservation do
+not establish independent alignment or variant-calling accuracy.
+
+Large data retained at:
+${DATA_10X}
+BAM: ${DATA_10X}/bonefish.HG002.10x.sorted.bam
+Input paths, source URLs/headers, exact counts and SHA256 values are in
+DATASET_PROVENANCE.json and RESULTS.json. The BAM and BAI checksums are retained.
+
+Binary SHA256: 1cb876c7cef4d1e3bebd433f9a6bfeea9e145669638687e89107a242004e669b
+No new source changes, commits or pushes were made for this test.
+
+Merge diagnostic observation
+The final merge used 105 sort-reader and 105 decoder threads. In a bounded
+one-second sample, most sort threads were waiting in semaphores or file IO.
+A nearby process snapshot showed 0.1% CPU; a device-wide sample showed heavy
+SSD traffic. Device activity alone does not attribute all IO to Bonefish.
+The writer already has a 4-MiB buffer. The 17.89-minute merge is a concrete
+output-pipeline target for a subsequent experiment with fewer simultaneous
+run streams or a controlled APFS storage comparison. No such change was made
+in this test. Any experiment must preserve decoded records and stable ties.
+The run's elapsed timer includes the brief diagnostic sample.

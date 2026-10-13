@@ -1,0 +1,25 @@
+{
+  "part": 2,
+  "source": {
+    "url": "https://s3.us-west-2.amazonaws.com/human-pangenomics/submissions/5b73fa0e-658a-4248-b2b8-cd16155bc157--UCSC_GIAB_R1041_nanopore/HG002_R1041_UL/dorado/v0.4.0_wMods/11_16_22_R1041_UL_HG002_2_dorado0.4.0_sup4.1.0_5mCG_5hmCG.bam",
+    "bytes": 27481911134,
+    "etag": "\"1f3e88257518a5bed1a57e0148e068a2-410\"",
+    "last_modified": "Wed, 01 Nov 2023 20:30:38 GMT",
+    "accept_ranges": "bytes"
+  },
+  "source_headers": [
+    "@HD\tVN:1.6\tSO:unknown",
+    "@PG\tID:basecaller\tPN:dorado\tVN:0.4.0+0aaf16d\tCL:dorado basecaller /private/nanopore/tools/dorado/models/dna_r10.4.1_e8.2_400bps_sup@v4.1.0 /data/scratch/iviolich/temp/HG002/11_16_22_R1041_UL_HG002_2/pod5_dir/output.pod5 --recursive --modified-bases 5mCG_5hmCG",
+    "@RG\tID:b9b4d57a1f9d989096ab4cf70313a3c97135adfd_dna_r10.4.1_e8.2_400bps_sup@v4.1.0\tPU:PAM76578\tPM:PC48B200\tDT:2022-11-16T22:05:55.746+00:00\tPL:ONT\tDS:basecall_model=dna_r10.4.1_e8.2_400bps_sup@v4.1.0 runid=b9b4d57a1f9d989096ab4cf70313a3c97135adfd\tLB:11_16_22_R1041_UL_HG002_2\tSM:11_16_22_R1041_UL_HG002_2"
+  ],
+  "target_bases": 7720674580,
+  "reads": 180438,
+  "bases": 7720784587,
+  "skipped_nonprimary": 0,
+  "fastq_path": "${DATA_10X}/HG002_R1041_UL.part2.nominal10x.fastq.gz",
+  "fastq_bytes": 7136986454,
+  "fastq_sha256": "94300588e4d52258837f79027074eecefd6b2c006eaa2e68f195fff5972d5b32",
+  "seconds": 1025.873,
+  "source_complete_file_downloaded": false,
+  "sampling": "First complete primary records in source file order. No length or quality filter."
+}

@@ -1,0 +1,35 @@
+{
+  "run": "candidate-1",
+  "started_utc": "2026-10-13T15:28:08.074973+00:00",
+  "command": [
+    "${SESSION}/outputs/bonefish-neon-experiment/bonefish",
+    "-a",
+    "-t",
+    "8",
+    "${REFERENCE}",
+    "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+  ],
+  "binary_sha256": "efd74c59d1530845f7ad1408bb536dab044eed5eaf53f3fc52d9296cf0b06b2b",
+  "returncode": 0,
+  "threads": 8,
+  "elapsed_seconds_including_index_and_sam": 119.4920740830712,
+  "peak_rss_bytes": 15714254848,
+  "sam_sha256_without_pg": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+  "same_as_original_release_sam": true,
+  "records": 132946,
+  "primary": 86553,
+  "mapped_primary": 77376,
+  "unique_primary_names": 86553,
+  "missing_primary_names": 0,
+  "unexpected_primary_names": 0,
+  "worker_stage_sums_seconds": {
+    "Sequence Sketching": 26.964,
+    "Seeding (Lookup)": 185.877,
+    "Chaining": 169.887,
+    "Alignment (Ext)": 362.12,
+    "Post-chain": 79.832,
+    "Total Measured": 824.68
+  },
+  "warnings": [],
+  "timing_scope": "One fresh FASTA-built index plus mapping and SAM writing to the same internal-SSD file; validation occurs after the timed command."
+}

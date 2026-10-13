@@ -1,0 +1,38 @@
+{
+  "command": [
+    "${SESSION}/outputs/bonefish-macos/bonefish",
+    "-a",
+    "-t",
+    "8",
+    "--sort",
+    "--sort-mem",
+    "1G",
+    "--sort-tmp",
+    "${SESSION}/work/bonefish-speed-audit/native-sort",
+    "-o",
+    "${SESSION}/outputs/bonefish-speed-audit/bonefish.t8.native-sorted.bam",
+    "${REFERENCE}",
+    "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz"
+  ],
+  "wall_seconds_including_index_sort_bam_and_bai": 137.311,
+  "threads": 8,
+  "sort_mem": "1G",
+  "peak_rss_bytes": 15396765696,
+  "bam_path": "${SESSION}/outputs/bonefish-speed-audit/bonefish.t8.native-sorted.bam",
+  "bam_bytes": 2751390462,
+  "bai_path": "${SESSION}/outputs/bonefish-speed-audit/bonefish.t8.native-sorted.bam.bai",
+  "bam_quickcheck_passed": true,
+  "chr20_index_query_records": 2554,
+  "original_samtools_sorted_records": {
+    "record_sha256": "a1d14e32770d9827c2231bea3bd13cd4ebab657c5b6935cf5871f362493122db",
+    "records": 132946,
+    "primary": 86553
+  },
+  "native_sorted_records": {
+    "record_sha256": "a1d14e32770d9827c2231bea3bd13cd4ebab657c5b6935cf5871f362493122db",
+    "records": 132946,
+    "primary": 86553
+  },
+  "records_identical_to_previous_bonefish_sorted_bam": true,
+  "scope": "Full 1x native sorted BAM + BAI with the existing release binary. Record hashes compare decoded coordinate-sorted BAM records, excluding headers."
+}

@@ -1,0 +1,44 @@
+[*] Reading target: ${REFERENCE}
+[*] Building index part 1 for 195 sequences...
+[*] Index part 1 built in 9.792s
+[*] Calculated mid_occ: 136 (frac=0.0002) [part 1]
+[*] Sorted BAM: 132946 records, merged and written in 7.859s after mapping
+[*] Mapping done in 137.148s (1 index part)
+--- Alignment Breakdown ---
+  Sequence Sketching: 27.314s
+  Seeding (Lookup):   192.180s
+  Chaining:           274.039s
+  Alignment (Ext):    339.225s
+  Post-chain:         73.992s
+  Total Measured:     906.749s
+  Reads: 86553, Seeds: 308052040, Anchors: 1225916254, Chains: 392668535
+---------------------------
+--- Post-chain sub-timers ---
+  RMQ rescue:      70.237s (23259 calls, 264210668 anchors, 27734 skipped: no joinable chains)
+    of which high-occ re-chain: 0.000s (0 calls)
+  Build regs:      1.915s
+  Parent+filter:   0.586s
+  Div+strand:      0.975s
+  Squeezed+bounds: 0.273s
+  Extension probe stops: 90989
+  Sub-anchored long gaps: 134617
+  Narrow gap band: 8048389 used (22982 widened), 23034 too wide, 4146 edge fallbacks
+-----------------------------
+      137.30 real       890.92 user        97.45 sys
+         15396765696  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+            15983328  page reclaims
+                  42  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+              110255  voluntary context switches
+             2416018  involuntary context switches
+      14736335208915  instructions retired
+       3590162175888  cycles elapsed
+         20119240112  peak memory footprint

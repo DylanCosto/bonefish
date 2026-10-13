@@ -1,5 +1,8 @@
 > **Note:** inherited from upstream [rammap](https://github.com/jwanglab/rammap) and kept for reference. It describes rammap (all minimap2 presets, minimap2-identical output), not bonefish; paths may still say `rammap`/`rammap-core` (now `bonefish`/`bonefish-core`).
 
+For bonefish's 2026-10-13 Apple Silicon chaining experiments and nominal 1×/10× HG002 ONT
+validation, see [the macOS report](validation/2026-10-13-macos-arm64/README.md).
+
 # Alignment validation and performance
 
 rammap 1.0.0 vs minimap2 v2.31

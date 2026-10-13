@@ -1,0 +1,91 @@
+{
+  "repository": "https://github.com/DylanCosto/bonefish",
+  "release": "v0.1.0",
+  "release_status": "draft",
+  "commit": "2061243d0010e2895453a170c988ee54b37e7930",
+  "archive": "bonefish-v0.1.0-macos-arm64.tar.gz",
+  "archive_sha256": "f77faf0190733fb21f460e9f50e157008923f24d720a5d0aeb8e6e9241dbfac4",
+  "binary_sha256": "89d55ddf6396ba1d2964a31194976d0755e8cc172e0085689301fa5d5b285900",
+  "version": "bonefish 0.1.0",
+  "platform": "macOS arm64",
+  "fixture": "repository synthetic ONT-like regression dataset",
+  "fixture_reads": 160,
+  "tests": [
+    {
+      "test": "dna_sam",
+      "passed": true,
+      "expected": "81ec695369877c8c",
+      "actual": "81ec695369877c8c",
+      "seconds": 0.068
+    },
+    {
+      "test": "dna_paf",
+      "passed": true,
+      "expected": "a2549676576510c3",
+      "actual": "a2549676576510c3",
+      "seconds": 0.022
+    },
+    {
+      "test": "dna_paf_cigar",
+      "passed": true,
+      "expected": "b8ab4cdde39ad80a",
+      "actual": "b8ab4cdde39ad80a",
+      "seconds": 0.064
+    },
+    {
+      "test": "dna_paf_cs",
+      "passed": true,
+      "expected": "0dc5b802637a8b0f",
+      "actual": "0dc5b802637a8b0f",
+      "seconds": 0.066
+    },
+    {
+      "test": "dna_md_eqx",
+      "passed": true,
+      "expected": "0d347ab709e3136b",
+      "actual": "0d347ab709e3136b",
+      "seconds": 0.066
+    },
+    {
+      "test": "alias_sam",
+      "passed": true,
+      "expected": "81ec695369877c8c",
+      "actual": "81ec695369877c8c",
+      "seconds": 0.067
+    },
+    {
+      "test": "alias_map_ont",
+      "passed": true,
+      "expected": "81ec695369877c8c",
+      "actual": "81ec695369877c8c",
+      "seconds": 0.068
+    },
+    {
+      "test": "raw_index_matches_fasta",
+      "passed": true
+    },
+    {
+      "test": "bam_input_matches_fastq",
+      "passed": true
+    },
+    {
+      "test": "sorted_bam_quickcheck",
+      "passed": true,
+      "diagnostics": ""
+    },
+    {
+      "test": "sorted_bam_records_match_samtools",
+      "passed": true,
+      "records": 185
+    },
+    {
+      "test": "bai_region_query",
+      "passed": true,
+      "records": 121,
+      "diagnostics": "",
+      "region": "ctgA:1-400011"
+    }
+  ],
+  "all_passed": true,
+  "scope": "Release binary checks on synthetic repository fixtures. Real ONT data performance and accuracy have not been measured on this Mac."
+}

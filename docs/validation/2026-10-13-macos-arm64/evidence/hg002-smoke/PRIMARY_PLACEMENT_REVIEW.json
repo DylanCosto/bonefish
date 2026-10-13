@@ -1,0 +1,492 @@
+{
+  "read": "0a790532-8983-4fef-88f7-a344b5033fc9",
+  "read_length": 53168,
+  "original_alignments": {
+    "bonefish": [
+      {
+        "reference": "chr22",
+        "position": 18202810,
+        "mapq": 57,
+        "flag": 16,
+        "primary": true,
+        "alignment_score": 2608,
+        "nm": 1322,
+        "aligned_query_bases": 4637,
+        "reference_end": 18207473
+      },
+      {
+        "reference": "chr22_KI270734v1_random",
+        "position": 118543,
+        "mapq": 15,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2640,
+        "nm": 914,
+        "aligned_query_bases": 3912,
+        "reference_end": 122262
+      },
+      {
+        "reference": "chr22_KI270734v1_random",
+        "position": 118543,
+        "mapq": 15,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2634,
+        "nm": 912,
+        "aligned_query_bases": 3921,
+        "reference_end": 122262
+      },
+      {
+        "reference": "chr22",
+        "position": 18202810,
+        "mapq": 51,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2622,
+        "nm": 1308,
+        "aligned_query_bases": 4639,
+        "reference_end": 18207473
+      },
+      {
+        "reference": "chr22",
+        "position": 18202810,
+        "mapq": 55,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2562,
+        "nm": 1323,
+        "aligned_query_bases": 4638,
+        "reference_end": 18207473
+      },
+      {
+        "reference": "chr21",
+        "position": 10270639,
+        "mapq": 8,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 2055,
+        "nm": 1074,
+        "aligned_query_bases": 3873,
+        "reference_end": 10274327
+      },
+      {
+        "reference": "chr21",
+        "position": 10324656,
+        "mapq": 0,
+        "flag": 272,
+        "primary": false,
+        "alignment_score": 1356,
+        "nm": 394,
+        "aligned_query_bases": 1808,
+        "reference_end": 10326407
+      },
+      {
+        "reference": "chr13",
+        "position": 18211701,
+        "mapq": 0,
+        "flag": 256,
+        "primary": false,
+        "alignment_score": 1328,
+        "nm": 200,
+        "aligned_query_bases": 1228,
+        "reference_end": 18212931
+      },
+      {
+        "reference": "chr13",
+        "position": 18211701,
+        "mapq": 10,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 1328,
+        "nm": 198,
+        "aligned_query_bases": 1231,
+        "reference_end": 18212931
+      },
+      {
+        "reference": "chr21",
+        "position": 10324649,
+        "mapq": 3,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 1322,
+        "nm": 382,
+        "aligned_query_bases": 1741,
+        "reference_end": 10326407
+      },
+      {
+        "reference": "chr13",
+        "position": 18211701,
+        "mapq": 38,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 1312,
+        "nm": 211,
+        "aligned_query_bases": 1233,
+        "reference_end": 18212931
+      },
+      {
+        "reference": "chr13",
+        "position": 18211701,
+        "mapq": 2,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 1306,
+        "nm": 203,
+        "aligned_query_bases": 1230,
+        "reference_end": 18212931
+      },
+      {
+        "reference": "chr13",
+        "position": 18211701,
+        "mapq": 0,
+        "flag": 256,
+        "primary": false,
+        "alignment_score": 1302,
+        "nm": 204,
+        "aligned_query_bases": 1229,
+        "reference_end": 18212931
+      },
+      {
+        "reference": "chr13",
+        "position": 18211701,
+        "mapq": 13,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 1288,
+        "nm": 205,
+        "aligned_query_bases": 1229,
+        "reference_end": 18212931
+      },
+      {
+        "reference": "chr13",
+        "position": 18211701,
+        "mapq": 0,
+        "flag": 256,
+        "primary": false,
+        "alignment_score": 1284,
+        "nm": 213,
+        "aligned_query_bases": 1232,
+        "reference_end": 18212931
+      },
+      {
+        "reference": "chr13",
+        "position": 18211701,
+        "mapq": 16,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 1276,
+        "nm": 215,
+        "aligned_query_bases": 1232,
+        "reference_end": 18212931
+      },
+      {
+        "reference": "chr22",
+        "position": 20336403,
+        "mapq": 38,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 1252,
+        "nm": 549,
+        "aligned_query_bases": 2181,
+        "reference_end": 20338539
+      },
+      {
+        "reference": "chr22",
+        "position": 20336420,
+        "mapq": 0,
+        "flag": 256,
+        "primary": false,
+        "alignment_score": 1248,
+        "nm": 552,
+        "aligned_query_bases": 2184,
+        "reference_end": 20338539
+      }
+    ],
+    "minimap2": [
+      {
+        "reference": "chr21",
+        "position": 10269872,
+        "mapq": 1,
+        "flag": 0,
+        "primary": true,
+        "alignment_score": 2647,
+        "nm": 1542,
+        "aligned_query_bases": 5119,
+        "reference_end": 10274327
+      },
+      {
+        "reference": "chr22_KI270734v1_random",
+        "position": 118610,
+        "mapq": 60,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2732,
+        "nm": 858,
+        "aligned_query_bases": 3815,
+        "reference_end": 122262
+      },
+      {
+        "reference": "chr22_KI270734v1_random",
+        "position": 118543,
+        "mapq": 1,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2700,
+        "nm": 902,
+        "aligned_query_bases": 3913,
+        "reference_end": 122262
+      },
+      {
+        "reference": "chr22",
+        "position": 18893238,
+        "mapq": 0,
+        "flag": 272,
+        "primary": false,
+        "alignment_score": 2696,
+        "nm": 911,
+        "aligned_query_bases": 3913,
+        "reference_end": 18896990
+      },
+      {
+        "reference": "chr22_KI270734v1_random",
+        "position": 118543,
+        "mapq": 60,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2640,
+        "nm": 914,
+        "aligned_query_bases": 3912,
+        "reference_end": 122262
+      },
+      {
+        "reference": "chr22_KI270734v1_random",
+        "position": 118543,
+        "mapq": 0,
+        "flag": 272,
+        "primary": false,
+        "alignment_score": 2634,
+        "nm": 912,
+        "aligned_query_bases": 3921,
+        "reference_end": 122262
+      },
+      {
+        "reference": "chr22",
+        "position": 18202810,
+        "mapq": 60,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2622,
+        "nm": 1308,
+        "aligned_query_bases": 4639,
+        "reference_end": 18207473
+      },
+      {
+        "reference": "chr22",
+        "position": 18202810,
+        "mapq": 60,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2608,
+        "nm": 1322,
+        "aligned_query_bases": 4637,
+        "reference_end": 18207473
+      },
+      {
+        "reference": "chr22",
+        "position": 18202810,
+        "mapq": 60,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2562,
+        "nm": 1323,
+        "aligned_query_bases": 4638,
+        "reference_end": 18207473
+      },
+      {
+        "reference": "chr22",
+        "position": 18202810,
+        "mapq": 1,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2558,
+        "nm": 1320,
+        "aligned_query_bases": 4645,
+        "reference_end": 18207473
+      },
+      {
+        "reference": "chr22",
+        "position": 18890486,
+        "mapq": 44,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2438,
+        "nm": 995,
+        "aligned_query_bases": 3856,
+        "reference_end": 18893829
+      },
+      {
+        "reference": "chr22",
+        "position": 18890486,
+        "mapq": 0,
+        "flag": 272,
+        "primary": false,
+        "alignment_score": 2399,
+        "nm": 1023,
+        "aligned_query_bases": 3857,
+        "reference_end": 18893829
+      },
+      {
+        "reference": "chr22",
+        "position": 18890486,
+        "mapq": 60,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 2310,
+        "nm": 1009,
+        "aligned_query_bases": 3784,
+        "reference_end": 18893794
+      },
+      {
+        "reference": "chr21",
+        "position": 10324649,
+        "mapq": 4,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 1378,
+        "nm": 370,
+        "aligned_query_bases": 1738,
+        "reference_end": 10326407
+      },
+      {
+        "reference": "chr21",
+        "position": 10324656,
+        "mapq": 0,
+        "flag": 272,
+        "primary": false,
+        "alignment_score": 1370,
+        "nm": 393,
+        "aligned_query_bases": 1811,
+        "reference_end": 10326407
+      },
+      {
+        "reference": "chr21",
+        "position": 10324656,
+        "mapq": 0,
+        "flag": 272,
+        "primary": false,
+        "alignment_score": 1362,
+        "nm": 392,
+        "aligned_query_bases": 1811,
+        "reference_end": 10326407
+      },
+      {
+        "reference": "chr21",
+        "position": 10324656,
+        "mapq": 4,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 1356,
+        "nm": 395,
+        "aligned_query_bases": 1812,
+        "reference_end": 10326407
+      },
+      {
+        "reference": "chr21",
+        "position": 10324656,
+        "mapq": 4,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 1352,
+        "nm": 381,
+        "aligned_query_bases": 1788,
+        "reference_end": 10326386
+      },
+      {
+        "reference": "chr13",
+        "position": 18211701,
+        "mapq": 13,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 1328,
+        "nm": 198,
+        "aligned_query_bases": 1231,
+        "reference_end": 18212931
+      },
+      {
+        "reference": "chr21",
+        "position": 10324649,
+        "mapq": 4,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 1322,
+        "nm": 382,
+        "aligned_query_bases": 1741,
+        "reference_end": 10326407
+      },
+      {
+        "reference": "chr22",
+        "position": 20336196,
+        "mapq": 46,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 1274,
+        "nm": 605,
+        "aligned_query_bases": 2287,
+        "reference_end": 20338539
+      },
+      {
+        "reference": "chr22",
+        "position": 20336403,
+        "mapq": 45,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 1252,
+        "nm": 549,
+        "aligned_query_bases": 2181,
+        "reference_end": 20338539
+      },
+      {
+        "reference": "chr22",
+        "position": 20336403,
+        "mapq": 46,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 1248,
+        "nm": 553,
+        "aligned_query_bases": 2181,
+        "reference_end": 20338539
+      },
+      {
+        "reference": "chr22",
+        "position": 20336196,
+        "mapq": 43,
+        "flag": 2048,
+        "primary": false,
+        "alignment_score": 1234,
+        "nm": 608,
+        "aligned_query_bases": 2275,
+        "reference_end": 20338539
+      },
+      {
+        "reference": "chr22_KI270734v1_random",
+        "position": 117251,
+        "mapq": 5,
+        "flag": 2064,
+        "primary": false,
+        "alignment_score": 462,
+        "nm": 171,
+        "aligned_query_bases": 707,
+        "reference_end": 117941
+      }
+    ]
+  },
+  "isolated_bonefish_one_thread": {
+    "reference": "chr22",
+    "position": 18202810,
+    "mapq": 57,
+    "flag": 16
+  },
+  "reproduced_primary_placement_and_mapq": true,
+  "isolated_run_seconds_including_index": 28.416,
+  "interpretation": "Bonefish assigns MAPQ 57 to a primary chr22 placement while minimap2 assigns MAPQ 1 to a primary chr21 placement on this same read. Several alternative and supplementary alignments are present. This is an unresolved placement/confidence discrepancy; no true locus is established by this comparison."
+}

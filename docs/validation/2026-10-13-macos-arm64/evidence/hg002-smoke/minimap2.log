@@ -1,0 +1,28 @@
+[M::mm_idx_gen::18.372*1.56] collected minimizers
+[M::mm_idx_gen::21.933*1.96] sorted minimizers
+[M::main::21.933*1.96] loaded/built the index for 195 target sequence(s)
+[M::mm_mapopt_update::24.476*1.86] mid_occ = 136
+[M::mm_idx_stat] kmer size: 19; skip: 19; is_hpc: 0; #seq: 195
+[M::mm_idx_stat::26.333*1.80] distinct minimizers: 214664461 (92.23% are singletons); average occurrences: 1.372; average spacing: 10.529; total length: 3099922541
+[M::worker_pipeline::33.362*2.13] mapped 1000 sequences
+[M::main] Version: 2.30-r1287
+[M::main] CMD: ${TOOLS}/minimap2 -ax lr:hq -t 4 ${REFERENCE} ${SESSION}/outputs/bonefish-hg002-test/HG002_R1041_UL_dorado0.4.0_sup4.1.0.first1000.fastq.gz
+[M::main] Real time: 33.391 sec; CPU: 71.177 sec; Peak RSS: 10.366 GB
+       33.79 real        62.62 user         8.94 sys
+         11130044416  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+             3534018  page reclaims
+                  20  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                  22  voluntary context switches
+               28152  involuntary context switches
+        927387417618  instructions retired
+        292929615935  cycles elapsed
+         15411327168  peak memory footprint

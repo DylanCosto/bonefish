@@ -1,0 +1,51 @@
+{
+  "command": [
+    "${SESSION}/outputs/bonefish-masked-chaining/bonefish",
+    "-a",
+    "-t",
+    "8",
+    "--sort",
+    "--sort-mem",
+    "1G",
+    "--sort-tmp",
+    "${DATA_10X}/bonefish.10x.sort",
+    "-o",
+    "${DATA_10X}/bonefish.HG002.10x.partial.bam",
+    "${REFERENCE}",
+    "${DATA_10X}/HG002_R1041_UL.part1.nominal10x.fastq.gz",
+    "${DATA_10X}/HG002_R1041_UL.part2.nominal10x.fastq.gz",
+    "${DATA_10X}/HG002_R1041_UL.part3.nominal10x.fastq.gz",
+    "${DATA_10X}/HG002_R1041_UL.part4.nominal10x.fastq.gz"
+  ],
+  "environment": {
+    "BONEFISH_SORT_TIMING": "1"
+  },
+  "exit_code": 0,
+  "wall_seconds_including_index_sort_bam_and_bai": 2439.845470999833,
+  "threads": 8,
+  "sort_mem": "1G",
+  "peak_rss_bytes": 15004123136,
+  "instructions_retired": 112991696534928,
+  "worker_stage_sums_seconds": {
+    "Sequence Sketching": 423.692,
+    "Seeding (Lookup)": 3979.322,
+    "Chaining": 1370.771,
+    "Alignment (Ext)": 3923.978,
+    "Post-chain": 925.077,
+    "Total Measured": 10622.84
+  },
+  "warnings": [],
+  "binary_path": "${SESSION}/outputs/bonefish-masked-chaining/bonefish",
+  "binary_sha256": "1cb876c7cef4d1e3bebd433f9a6bfeea9e145669638687e89107a242004e669b",
+  "partial_bam_path": "${DATA_10X}/bonefish.HG002.10x.partial.bam",
+  "started_utc": "2026-10-13T17:37:33.561388+00:00",
+  "completed_utc": "2026-10-13T18:18:13.420789+00:00",
+  "peak_memory_footprint_bytes": 23419602608,
+  "swaps_reported_by_time": 0,
+  "phase_timings": {
+    "final_sort_merge_bam_and_index_seconds": 1073.362,
+    "before_final_merge_seconds_including_index_mapping_and_sort_spills": 1366.2129999999997,
+    "fresh_index_seconds": 10.999,
+    "note": "Phase split uses the CLI timers; mapping and temporary-run spilling overlap. Wrapper elapsed time adds about 0.27 seconds to the CLI timer."
+  }
+}

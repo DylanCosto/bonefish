@@ -1,0 +1,47 @@
+[*] Reading target: ${REFERENCE}
+[*] Building index part 1 for 195 sequences...
+[*] Index part 1 built in 10.999s
+[*] Calculated mid_occ: 136 (frac=0.0002) [part 1]
+[sort] 105 runs, 1 decoders x 2 chunks ahead each
+[sort] merge loop done 0.74s before compressors+writer finished; merge thread busy 14.81s (of which waiting for runs 0.50s); run readers: file reads 15251.34s, decompression 142.16s
+[sort] wait for last spill 0.01s, merge+write 1073.24s, 105 runs
+[*] Sorted BAM: 1285384 records, merged and written in 1073.362s after mapping
+[*] Mapping done in 2439.575s (1 index part)
+--- Alignment Breakdown ---
+  Sequence Sketching: 423.692s
+  Seeding (Lookup):   3979.322s
+  Chaining:           1370.771s
+  Alignment (Ext):    3923.978s
+  Post-chain:         925.077s
+  Total Measured:     10622.840s
+  Reads: 825955, Seeds: 3082069151, Anchors: 12271182843, Chains: 3940254162
+---------------------------
+--- Post-chain sub-timers ---
+  RMQ rescue:      864.486s (226593 calls, 2659080186 anchors, 260467 skipped: no joinable chains)
+    of which high-occ re-chain: 0.000s (0 calls)
+  Build regs:      35.600s
+  Parent+filter:   8.616s
+  Div+strand:      10.326s
+  Squeezed+bounds: 5.996s
+  Extension probe stops: 923526
+  Sub-anchored long gaps: 1392574
+  Narrow gap band: 79059770 used (223472 widened), 223853 too wide, 42797 edge fallbacks
+-----------------------------
+     2439.77 real      7525.49 user      2177.40 sys
+         15004123136  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+           273763124  page reclaims
+                1190  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+             5692074  voluntary context switches
+            56163597  involuntary context switches
+     112991696534928  instructions retired
+      35267205383067  cycles elapsed
+         23419602608  peak memory footprint

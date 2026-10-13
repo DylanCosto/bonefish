@@ -1,0 +1,63 @@
+{
+  "reference_bytes": 886344618,
+  "primary_nuclear_contigs": [
+    "chr1",
+    "chr2",
+    "chr3",
+    "chr4",
+    "chr5",
+    "chr6",
+    "chr7",
+    "chr8",
+    "chr9",
+    "chr10",
+    "chr11",
+    "chr12",
+    "chr13",
+    "chr14",
+    "chr15",
+    "chr16",
+    "chr17",
+    "chr18",
+    "chr19",
+    "chr20",
+    "chr21",
+    "chr22",
+    "chrX",
+    "chrY"
+  ],
+  "primary_nuclear_bases": 3088269832,
+  "all_reference_bases": 3099922541,
+  "sources": [
+    {
+      "url": "https://s3.us-west-2.amazonaws.com/human-pangenomics/submissions/5b73fa0e-658a-4248-b2b8-cd16155bc157--UCSC_GIAB_R1041_nanopore/HG002_R1041_UL/dorado/v0.4.0_wMods/11_16_22_R1041_UL_HG002_1_dorado0.4.0_sup4.1.0_5mCG_5hmCG.bam",
+      "bytes": 33809051984,
+      "etag": "\"afdd1d43ab48a4d03d94f540b5a8ec91-504\"",
+      "last_modified": "Wed, 01 Nov 2023 20:40:32 GMT",
+      "accept_ranges": "bytes"
+    },
+    {
+      "url": "https://s3.us-west-2.amazonaws.com/human-pangenomics/submissions/5b73fa0e-658a-4248-b2b8-cd16155bc157--UCSC_GIAB_R1041_nanopore/HG002_R1041_UL/dorado/v0.4.0_wMods/11_16_22_R1041_UL_HG002_2_dorado0.4.0_sup4.1.0_5mCG_5hmCG.bam",
+      "bytes": 27481911134,
+      "etag": "\"1f3e88257518a5bed1a57e0148e068a2-410\"",
+      "last_modified": "Wed, 01 Nov 2023 20:30:38 GMT",
+      "accept_ranges": "bytes"
+    },
+    {
+      "url": "https://s3.us-west-2.amazonaws.com/human-pangenomics/submissions/5b73fa0e-658a-4248-b2b8-cd16155bc157--UCSC_GIAB_R1041_nanopore/HG002_R1041_UL/dorado/v0.4.0_wMods/11_16_22_R1041_UL_HG002_3_dorado0.4.0_sup4.1.0_5mCG_5hmCG.bam",
+      "bytes": 27055004765,
+      "etag": "\"615b3f689ec8ad49c57c24c9421fcb48-404\"",
+      "last_modified": "Wed, 01 Nov 2023 20:34:37 GMT",
+      "accept_ranges": "bytes"
+    },
+    {
+      "url": "https://s3.us-west-2.amazonaws.com/human-pangenomics/submissions/5b73fa0e-658a-4248-b2b8-cd16155bc157--UCSC_GIAB_R1041_nanopore/HG002_R1041_UL/dorado/v0.4.0_wMods/11_16_22_R1041_UL_HG002_4_dorado0.4.0_sup4.1.0_5mCG_5hmCG.bam",
+      "bytes": 30761586029,
+      "etag": "\"1fa94a3959e9f9adb909b13d63121c61-459\"",
+      "last_modified": "Wed, 01 Nov 2023 21:14:31 GMT",
+      "accept_ranges": "bytes"
+    }
+  ],
+  "reference_filename": "GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta.gz",
+  "reference_sha256": "3c8def6d325c5d1e934b2dd530c4d1709f027677a15859467071fddf3fff2026"
+}

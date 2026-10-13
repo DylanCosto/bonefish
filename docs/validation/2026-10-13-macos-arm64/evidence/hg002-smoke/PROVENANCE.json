@@ -1,0 +1,24 @@
+{
+  "sample": "HG002",
+  "platform": "ONT",
+  "flowcell_label": "R10.4.1",
+  "basecaller": "Dorado 0.4.0",
+  "model_label": "SUP 4.1.0",
+  "source_url": "https://s3.us-west-2.amazonaws.com/human-pangenomics/submissions/5b73fa0e-658a-4248-b2b8-cd16155bc157--UCSC_GIAB_R1041_nanopore/HG002_R1041_UL/dorado/v0.4.0_wMods/11_16_22_R1041_UL_HG002_1_dorado0.4.0_sup4.1.0_5mCG_5hmCG.bam",
+  "source_bytes": 33809051984,
+  "source_s3_etag": "\"afdd1d43ab48a4d03d94f540b5a8ec91-504\"",
+  "source_complete_file_downloaded": false,
+  "source_headers": [
+    "@HD\tVN:1.6\tSO:unknown",
+    "@PG\tID:basecaller\tPN:dorado\tVN:0.4.0+0aaf16d\tCL:dorado basecaller /private/nanopore/tools/dorado/models/dna_r10.4.1_e8.2_400bps_sup@v4.1.0 /data/scratch/iviolich/temp/HG002/11_16_22_R1041_UL_HG002_1/pod5_dir/output.pod5 --recursive --modified-bases 5mCG_5hmCG",
+    "@RG\tID:5835891022b50855c003c5fef015668398e8791f_dna_r10.4.1_e8.2_400bps_sup@v4.1.0\tPU:PAI34343\tPM:PC48B200\tDT:2022-11-16T22:05:54.490+00:00\tPL:ONT\tDS:basecall_model=dna_r10.4.1_e8.2_400bps_sup@v4.1.0 runid=5835891022b50855c003c5fef015668398e8791f\tLB:11_16_22_R1041_UL_HG002_1\tSM:11_16_22_R1041_UL_HG002_1"
+  ],
+  "sampling": "First 1000 primary records in file order from part 1; not a random or coverage-normalized sample. Remote stream stopped after the complete 1000th record.",
+  "reads": 1000,
+  "bases": 33304765,
+  "unique_read_names": 1000,
+  "subset_bam_sha256": "d9a52ce26661a6da9febcc0836a7a687647a0c6ab80329dfaae28d9c6ec81190",
+  "subset_fastq_sha256": "d7c98ba5220dcc522599e9aa0f8325706fe3642cefdfe4e8b90117dabc09aeff",
+  "retrieve_seconds": 11.102,
+  "reference_path": "${REFERENCE}"
+}

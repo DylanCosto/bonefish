@@ -1,0 +1,25 @@
+[*] Reading target: ${REFERENCE}
+[*] Building index part 1 for 195 sequences...
+[*] Index part 1 built in 25.752s
+[*] Calculated mid_occ: 136 (frac=0.0002) [part 1]
+[*] Mapping done in 28.407s (1 index part)
+--- Alignment Breakdown ---
+  Sequence Sketching: 0.001s
+  Seeding (Lookup):   0.001s
+  Chaining:           0.001s
+  Alignment (Ext):    0.040s
+  Post-chain:         0.001s
+  Total Measured:     0.044s
+  Reads: 1, Seeds: 5434, Anchors: 20751, Chains: 3059
+---------------------------
+--- Post-chain sub-timers ---
+  RMQ rescue:      0.001s (1 calls, 3059 anchors, 0 skipped: no joinable chains)
+    of which high-occ re-chain: 0.000s (0 calls)
+  Build regs:      0.000s
+  Parent+filter:   0.000s
+  Div+strand:      0.000s
+  Squeezed+bounds: 0.000s
+  Extension probe stops: 81
+  Sub-anchored long gaps: 9
+  Narrow gap band: 101 used (0 widened), 0 too wide, 2 edge fallbacks
+-----------------------------
