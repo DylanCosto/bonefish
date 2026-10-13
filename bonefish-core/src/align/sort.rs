@@ -12,11 +12,36 @@ const RS_MAX_BITS: u32 = 8;
 /// Trait for types that can be radix-sorted by extracting a u64 key.
 pub trait RadixKey: Copy {
     fn radix_key(&self) -> u64;
+
+    /// Sort a leaf bucket (at most RS_MIN_SIZE elements whose keys agree on every bit at or
+    /// above `s`) stably by key, as `rs_insertsort`.
+    #[inline]
+    fn leaf_sort(arr: &mut [Self], _s: u32) { rs_insertsort(arr); }
 }
 
 impl RadixKey for Minimizer {
     #[inline(always)]
     fn radix_key(&self) -> u64 { self.x }
+
+    /// Stable order by x without insertion sort's per-element shifting: the keys agree above
+    /// bit `s`, so (low bits of x) << 6 | input index is a distinct composite whose ascending
+    /// order is exactly the stable insertion-sort order.
+    #[inline]
+    fn leaf_sort(arr: &mut [Self], s: u32) {
+        let n = arr.len();
+        if n < 16 || n > 64 || s > 56 {
+            rs_insertsort(arr);
+            return;
+        }
+        let mask = (1u64 << s) - 1;
+        let mut keys = [0u64; 64];
+        for (i, m) in arr.iter().enumerate() { keys[i] = ((m.x & mask) << 6) | i as u64; }
+        let keys = &mut keys[..n];
+        keys.sort_unstable();
+        let mut tmp = [Minimizer { x: 0, y: 0 }; 64];
+        for (k, &c) in keys.iter().enumerate() { tmp[k] = arr[(c & 63) as usize]; }
+        arr.copy_from_slice(&tmp[..n]);
+    }
 }
 
 impl RadixKey for u64 {
@@ -142,7 +167,7 @@ fn rs_sort<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
             if len > RS_MIN_SIZE {
                 rs_sort(&mut arr[bb[i]..be[i]], n_bits, next_s);
             } else if len > 1 {
-                rs_insertsort(&mut arr[bb[i]..be[i]]);
+                T::leaf_sort(&mut arr[bb[i]..be[i]], s);
             }
         }
     }
