@@ -19,18 +19,28 @@ use crate::align::map::{AlignFlags, MapOptions};
 use std::cmp;
 
 /// Reverse complement a DNA sequence (ASCII encoding).
+// Table lookup (the per-base match compiled to mispredicting branches). Every byte maps to an
+// ASCII base, so the output is always valid UTF-8.
+const RC: [u8; 256] = {
+    let mut t = [b'N'; 256];
+    t[b'A' as usize] = b'T'; t[b'a' as usize] = b'T';
+    t[b'C' as usize] = b'G'; t[b'c' as usize] = b'G';
+    t[b'G' as usize] = b'C'; t[b'g' as usize] = b'C';
+    t[b'T' as usize] = b'A'; t[b't' as usize] = b'A';
+    t[b'U' as usize] = b'A'; t[b'u' as usize] = b'A';
+    t
+};
+
 pub fn rev_comp(seq: &[u8]) -> Vec<u8> {
-    // Table lookup (the per-base match compiled to mispredicting branches).
-    const RC: [u8; 256] = {
-        let mut t = [b'N'; 256];
-        t[b'A' as usize] = b'T'; t[b'a' as usize] = b'T';
-        t[b'C' as usize] = b'G'; t[b'c' as usize] = b'G';
-        t[b'G' as usize] = b'C'; t[b'g' as usize] = b'C';
-        t[b'T' as usize] = b'A'; t[b't' as usize] = b'A';
-        t[b'U' as usize] = b'A'; t[b'u' as usize] = b'A';
-        t
-    };
     seq.iter().rev().map(|&b| RC[b as usize]).collect()
+}
+
+/// Append the reverse complement of `seq` (as `rev_comp`) to `out`.
+pub fn push_rev_comp(out: &mut String, seq: &[u8]) {
+    // SAFETY: RC maps every byte to an ASCII letter, so `out` stays valid UTF-8.
+    let v = unsafe { out.as_mut_vec() };
+    v.reserve(seq.len());
+    v.extend(seq.iter().rev().map(|&b| RC[b as usize]));
 }
 
 /// Reverse complement a nt4-encoded sequence (0=A,1=C,2=G,3=T,4=N).
@@ -642,21 +652,32 @@ fn append_cigar(cigar: &mut Vec<u32>, new_ops: &[u32]) {
 }
 
 pub fn fmt_cigar(ops: &[CigarOp], eqx: bool) -> String {
+    // One string, digits written directly (as `CigarOp`'s Display: length then op letter).
+    fn push(out: &mut String, len: u32, op: char) {
+        let mut d = [0u8; 10];
+        let (mut n, mut k) = (len, d.len());
+        loop { k -= 1; d[k] = b'0' + (n % 10) as u8; n /= 10; if n == 0 { break; } }
+        // SAFETY: ASCII digits.
+        out.push_str(unsafe { std::str::from_utf8_unchecked(&d[k..]) });
+        out.push(op);
+    }
+    let mut out = String::with_capacity(ops.len() * 5);
     if eqx {
-        ops.iter().map(|op| op.to_string()).collect()
+        for op in ops { push(&mut out, op.len, op.op); }
     } else {
         // Merge = and X into M
-        let mut min_ops: Vec<CigarOp> = Vec::new();
+        let mut cur: Option<(char, u32)> = None;
         for op in ops {
             let ch = if op.op == '=' || op.op == 'X' { 'M' } else { op.op };
-            if let Some(last) = min_ops.last_mut() && last.op == ch {
-                last.len += op.len;
-                continue;
+            match cur {
+                Some((c, l)) if c == ch => cur = Some((c, l + op.len)),
+                Some((c, l)) => { push(&mut out, l, c); cur = Some((ch, op.len)); }
+                None => cur = Some((ch, op.len)),
             }
-            min_ops.push(CigarOp { op: ch, len: op.len });
         }
-        min_ops.iter().map(|op| op.to_string()).collect()
+        if let Some((c, l)) = cur { push(&mut out, l, c); }
     }
+    out
 }
 
 pub fn calculate_alignment_score(ops: &[CigarOp], a: i32, b: i32, q: i32, e: i32, q2: i32, e2: i32) -> i32 {

@@ -14,7 +14,7 @@ use crate::align::index::Index;
 use crate::align::extend::{AlignmentContext, AlignAnchorContext, align_anchors, build_scoring_matrix_full, convert_cigar_to_eqx_pub, fix_cigar_pub, fmt_cigar, fmt_cs, fmt_ds, fmt_md, CigarOp};
 use crate::align::filter::{FilterParams, ParentState, FilterableItem, check_secondary_filter, scale_alt_score};
 use crate::align::sort::radix_sort_128x_pair;
-use crate::align::extend::{rev_comp, rev_comp_nt4, encode_nt4_rc};
+use crate::align::extend::{rev_comp_nt4, encode_nt4_rc};
 use std::fmt::Write;
 use crate::align::stats::AlignmentStats;
 use serde::{Serialize, Deserialize};
@@ -51,6 +51,55 @@ fn fast_log2(x: f32) -> f32 {
 /// Uses the full scoring matrix for per-base scoring (important for transition scoring).
 /// qseq/tseq are the aligned regions (0-indexed, encoded as 0=A,1=C,2=G,3=T,4=N).
 fn compute_alignment_score_max(ops: &[CigarOp], mat: &[i8; 25], q: i32, e: i32, qseq: &[u8], tseq: &[u8]) -> i32 {
+    // Run-level fast path, exact: with no N in either sequence, a positive match score and
+    // non-positive mismatch scores, an '=' run raises the score by a * len (the running max can
+    // only change at its end) and an 'X' run lowers it by the sum of its mismatch scores (the
+    // clamp at 0 commutes with a monotone decrease). Every partial sum is exactly representable
+    // (integer scores plus the f32-derived gap terms), so adding a run at once equals adding it
+    // base by base.
+    let a = mat[0];
+    let diag_ok = (0..4).all(|i| mat[i * 5 + i] == a);
+    let mis_ok = (0..4).all(|i| (0..4).all(|j| i == j || mat[i * 5 + j] <= 0));
+    let (mut qn, mut tn) = (0usize, 0usize);
+    let runs_ok = ops.iter().all(|op| {
+        let l = op.len as usize;
+        match op.op { '=' | 'X' => { qn += l; tn += l; true } 'I' => { qn += l; true } 'D' | 'N' => { tn += l; true } _ => false }
+    }) && qn <= qseq.len() && tn <= tseq.len();
+    if a > 0 && diag_ok && mis_ok && runs_ok && max_byte(qseq) <= 3 && max_byte(tseq) <= 3 {
+        let (mut s, mut max) = (0.0f64, 0.0f64);
+        let (mut qoff, mut toff) = (0usize, 0usize);
+        for op in ops {
+            let len = op.len as usize;
+            match op.op {
+                '=' => {
+                    s += (a as i32 * len as i32) as f64;
+                    if s > max { max = s; }
+                    qoff += len;
+                    toff += len;
+                }
+                'X' => {
+                    let v: i32 = qseq[qoff..qoff + len].iter().zip(&tseq[toff..toff + len])
+                        .map(|(&cq, &ct)| mat[ct as usize * 5 + cq as usize] as i32).sum();
+                    s += v as f64;
+                    if s < 0.0 { s = 0.0; }
+                    qoff += len;
+                    toff += len;
+                }
+                'I' => {
+                    s -= (q as f64) + (e as f64) * fast_log2(1.0 + len as f32) as f64;
+                    if s < 0.0 { s = 0.0; }
+                    qoff += len;
+                }
+                'D' => {
+                    s -= (q as f64) + (e as f64) * fast_log2(1.0 + len as f32) as f64;
+                    if s < 0.0 { s = 0.0; }
+                    toff += len;
+                }
+                _ => { toff += len; } // 'N'
+            }
+        }
+        return (max + 0.499) as i32;
+    }
     let mut s: f64 = 0.0;
     let mut max: f64 = 0.0;
     let mut qoff: usize = 0;
@@ -132,6 +181,12 @@ pub(crate) struct MapResult {
     pub squeezed: Vec<Minimizer>,
 }
 
+/// Largest byte of `v` (0 if empty); a branch-free reduction the compiler vectorises.
+#[inline]
+fn max_byte(v: &[u8]) -> u8 {
+    v.iter().fold(0u8, |m, &b| m.max(b))
+}
+
 impl CigarStats {
     /// Compute alignment statistics by walking CIGAR ops and aligned sequences.
     ///
@@ -156,10 +211,11 @@ impl CigarStats {
             }
         }
 
-        // Phase 2: Count ambiguous bases (N) by walking CIGAR + sequences
+        // Phase 2: Count ambiguous bases (N) by walking CIGAR + sequences (nothing to count when
+        // neither sequence has a code > 3, the usual case).
         let mut n_ambi: u32 = 0;
         let mut n_ambi_match: u32 = 0;
-        {
+        if max_byte(aln_qseq) > 3 || max_byte(aln_tseq) > 3 {
             let mut qi: usize = 0;
             let mut ti: usize = 0;
             for op in ops {
@@ -1933,7 +1989,8 @@ pub fn align_and_format_query(
     out: &OutputConfig,
 ) -> (String, AlignmentStats) {
     let pq = process_query(opt, mi, read.qname, read.qseq, ctx, map_ctx, out);
-    let mut output_buffer = String::new();
+    // Room for the primary's SEQ and QUAL plus the other records' fields.
+    let mut output_buffer = String::with_capacity(2 * read.qseq.len() + 1024 * (pq.results.len() + 1));
     format_output(&mut output_buffer, opt, mi, read, &pq, out);
     (output_buffer, pq.stats)
 }
@@ -2029,7 +2086,6 @@ fn format_sam_record(
         flag |= 0x800; // supplementary
     }
     let mapq = mapqs[idx];
-    let mut full_cigar = String::new();
 
     let (clip_head, clip_tail) = if r.is_reverse {
         (qlen.saturating_sub(r.query_end), r.query_start)
@@ -2039,22 +2095,15 @@ fn format_sam_record(
 
     let clip_char = if (flag & 0x800 != 0 && !opt.flags.contains(AlignFlags::SOFTCLIP))
         || (flag & 0x100 != 0 && opt.flags.contains(AlignFlags::SECONDARY_SEQ)) { 'H' } else { 'S' };
-    if clip_head > 0 { full_cigar.push_str(&format!("{}{}", clip_head, clip_char)); }
-    full_cigar.push_str(&r.cigar_str);
-    if clip_tail > 0 { full_cigar.push_str(&format!("{}{}", clip_tail, clip_char)); }
 
     // BAM n_cigar_op is a uint16. When -L (LONG_CIGAR) is set and the CIGAR would
     // exceed 65535 ops, move it into a CG:B:I tag and emit a placeholder <slen>S<rlen>N
     // in the CIGAR column so samtools view/convert can round-trip.
     const MAX_BAM_CIGAR_OP: usize = 65535;
     let long_cigar_enabled = opt.flags.contains(AlignFlags::LONG_CIGAR);
-    let mid_op_count = count_cigar_ops(&r.cigar_str);
-    let total_cigar_ops = mid_op_count
-        + if clip_head > 0 { 1 } else { 0 }
-        + if clip_tail > 0 { 1 } else { 0 };
     let cigar_in_tag = long_cigar_enabled
         && !r.cigar_str.is_empty()
-        && total_cigar_ops > MAX_BAM_CIGAR_OP;
+        && count_cigar_ops(&r.cigar_str) + (clip_head > 0) as usize + (clip_tail > 0) as usize > MAX_BAM_CIGAR_OP;
 
     let placeholder_cigar = if cigar_in_tag {
         let slen = if flag & 0x900 == 0 || opt.flags.contains(AlignFlags::SOFTCLIP) {
@@ -2073,50 +2122,59 @@ fn format_sam_record(
     let no_qual = opt.flags.contains(AlignFlags::NO_QUAL);
     let sec_seq = opt.flags.contains(AlignFlags::SECONDARY_SEQ);
     let soft_supp = opt.flags.contains(AlignFlags::SOFTCLIP);
-    let (out_seq, out_qual) = if flag & 0x900 == 0 || (flag & 0x800 != 0 && soft_supp) {
-        let seq = if r.is_reverse {
-            String::from_utf8(rev_comp(qseq)).unwrap_or_else(|_| "INVALID_UTF8".to_string())
-        } else {
-            String::from_utf8_lossy(qseq).to_string()
-        };
-        let q = if no_qual {
-            "*".to_string()
-        } else if let Some(qs) = qual {
-            if r.is_reverse { qs.chars().rev().collect::<String>() } else { qs.to_string() }
-        } else {
-            "*".to_string()
-        };
-        (seq, q)
+    // SEQ/QUAL span: the whole read, the aligned part (hard-clipped), or none.
+    let span: Option<(usize, usize)> = if flag & 0x900 == 0 || (flag & 0x800 != 0 && soft_supp) {
+        Some((0, qlen))
     } else if flag & 0x100 != 0 && !sec_seq {
-        ("*".to_string(), "*".to_string())
+        None
     } else {
-        let partial_seq = &qseq[r.query_start..r.query_end];
-        let seq = if r.is_reverse {
-            String::from_utf8(rev_comp(partial_seq)).unwrap_or_else(|_| "INVALID_UTF8".to_string())
-        } else {
-            String::from_utf8_lossy(partial_seq).to_string()
-        };
-        let q = if no_qual {
-            "*".to_string()
-        } else if let Some(qs) = qual {
-            let partial_qual = &qs[r.query_start..r.query_end];
-            if r.is_reverse { partial_qual.chars().rev().collect::<String>() } else { partial_qual.to_string() }
-        } else {
-            "*".to_string()
-        };
-        (seq, q)
+        Some((r.query_start, r.query_end))
     };
 
     // Write QNAME, FLAG, RNAME, POS, MAPQ, CIGAR
-    let cigar_col: &str = placeholder_cigar.as_deref().unwrap_or(&full_cigar);
-    write!(output_buffer, "{}\t{}\t{}\t{}\t{}\t{}\t",
-        out_qname, flag, tname, r.ref_start + 1, mapq, cigar_col).ok();
+    write!(output_buffer, "{}\t{}\t{}\t{}\t{}\t", out_qname, flag, tname, r.ref_start + 1, mapq).ok();
+    if let Some(p) = &placeholder_cigar {
+        output_buffer.push_str(p);
+    } else {
+        if clip_head > 0 { write!(output_buffer, "{}{}", clip_head, clip_char).ok(); }
+        output_buffer.push_str(&r.cigar_str);
+        if clip_tail > 0 { write!(output_buffer, "{}{}", clip_tail, clip_char).ok(); }
+    }
 
     // Write RNEXT/PNEXT/TLEN
-    write!(output_buffer, "*\t0\t0\t").ok();
+    output_buffer.push_str("\t*\t0\t0\t");
 
-    // Write SEQ/QUAL
-    write!(output_buffer, "{}\t{}", out_seq, out_qual).ok();
+    // Write SEQ/QUAL (reverse-complemented / reversed on the reverse strand)
+    match span {
+        None => output_buffer.push_str("*\t*"),
+        Some((s0, s1)) => {
+            let sq = &qseq[s0..s1];
+            if r.is_reverse {
+                crate::align::extend::push_rev_comp(output_buffer, sq);
+            } else if sq.is_ascii() {
+                // SAFETY: checked ASCII.
+                output_buffer.push_str(unsafe { std::str::from_utf8_unchecked(sq) });
+            } else {
+                output_buffer.push_str(&String::from_utf8_lossy(sq));
+            }
+            output_buffer.push('\t');
+            match qual {
+                Some(qs) if !no_qual => {
+                    let q = if s0 == 0 && s1 == qlen { qs } else { &qs[s0..s1] };
+                    if !r.is_reverse {
+                        output_buffer.push_str(q);
+                    } else if q.is_ascii() {
+                        // SAFETY: reversing ASCII bytes keeps valid UTF-8.
+                        let v = unsafe { output_buffer.as_mut_vec() };
+                        v.extend(q.as_bytes().iter().rev());
+                    } else {
+                        output_buffer.extend(q.chars().rev());
+                    }
+                }
+                _ => output_buffer.push('*'),
+            }
+        }
+    }
 
     write!(output_buffer, "\tNM:i:{}", r.edit_distance).ok();
     write!(output_buffer, "\tms:i:{}", r.dp_score_original).ok();
