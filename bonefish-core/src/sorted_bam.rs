@@ -482,12 +482,13 @@ struct RunReader {
 }
 
 impl RunReader {
-    /// `dec` threads decompress chunks (in order) ahead of the merge.
-    fn open(path: &PathBuf, dec: usize) -> io::Result<RunReader> {
+    /// `dec` threads decompress chunks (in order) ahead of the merge, up to `ahead` chunks per
+    /// decoder in flight.
+    fn open(path: &PathBuf, dec: usize, ahead: usize) -> io::Result<RunReader> {
         let mut r = BufReader::with_capacity(1 << 20, File::open(path)?);
         let dec = dec.max(1);
         // In-order futures: the feeder sends each chunk's result receiver, decoders fill them.
-        let (tx, rx) = mpsc::sync_channel::<Receiver<io::Result<Vec<u8>>>>(2 * dec);
+        let (tx, rx) = mpsc::sync_channel::<Receiver<io::Result<Vec<u8>>>>(ahead.max(2) * dec);
         let (job_tx, job_rx) = mpsc::sync_channel::<(Vec<u8>, usize, SyncSender<io::Result<Vec<u8>>>)>(dec);
         let job_rx = std::sync::Arc::new(std::sync::Mutex::new(job_rx));
         for _ in 0..dec {
@@ -774,7 +775,11 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
     // Sources in input order: runs (creation order), then the in-memory batches; ties go to the
     // earliest source, so equal keys keep input order.
     let dec = (threads / runs.len().max(1)).clamp(1, 4);
-    let mut readers: Vec<RunReader> = runs.iter().map(|p| RunReader::open(p, dec)).collect::<io::Result<_>>()?;
+    // Chunks decoded ahead per run: with only two, the merge waits on the decoders most of the
+    // time (each run's next chunk is rarely ready when its buffer empties). Spend up to the sort
+    // memory budget on lookahead (mapping memory is free by now), 2 to 16 chunks per decoder.
+    let ahead = (cfg.mem / (runs.len().max(1) * dec * RUN_CHUNK)).clamp(2, 16);
+    let mut readers: Vec<RunReader> = runs.iter().map(|p| RunReader::open(p, dec, ahead)).collect::<io::Result<_>>()?;
     let n_runs = readers.len();
     let mut mem_i = vec![0usize; mem.len()];
     let mut heap: BinaryHeap<Reverse<(u64, usize)>> = BinaryHeap::new();
@@ -829,6 +834,7 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
     for h in workers { h.join().map_err(|_| bad("compressor panicked"))?; }
     writer.join().map_err(|_| bad("writer panicked"))??;
     if std::env::var_os("BONEFISH_SORT_TIMING").is_some() {
+        eprintln!("[sort] {} runs, {} decoders x {} chunks ahead each", runs.len(), dec, ahead);
         eprintln!("[sort] merge loop done {:.2}s before compressors+writer finished; merge thread busy {:.2}s (of which waiting for runs {:.2}s); run readers: file reads {:.2}s, decompression {:.2}s", t_merge_end.elapsed().as_secs_f64(), merge_busy.as_secs_f64(), RUN_WAIT_NS.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, RUN_READ_NS.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9, RUN_DEC_NS.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e9);
     }
     Ok(n_rec)
