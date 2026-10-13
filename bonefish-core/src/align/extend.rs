@@ -2184,9 +2184,25 @@ pub fn fix_cigar_pub(cigar: &mut Vec<u32>, qseq: &[u8], tseq: &[u8], qs: i32, rs
     fix_cigar(cigar, qseq, tseq, qs, rs)
 }
 
+/// Length of the equal prefix of `q` and `t` (8 bytes per step).
+#[inline]
+fn equal_prefix(q: &[u8], t: &[u8]) -> usize {
+    let n = q.len().min(t.len());
+    let mut i = 0;
+    while i + 8 <= n {
+        let a = u64::from_le_bytes(q[i..i + 8].try_into().unwrap());
+        let b = u64::from_le_bytes(t[i..i + 8].try_into().unwrap());
+        let x = a ^ b;
+        if x != 0 { return i + (x.trailing_zeros() / 8) as usize; }
+        i += 8;
+    }
+    while i < n && q[i] == t[i] { i += 1; }
+    i
+}
+
 /// Convert M ops to =/X ops (EQX mode).
 fn convert_cigar_to_eqx(raw_cigar: &[u32], qseq: &[u8], tseq: &[u8], qs: usize, rs: usize) -> Vec<CigarOp> {
-    let mut ops = Vec::new();
+    let mut ops = Vec::with_capacity(raw_cigar.len() * 2);
     let mut qi = qs;
     let mut ti = rs;
 
@@ -2195,6 +2211,24 @@ fn convert_cigar_to_eqx(raw_cigar: &[u32], qseq: &[u8], tseq: &[u8], qs: usize, 
         let op = c & 0xf;
 
         match op {
+            0 if qi + len <= qseq.len() && ti + len <= tseq.len() => { // M inside both sequences
+                let (q, t) = (&qseq[qi..qi + len], &tseq[ti..ti + len]);
+                let mut pos = 0;
+                while pos < len {
+                    let m = equal_prefix(&q[pos..], &t[pos..]);
+                    if m > 0 {
+                        ops.push(CigarOp { op: '=', len: m as u32 });
+                        pos += m;
+                    }
+                    let start = pos;
+                    while pos < len && q[pos] != t[pos] { pos += 1; }
+                    if pos > start {
+                        ops.push(CigarOp { op: 'X', len: (pos - start) as u32 });
+                    }
+                }
+                qi += len;
+                ti += len;
+            },
             0 => { // M -> split into = and X
                 let mut pos = 0;
                 while pos < len {

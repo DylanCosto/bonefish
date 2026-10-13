@@ -482,7 +482,8 @@ fn align_single_mapping(
     let mut align_score = mapping.score;
     let mut dp_max = mapping.score;
     let mut recalc_info = DpRecalcInfo { match_len: 0, block_len: 0, num_ambiguous: 0, gap_bases: 0, gap_opens: 0, sum_log_gap: 0.0 };
-    let (fuzzy_mlen, fuzzy_blen) = estimate_match_block_lengths(&mapping.anchors);
+    // Anchor-based estimate; with CIGARs it is always replaced by the alignment's counts below.
+    let (fuzzy_mlen, fuzzy_blen) = if out.do_cigar { (0, 0) } else { estimate_match_block_lengths(&mapping.anchors) };
     let mut matches = fuzzy_mlen;
     let mut block_len = fuzzy_blen;
     let mut cigar_str = String::new();
