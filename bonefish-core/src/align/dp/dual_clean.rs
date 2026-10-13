@@ -48,7 +48,8 @@ pub(super) unsafe fn extend_dual_affine_avx2_clean(
     // One specialised copy per flag combination: with the flags as constants the inner loop has
     // no per-vector branches and its masks stay in vector registers.
     let m1 = alphabet_size.wrapping_sub(1) as u8;
-    let has_n = qseq.iter().chain(tseq.iter()).any(|&c| c >= m1);
+    // Branch-free max reductions (vectorised), not an early-exit scan.
+    let has_n = qseq.iter().fold(0u8, |m, &c| m.max(c)).max(tseq.iter().fold(0u8, |m, &c| m.max(c))) >= m1;
     let approx_max = (flags & APPROX_MAX) != 0;
     let with_cigar = (flags & SCORE_ONLY) == 0;
     let right_align = (flags & RIGHT_ALIGN) != 0;
