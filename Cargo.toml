@@ -6,6 +6,7 @@ members = ["bonefish-core", "bonefish"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+repository = "https://github.com/DylanCosto/bonefish"
 # Shared across both crates; the path is resolved relative to the workspace root.
 readme = "README.md"
 
