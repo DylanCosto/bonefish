@@ -24,6 +24,9 @@ the golden-output regression tests.
 
 ## Quick start
 
+New to bonefish? The [tutorial](docs/tutorial.md) goes from ONT's public HG002 demo data to a sorted BAM
+and methylation calls in a few minutes.
+
 ```bash
 bonefish -d ref.raw --idx-raw ref.fa                  # optional: build a fast-loading index
 bonefish -t 16 -y -o sample.bam ref.raw reads.bam     # dorado BAM in, sorted BAM + .bai out
