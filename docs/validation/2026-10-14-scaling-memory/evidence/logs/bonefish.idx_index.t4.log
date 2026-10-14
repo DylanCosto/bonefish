@@ -1,0 +1,3 @@
+[*] Loaded part 1 in 12.306s — k: 19; w: 19; #seq: 195; total len: 3099922541
+[*] Tip: `bonefish -d INDEX.raw --idx-raw ${REPO}/data/index/bonefish.lrhq.idx` converts this index to the raw format, which loads near-instantly
+[*] Mapped 161762 reads in 110.263s (1 index part)

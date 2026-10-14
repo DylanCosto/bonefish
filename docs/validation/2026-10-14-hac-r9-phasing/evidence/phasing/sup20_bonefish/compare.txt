@@ -1,0 +1,42 @@
+Reading phasing from 'results/phasing/truth_chr20.vcf.gz'
+Reading phasing from 'results/phasing/v012_sup20_bonefish/phased.vcf.gz'
+Chromosomes present in all VCFs: chr20
+Comparing phasings for sample HG002
+FILENAMES
+  truth = results/phasing/truth_chr20.vcf.gz
+  calls = results/phasing/v012_sup20_bonefish/phased.vcf.gz
+---------------- Chromosome chr20 ----------------
+VARIANT COUNTS (heterozygous / all): 
+              truth:     47911 /     75722
+              calls:     83155 /    122697
+              UNION:     83742 /    123466
+       INTERSECTION:     47324 /     74953
+PAIRWISE COMPARISON: truth <--> calls:
+         common heterozygous variants:     47324
+         (restricting to these below)
+        non-singleton blocks in truth:         1
+                 --> covered variants:     47324
+        non-singleton blocks in calls:        44
+                 --> covered variants:     47021
+    non-singleton intersection blocks:        44
+                 --> covered variants:     47021
+              ALL INTERSECTION BLOCKS: ---------
+    phased pairs of variants assessed:     46977
+                        switch errors:         7
+                    switch error rate:     0.01%
+            switch/flip decomposition:       5/1
+                     switch/flip rate:     0.01%
+          Block-wise Hamming distance:      2911
+      Block-wise Hamming distance [%]:     6.19%
+                  Different genotypes:         0
+              Different genotypes [%]:     0.00%
+           LARGEST INTERSECTION BLOCK: ---------
+    phased pairs of variants assessed:      6022
+                        switch errors:         0
+                    switch error rate:     0.00%
+            switch/flip decomposition:       0/0
+                     switch/flip rate:     0.00%
+                     Hamming distance:         0
+                 Hamming distance [%]:     0.00%
+                  Different genotypes:         0
+              Different genotypes [%]:     0.00%

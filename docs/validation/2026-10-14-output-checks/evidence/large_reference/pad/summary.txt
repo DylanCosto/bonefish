@@ -1,0 +1,11 @@
+decoys: pad; reference: 195 contigs, 4.600 Gbp
+chr1 length 1748956422
+fixed repeat threshold -f 136
+index build: 56.50 s wall, 13306520 KB peak; Done in 56.491s (1 index part)
+mapping vs large: 9.47 s wall, 10414976 KB peak
+reads: 16,177; identical: 16,132; different: 45, of which 45 involve chr1 and 0 do not
+records: plain 21,095, large 21,095; on decoys: 0; on contigs past 2^32 in the concatenated reference: 2,509
+sorted BAM exit 0
+index files: large.bam.csi 
+quickcheck: large.bam has good EOF block.
+records starting past 1659510912 on 1748956422-bp chr1: full scan 493, CSI region query 493

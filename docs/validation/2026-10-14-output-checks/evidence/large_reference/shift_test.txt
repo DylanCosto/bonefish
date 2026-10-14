@@ -1,0 +1,8 @@
+Sensitivity to a 1 kb shift of chr1 (1,000 N before chr1's sequence, everything else unchanged), HG001
+sample (16,177 reads), same repeat threshold (136) for both aligners:
+bonefish: reads touching chr1 1347; reads differing 47 (47 touch chr1); primary record differs 15
+minimap2 2.31 lr:hq: reads touching chr1 1360; reads differing 50 (50 touch chr1); primary record differs 18
+The read with the confident difference in the 1.5 Gbp padded test (58e87740..., chr1:60,052,023, MAPQ 60):
+plain AS 75216 NM 379; pad 1 kb AS 75211 NM 376; pad 900 Mb AS 75216 NM 379; pad 1.5 Gb AS 75211 NM 376
+(same position and chain score; a small position-dependent difference in the alignment, not monotonic
+in the offset, so not an overflow; minimap2 shows the same sensitivity).

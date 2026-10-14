@@ -1,0 +1,6 @@
+
+
+## HISTOGRAM	java.lang.String
+Error Type	Count
+WARNING:QUALITY_NOT_STORED	53
+

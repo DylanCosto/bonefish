@@ -1,0 +1,11 @@
+aligner	benchmark	type	tp	fp	fn	precision	recall	f1
+minimap2	CMRG small	snps	17334	964	295	0.9473	0.9833	0.9650
+minimap2	CMRG small	indels	2721	895	907	0.7528	0.7500	0.7514
+minimap2	CMRG SV	SV	193	16	23	0.9234	0.8935	0.9082
+bonefish	CMRG small	snps	17304	933	325	0.9488	0.9816	0.9649
+bonefish	CMRG small	indels	2722	893	906	0.7532	0.7503	0.7518
+bonefish	CMRG SV	SV	196	22	20	0.8991	0.9074	0.9032
+minimap2	GIAB TR Tier1 (bench)	>=5 bp	114134	21639	19303	0.8386	0.8553	0.8469
+bonefish	GIAB TR Tier1 (bench)	>=5 bp	113883	22473	19554	0.8331	0.8535	0.8432
+minimap2	GIAB TR Tier1 (refine)	>=5 bp	120081	12686	13356	0.9054	0.8999	0.9026
+bonefish	GIAB TR Tier1 (refine)	>=5 bp	119895	13265	13542	0.9015	0.8985	0.9

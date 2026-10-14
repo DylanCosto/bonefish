@@ -1,0 +1,10 @@
+[16:58:20] align: ${REPO}/bin/bonefish-validation -ax dna 
+[17:01:13] align done: 109.15 s wall, 1183.24+19.36 cpu, 12309188 KB
+[17:01:13] clair3
+[17:09:41] clair3 done: 507.49 s wall
+[17:09:46] accuracy:
+label                type    truth_tp  fp   fn    precision  recall  f1
+v012_r9_20_bonefish  snps    71242     162  120   0.9977     0.9983  0.9980
+v012_r9_20_bonefish  indels  8319      786  2937  0.9137     0.7391  0.8172
+label	TP-base	FP	FN	precision	recall	f1
+v012_r9_20_bonefish	529	37	273	0.9346	0.6596	0.7734

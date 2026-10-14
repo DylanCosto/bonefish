@@ -1,0 +1,3 @@
+label	type	truth_tp	fp	fn	precision	recall	f1
+v012_r9_20_bonefish	snps	71242	162	120	0.9977	0.9983	0.9980
+v012_r9_20_bonefish	indels	8319	786	2937	0.9137	0.7391	0.8172

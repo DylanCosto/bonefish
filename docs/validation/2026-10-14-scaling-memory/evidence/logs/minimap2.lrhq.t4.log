@@ -1,0 +1,3 @@
+[M::main] Version: 2.31-r1302
+[M::main] CMD: ${HOME}/micromamba/envs/ontaln/bin/minimap2 -ax lr:hq -t 4 ${REPO}/data/index/mm2.lrhq.mmi ${REPO}/data/reads/hg001_wg_1x.fq.gz
+[M::main] Real time: 385.201 sec; CPU: 1503.089 sec; Peak RSS: 14.295 GB

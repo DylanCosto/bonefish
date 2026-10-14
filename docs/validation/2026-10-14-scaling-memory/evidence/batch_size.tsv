@@ -1,0 +1,9 @@
+output	K	wall_s	cpu_s	peak_rss_gb	md5
+SAM	500M	49.42	666	14.97	deed7949d35f
+SAM	100M	48.25	669	12.27	deed7949d35f
+SAM	50M	50.06	668	12.09	deed7949d35f
+SAM	20M	50.96	668	10.84	deed7949d35f
+SAM	10M	52.52	669	10.40	deed7949d35f
+sorted BAM	500M	87.97		16.34	67675e7ff272
+sorted BAM	100M	84.13		14.87	67675e7ff272
+SAM, final build (default -K 100M)	100M	49.65		12.63	deed7949d35f15bd8eed935be47a1d81

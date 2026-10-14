@@ -80,8 +80,10 @@ BAM agrees with that from minimap2's at r = 0.999
   bonefish -t 16 -y -o sample.bam GRCh38.raw sample.bam     # dorado BAM(s) or FASTQ(s)
   ```
 
-  A 30x genome takes about 35-40 minutes on a 16-thread desktop and about 20 GB of memory
-  (about 23 GB for a sorted BAM with methylation tags; `--sort-mem 1G` lowers it).
+  A 30x genome takes about 35-40 minutes on a 16-thread desktop and up to about 20 GB of memory
+  (about 23 GB for a sorted BAM with methylation tags; `--sort-mem 1G` lowers it). On a 16 GB
+  laptop, `-t 4 -K 10M` keeps the mapping itself under 9 GB with the same output (for a sorted BAM,
+  add `--sort-mem 1G`).
 - **Several input files** are mapped in turn: `bonefish -o sample.bam ref.raw run1.bam run2.bam`.
 - **Streaming**: `dorado basecaller ... | bonefish -y -o sample.bam ref.raw -`.
 - **SAM or PAF**: `bonefish -a ref reads > out.sam`, `bonefish -c --cs ref reads > out.paf`.

@@ -1,0 +1,3 @@
+label	phased_snvs_compared	switch_errors	switch_error_rate	hamming_rate	block_n50_bp	blocks	reads_haplotagged
+v012_sup20_minimap2	47035	7	0.00014897103577433016	0.06189008185393856	2174322	64	0.7600
+v012_sup20_bonefish	47021	7	0.00014900908955446283	0.06190850896407988	2198368	60	0.7615

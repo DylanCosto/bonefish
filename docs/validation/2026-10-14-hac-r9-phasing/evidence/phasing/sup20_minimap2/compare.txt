@@ -1,0 +1,42 @@
+Reading phasing from 'results/phasing/truth_chr20.vcf.gz'
+Reading phasing from 'results/phasing/v012_sup20_minimap2/phased.vcf.gz'
+Chromosomes present in all VCFs: chr20
+Comparing phasings for sample HG002
+FILENAMES
+  truth = results/phasing/truth_chr20.vcf.gz
+  calls = results/phasing/v012_sup20_minimap2/phased.vcf.gz
+---------------- Chromosome chr20 ----------------
+VARIANT COUNTS (heterozygous / all): 
+              truth:     47911 /     75722
+              calls:     82436 /    120847
+              UNION:     83023 /    121606
+       INTERSECTION:     47324 /     74963
+PAIRWISE COMPARISON: truth <--> calls:
+         common heterozygous variants:     47324
+         (restricting to these below)
+        non-singleton blocks in truth:         1
+                 --> covered variants:     47324
+        non-singleton blocks in calls:        46
+                 --> covered variants:     47035
+    non-singleton intersection blocks:        46
+                 --> covered variants:     47035
+              ALL INTERSECTION BLOCKS: ---------
+    phased pairs of variants assessed:     46989
+                        switch errors:         7
+                    switch error rate:     0.01%
+            switch/flip decomposition:       5/1
+                     switch/flip rate:     0.01%
+          Block-wise Hamming distance:      2911
+      Block-wise Hamming distance [%]:     6.19%
+                  Different genotypes:         0
+              Different genotypes [%]:     0.00%
+           LARGEST INTERSECTION BLOCK: ---------
+    phased pairs of variants assessed:      5381
+                        switch errors:         1
+                    switch error rate:     0.02%
+            switch/flip decomposition:       1/0
+                     switch/flip rate:     0.02%
+                     Hamming distance:      2534
+                 Hamming distance [%]:    47.08%
+                  Different genotypes:         0
+              Different genotypes [%]:     0.00%

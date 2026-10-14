@@ -1,0 +1,10 @@
+decoys: random; reference: 150193 contigs, 4.600 Gbp
+chr1_2_3 length 689445510
+fixed repeat threshold -f 136
+mapping vs large: 35.25 s wall, 14659860 KB peak
+reads: 16,177; identical: 15,789; different: 388, of which 155 involve chr1/chr2/chr3 and 233 do not
+records: plain 21,095, large 21,103; on decoys: 0; on contigs past 2^32 in the concatenated reference: 2,509
+sorted BAM exit 0
+index files: large.bam.csi 
+quickcheck: large.bam has good EOF block.
+records starting past 600000000 on 689445510-bp chr1_2_3: full scan 491, CSI region query 491
