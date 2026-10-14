@@ -3,8 +3,8 @@
 A fast aligner for Oxford Nanopore DNA reads, written in Rust. bonefish takes ONT reads (FASTQ,
 FASTA, or the BAM that dorado writes) and produces SAM, PAF, or a coordinate-sorted, indexed BAM
 in one step. It is tuned and validated for variant calling: on whole human genomes (GIAB HG002 and
-HG005, R10.4.1), its SNP and indel accuracy match minimap2's and its structural-variant F1 is
-slightly higher, while it goes from reads to a sorted, indexed BAM about 3x faster than
+HG005, R10.4.1), its SNP and indel accuracy match minimap2's, its structural-variant F1 is
+slightly higher and its CpG methylation calls (modkit) agree with minimap2's at r = 0.999, while it goes from reads to a sorted, indexed BAM about 3x faster than
 `minimap2 | samtools sort` (aligner alone: 2.6-8x).
 
 ## Install
@@ -86,7 +86,8 @@ the full comparison and the known differences from minimap2 are in
 [docs/benchmarks.md](docs/benchmarks.md); the raw measurements behind them are in
 [docs/validation/](docs/validation/) (whole genomes:
 [2026-10-12-giab-wgs](docs/validation/2026-10-12-giab-wgs/README.md); other aligners:
-[2026-10-14-aligner-comparison](docs/validation/2026-10-14-aligner-comparison/README.md)).
+[2026-10-14-aligner-comparison](docs/validation/2026-10-14-aligner-comparison/README.md);
+methylation: [2026-10-14-modkit-methylation](docs/validation/2026-10-14-modkit-methylation/README.md)).
 
 **Apple Silicon.** arm64 builds produce the same output as x86: the genome-wide HG001 sample gives
 the identical MD5 (`deed7949d35f15bd8eed935be47a1d81`) on an Apple M4 Pro and on x86

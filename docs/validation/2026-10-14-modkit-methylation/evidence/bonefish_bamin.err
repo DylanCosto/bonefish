@@ -1,0 +1,4 @@
+[*] Loading index from ${REPO}/data/index/bench/bonefish.raw...
+[*] Loaded part 1 in 0.003s — k: 19; w: 19; #seq: 195; total len: 3099922541
+[*] Sorted BAM: 272245 records, merged and written in 26.218s after mapping
+[*] Mapped 188140 reads in 164.243s (1 index part)

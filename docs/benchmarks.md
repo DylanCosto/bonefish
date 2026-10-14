@@ -41,6 +41,14 @@ chrX/Y and difficult regions):
 | segmental duplications | 0.9333 (8,857) | 0.9337 (8,751) | 0.6506 | 0.6512 |
 | not in difficult regions | 0.9971 | 0.9972 | 0.9584 | 0.9586 |
 
+## Methylation calls
+
+HG002 chr20 (55x, dorado sup v5.0.0 with 5mC/5hmC models), aligned by both with `-y`, then
+`modkit pileup --cpg --combine-strands`: per-CpG 5mC agrees with minimap2's at r = 0.9988 (sites
+>= 10x in both), mean absolute difference 0.21 percentage points, chr20 5mC level 64.42% vs 64.38%;
+the few discordant sites are where the aligners placed different reads. Details:
+[validation/2026-10-14-modkit-methylation](validation/2026-10-14-modkit-methylation/README.md).
+
 ## Aligner speed alone (SAM output)
 
 | dataset | minimap2 | bonefish | speedup |

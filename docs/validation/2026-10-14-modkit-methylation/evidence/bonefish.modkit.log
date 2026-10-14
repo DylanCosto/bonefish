@@ -1,0 +1,29 @@
+[modkit-logging/src/lib.rs::69][2026-10-14 13:14:35][DEBUG] command line: ${HOME}/micromamba/envs/alnbench/bin/modkit pileup ${REPO}/results/modkit/bonefish.bam ${REPO}/results/modkit/bonefish.cpg.bed --modified-bases 5mC 5hmC --cpg --ref ${REPO}/data/ref/GRCh38_no_alt.fa --combine-strands --region chr20 -t 16 --log-filepath ${REPO}/results/modkit/bonefish.modkit.log
+[modkit-core/src/pileup/subcommand.rs::957][2026-10-14 13:14:35][INFO] parsing region chr20
+[modkit-core/src/util.rs::535][2026-10-14 13:14:35][INFO] discarded 0 contigs with zero aligned reads
+[modkit-core/src/pileup/subcommand.rs::608][2026-10-14 13:14:35][INFO] parsed 2 base modification(s). Base modifications other than 'C:h,C:m' will be counted as 'N_other'.
+[modkit-core/src/pileup/subcommand.rs::621][2026-10-14 13:14:35][DEBUG] using optimized CpG combine strands processor
+[modkit-core/src/pileup/subcommand.rs::1170][2026-10-14 13:14:35][DEBUG] using standard file writer
+[modkit-core/src/command_utils.rs::416][2026-10-14 13:14:35][DEBUG] combining + and - strand counts
+[modkit-core/src/interval_chunks.rs::378][2026-10-14 13:14:35][DEBUG] there is 1 reference record(s)
+[modkit-core/src/interval_chunks.rs::396][2026-10-14 13:14:35][DEBUG] there is a single contig to work on (in 1 parts)
+[modkit-core/src/sample_probs/mod.rs::1704][2026-10-14 13:14:35][INFO] attempting to sample at least 10042 reads
+[modkit-core/src/sample_probs/mod.rs::1743][2026-10-14 13:14:35][DEBUG] sample schedule for 10042 reads
++--------+------------------------+---------------+-----------------------+------------------------+
+| contig | num_reads_per_interval | contig_length | intervals_over_contig | total_reads_per_contig |
++--------+------------------------+---------------+-----------------------+------------------------+
+| chr20  | 195                    | 64444167      | 64                    | 12480                  |
++--------+------------------------+---------------+-----------------------+------------------------+
+
+[modkit-core/src/pileup/subcommand.rs::786][2026-10-14 13:14:35][INFO] calculating threshold value with probabilities aligned to reference bases cytosines
+[modkit-core/src/interval_chunks.rs::428][2026-10-14 13:14:37][DEBUG] feeder is done
+[modkit-core/src/sample_probs/mod.rs::627][2026-10-14 13:14:39][INFO] setting threshold 0.7285156 (qual: 186) for base C, percentile 10, 2469957 total probabilites
+[modkit-core/src/pileup/subcommand.rs::1269][2026-10-14 13:14:39][DEBUG] per_mod_thresholds=[]
+[modkit-core/src/pileup/subcommand.rs::1274][2026-10-14 13:14:39][INFO] using optimized genome workers, combining strands at CpG motifs
+[modkit-core/src/interval_chunks.rs::378][2026-10-14 13:14:39][DEBUG] there is 1 reference record(s)
+[modkit-core/src/interval_chunks.rs::396][2026-10-14 13:14:39][DEBUG] there is a single contig to work on (in 1 parts)
+[modkit-core/src/fasta.rs::256][2026-10-14 13:14:47][DEBUG] end_idx (1999998) hits a motif.. end=59000000
+[modkit-core/src/fasta.rs::262][2026-10-14 13:14:47][DEBUG] moved end_idx to 2000002, end=59000002 ref_end=64444167, contig=chr20, range=58000000..59000000
+[modkit-core/src/fasta.rs::273][2026-10-14 13:14:47][DEBUG] re-check..
+[modkit-core/src/interval_chunks.rs::428][2026-10-14 13:14:49][DEBUG] feeder is done
+[modkit-core/src/pileup/subcommand.rs::1653][2026-10-14 13:14:53][INFO] Done, processed 1535636 rows.

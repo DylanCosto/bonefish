@@ -1,0 +1,14 @@
+[12:48:42] extract chr20 primaries
+[12:56:29] restart: single-threaded extraction (samtools -@4 hung on the sparse BAM)
+[12:56:29] extract chr20 primaries
+[13:00:12] reads: 188140 reads, 3519431361 bases
+[13:00:12] minimap2
+[13:08:09] bonefish (FASTQ with tags)
+[13:11:00] bonefish (BAM input)
+[13:13:44] modkit pileup minimap2
+[13:14:06] modkit 0.6 needs --modified-bases; rerun pileups
+[13:14:19] reads: 188140 reads, 3519431361 bases
+[13:14:19] modkit pileup minimap2
+[13:14:35] modkit pileup bonefish
+[13:14:53] modkit pileup bonefish_bamin
+[13:15:11] ALLDONE

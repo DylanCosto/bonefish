@@ -1,0 +1,4 @@
+minimap2 vs bonefish, sites with valid coverage >= 20
+code	sites_A	sites_B	common	only_A	only_B	pearson_r	mean_abs_diff	median_abs_diff	pct_diff_gt10	pct_diff_gt25	level_A	level_B	mean_cov_A	mean_cov_B	cov_r	bin1k_r
+h	731467	731850	730056	1411	1794	0.9970	0.01	0.00	0.00	0.00	1.06	1.06	46.1	46.0	0.9772	0.9873
+m	731467	731850	730056	1411	1794	0.9994	0.13	0.00	0.36	0.04	64.38	64.42	46.1	46.0	0.9772	0.9991

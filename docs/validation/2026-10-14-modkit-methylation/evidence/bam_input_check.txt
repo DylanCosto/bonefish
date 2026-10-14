@@ -1,0 +1,1 @@
+bonefish.cpg.bed and bonefish_bamin.cpg.bed are byte-identical

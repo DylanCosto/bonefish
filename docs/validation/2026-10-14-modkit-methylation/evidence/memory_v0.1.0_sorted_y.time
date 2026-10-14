@@ -1,0 +1,23 @@
+	Command being timed: "${SCRATCH}/old/bonefish-v0.1.0-linux-x86_64/bonefish -t 16 -a -y --sort -o ${SCRATCH}/old.bam ${REPO}/data/index/bench/bonefish.raw ${REPO}/results/modkit/reads.fq"
+	User time (seconds): 1182.38
+	System time (seconds): 56.63
+	Percent of CPU this job got: 690%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 2:59.36
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 26305980
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 468837
+	Minor (reclaiming a frame) page faults: 19781541
+	Voluntary context switches: 558216
+	Involuntary context switches: 323827
+	Swaps: 0
+	File system inputs: 25125992
+	File system outputs: 18635168
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
