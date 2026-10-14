@@ -24,8 +24,8 @@ reference headers and bounds passed for every alignment record.
 Expected x86 prefix supplied: **`deed7949d35f`**.
 Matching normalization: **MD5 of SAM excluding only @PG**.
 Complete Mac MD5: **`deed7949d35f15bd8eed935be47a1d81`**.
-The supplied x86 prefix is reproduced; the expected algorithm is inferred to be MD5.
-The full x86 MD5, exact invocation and reference receipt remain unprovided.
+The supplied x86 prefix is reproduced. The user confirmed the eight-thread SAM command
+and MD5 normalization below. The full expected x86 MD5 and reference hash remain unprovided.
 This is a successful reproduction of the supplied prefix; full-value x86/ARM confirmation
 remains pending. SHA256 of the same @PG-filtered stream is independently recorded above.
 The record-stream normalization excludes headers only; it preserves all records,
@@ -36,3 +36,11 @@ This sample alone does not reproduce the separate GIAB variant-calling benchmark
 
 Additional MD5 normalizations are in `ADDITIONAL_HASHES.json`; sorted record-stream hashes
 are in `SORTED_RECORD_HASHES.json`. Both retain all fields and record multiplicity.
+
+Original x86 command, supplied by the user after the Mac replay:
+
+```bash
+./target/release/bonefish -t 8 -a ref.fa hg001_wg_1x.fq.gz | grep -v '^@PG' | md5sum
+```
+
+It confirms the same `-t 8 -a` configuration and exclusion of only `@PG`.

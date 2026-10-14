@@ -17,8 +17,8 @@ evidence; its commit ID is separate from the measured implementation.
 
 The subsequent [HG001 replay](../2026-10-13-hg001-macos-parity/README.md) used the
 user-supplied genome-wide sample and reproduced the supplied x86 MD5 prefix after
-excluding only `@PG`. It records the full Mac hashes; the complete expected x86
-hash and original command/reference receipt remain unprovided.
+excluding only `@PG`. The user confirmed the same eight-thread SAM command and
+MD5 normalization. The complete expected x86 hash and reference receipt remain unprovided.
 
 ## Native and local checks
 

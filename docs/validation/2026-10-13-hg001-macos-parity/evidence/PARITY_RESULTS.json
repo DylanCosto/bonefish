@@ -86,13 +86,16 @@
     "md5:sam_without_pg"
   ],
   "full_x86_arm_parity_established": false,
-  "qualification": "Mac SAM excluding only @PG has MD5 deed7949d35f15bd8eed935be47a1d81, reproducing the supplied x86 prefix deed7949d35f. Only the 12-digit x86 prefix was provided; its full MD5, original command and reference receipt were not supplied. Full-value confirmation remains pending. SHA256 and all structural/input checks are recorded independently.",
+  "qualification": "User confirmed the x86 command uses bonefish -t 8 -a and MD5 after excluding only @PG. The Mac MD5 deed7949d35f15bd8eed935be47a1d81 reproduces the supplied x86 prefix deed7949d35f. The full expected x86 MD5 and original reference byte/sequence hash were not supplied; full-value confirmation remains pending. SHA256 and all structural/input checks are independently recorded.",
   "storage": "FASTQ, reference and SAM on internal APFS SSD; download, hashing and all validation outside the aligner timer.",
   "sam_md5": {
     "raw_sam": "09d50d681b2612e67c79ab7a36f51eb4",
     "sam_without_pg": "deed7949d35f15bd8eed935be47a1d81",
     "records_without_all_headers": "dd48e3e9510def031eadb1e63ca2ed3b"
   },
-  "expected_hash_algorithm_inferred": "MD5; inferred from matching supplied prefix, not from an x86 receipt",
-  "provided_x86_prefix_reproduced": true
+  "provided_x86_prefix_reproduced": true,
+  "x86_command_from_user": "./target/release/bonefish -t 8 -a ref.fa hg001_wg_1x.fq.gz | grep -v '^@PG' | md5sum",
+  "x86_hash_algorithm_confirmed": "MD5",
+  "x86_output_normalization_confirmed": true,
+  "x86_thread_count_matches": true
 }

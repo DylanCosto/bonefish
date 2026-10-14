@@ -1,5 +1,10 @@
 # HG001 genome-wide Mac parity run
 
+The Mac SAM reproduces the supplied x86 MD5 prefix **`deed7949d35f`**. Its full MD5
+after removing only `@PG` is **`deed7949d35f15bd8eed935be47a1d81`**. All input-read,
+sequence/quality, CIGAR and reference checks passed. Full-value x86 confirmation
+awaits the complete expected MD5.
+
 Tested source: `c1b7eb074b49806a86bbd0e48c617957ac436618` (clean NEON DP).
 Drive FASTQ: [hg001_wg_1x.fq.gz](https://drive.google.com/file/d/1L2O5CAHXbbypQxm52ZLbp6xAqCYYS7XH/view); compressed SHA256 `2edff9a3834d5d55963da198bad3717064e0ed5232a037d6783c84fbc8ffb288`.
 The download matched Drive's SHA256, SHA1 and MD5; file size was 1,945,506,828 bytes.
@@ -24,8 +29,8 @@ reference headers and bounds passed for every alignment record.
 Expected x86 prefix supplied: **`deed7949d35f`**.
 Matching normalization: **MD5 of SAM excluding only @PG**.
 Complete Mac MD5: **`deed7949d35f15bd8eed935be47a1d81`**.
-The supplied x86 prefix is reproduced; the expected algorithm is inferred to be MD5.
-The full x86 MD5, exact invocation and reference receipt remain unprovided.
+The supplied x86 prefix is reproduced. The user confirmed the eight-thread SAM command
+and MD5 normalization below. The full expected x86 MD5 and reference hash remain unprovided.
 This is a successful reproduction of the supplied prefix; full-value x86/ARM confirmation
 remains pending. SHA256 of the same @PG-filtered stream is independently recorded above.
 The record-stream normalization excludes headers only; it preserves all records,
@@ -71,3 +76,11 @@ and final report retain that finding without rewriting the original measurement 
 cd docs/validation/2026-10-13-hg001-macos-parity/evidence
 shasum -a 256 -c SHA256SUMS.txt
 ```
+
+Original x86 command, supplied by the user after the Mac replay:
+
+```bash
+./target/release/bonefish -t 8 -a ref.fa hg001_wg_1x.fq.gz | grep -v '^@PG' | md5sum
+```
+
+It confirms the same `-t 8 -a` configuration and exclusion of only `@PG`.
