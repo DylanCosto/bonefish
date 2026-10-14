@@ -1,0 +1,883 @@
+test (ubuntu-24.04)	Set up job	﻿2026-10-13T22:32:50.6453734Z Current runner version: '2.337.0'
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6493643Z ##[group]Runner Image Provisioner
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6495125Z Hosted Compute Agent
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6496331Z Version: 20261002.596
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6497499Z Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6498751Z Build Date: 2026-10-02T22:28:27Z
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6500051Z Worker ID: {043b03dd-352c-4bc8-b1b8-3ca846a77377}
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6501420Z Region: westus
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6502802Z Cloud: Azure
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6504079Z ##[endgroup]
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6506668Z ##[group]Operating System
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6507898Z Ubuntu
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6508848Z 24.04.5
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6509733Z LTS
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6510806Z ##[endgroup]
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6511828Z ##[group]Runner Image
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6513429Z Image: ubuntu-24.04
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6514557Z Version: 20261004.327.1
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6516517Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6519793Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6521704Z ##[endgroup]
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6524415Z ##[group]GITHUB_TOKEN Permissions
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6527534Z Contents: read
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6528589Z Metadata: read
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6529544Z Packages: read
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6530593Z ##[endgroup]
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6533973Z Secret source: Actions
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6535595Z Cache mode: write
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.6536752Z Prepare workflow directory
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.7211057Z Prepare all required actions
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:50.7283001Z Getting action download info
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:51.1965981Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+test (ubuntu-24.04)	Set up job	2026-10-13T22:32:52.5136045Z Complete job name: test (ubuntu-24.04)
+test (ubuntu-24.04)	Run actions/checkout@v4	﻿2026-10-13T22:32:52.6140758Z ##[group]Run actions/checkout@v4
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6142452Z with:
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6143366Z   repository: DylanCosto/bonefish
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6152516Z   token: ***
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6153449Z   ssh-strict: true
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6154353Z   ssh-user: git
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6155252Z   persist-credentials: true
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6156242Z   clean: true
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6157126Z   sparse-checkout-cone-mode: true
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6158206Z   fetch-depth: 1
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6159089Z   fetch-tags: false
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6159989Z   show-progress: true
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6160912Z   lfs: false
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6161767Z   submodules: false
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6163054Z   set-safe-directory: true
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6164185Z   allow-unsafe-pr-checkout: false
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.6165620Z ##[endgroup]
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8590267Z Syncing repository: DylanCosto/bonefish
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8595173Z ##[group]Getting Git version info
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8597628Z Working directory is '/home/runner/work/bonefish/bonefish'
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8600992Z [command]/usr/bin/git version
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8602911Z git version 2.55.0
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8608163Z ##[endgroup]
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8624229Z Temporarily overriding HOME='/home/runner/work/_temp/7bd68a9c-bb55-46d9-8020-1db7b4d6b294' before making global git config changes
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8629210Z Adding repository directory to the temporary git global config as a safe directory
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8633274Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/bonefish/bonefish
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8638784Z Deleting the contents of '/home/runner/work/bonefish/bonefish'
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8642683Z ##[group]Initializing the repository
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8653687Z [command]/usr/bin/git init /home/runner/work/bonefish/bonefish
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8656829Z hint: Using 'master' as the name for the initial branch. This default branch name
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8660231Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8663862Z hint: to use in all of your new repositories, which will suppress this warning,
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8666872Z hint: call:
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8668167Z hint:
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8669811Z hint: 	git config --global init.defaultBranch <name>
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8671887Z hint:
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8684297Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8687686Z hint: 'development'. The just-created branch can be renamed via this command:
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8690300Z hint:
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8691598Z hint: 	git branch -m <name>
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8694350Z hint:
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8696507Z hint: Disable this message with "git config set advice.defaultBranchName false"
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8700005Z Initialized empty Git repository in /home/runner/work/bonefish/bonefish/.git/
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8717735Z [command]/usr/bin/git remote add origin https://github.com/DylanCosto/bonefish
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8723578Z ##[endgroup]
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8735632Z ##[group]Disabling automatic garbage collection
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8737963Z [command]/usr/bin/git config --local gc.auto 0
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8745886Z ##[endgroup]
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8748239Z ##[group]Setting up auth
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8750590Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.8758839Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.9039997Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.9085614Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.9405562Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.9452404Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.9726056Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.9760248Z ##[endgroup]
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.9763839Z ##[group]Fetching the repository
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:52.9774774Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +a42d6cb9d116ff85f54fb0344c336056cc21c6ba:refs/remotes/pull/2/merge
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6225392Z From https://github.com/DylanCosto/bonefish
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6227305Z  * [new ref]         a42d6cb9d116ff85f54fb0344c336056cc21c6ba -> pull/2/merge
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6231333Z ##[endgroup]
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6232349Z ##[group]Determining the checkout info
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6233193Z ##[endgroup]
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6233690Z [command]/usr/bin/git sparse-checkout disable
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6235137Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6267065Z ##[group]Checking out the ref
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6271855Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/2/merge
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6507117Z Note: switching to 'refs/remotes/pull/2/merge'.
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6513688Z 
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6514669Z You are in 'detached HEAD' state. You can look around, make experimental
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6516165Z changes and commit them, and you can discard any commits you make in this
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6517318Z state without impacting any branches by switching back to a branch.
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6518168Z 
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6518793Z If you want to create a new branch to retain commits you create, you may
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6519886Z do so (now or later) by using -c with the switch command. Example:
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6520554Z 
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6520978Z   git switch -c <new-branch-name>
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6521511Z 
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6521906Z Or undo this operation with:
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6523112Z 
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6523842Z   git switch -
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6524596Z 
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6533964Z Turn off this advice by setting config variable advice.detachedHead to false
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6534804Z 
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6535608Z HEAD is now at a42d6cb Merge c1b7eb074b49806a86bbd0e48c617957ac436618 into e8034d93ad7d7d213979147d648baaf98623117c
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6538252Z ##[endgroup]
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6573360Z [command]/usr/bin/git log -1 --format=%H
+test (ubuntu-24.04)	Run actions/checkout@v4	2026-10-13T22:32:53.6603140Z a42d6cb9d116ff85f54fb0344c336056cc21c6ba
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	﻿2026-10-13T22:32:53.6851662Z ##[group]Run rustup toolchain install stable --profile minimal && rustup default stable
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:53.6852664Z ^[[36;1mrustup toolchain install stable --profile minimal && rustup default stable^[[0m
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:53.7153963Z shell: /usr/bin/bash -e {0}
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:53.7154366Z ##[endgroup]
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:54.0640068Z info: syncing channel updates for stable-x86_64-unknown-linux-gnu
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:54.3287146Z 
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:54.3352006Z   stable-x86_64-unknown-linux-gnu unchanged - rustc 1.99.0 (b940084d7 2026-09-28)
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:54.3353318Z 
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:54.3416713Z info: using existing install for stable-x86_64-unknown-linux-gnu
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:54.3428589Z info: default toolchain set to stable-x86_64-unknown-linux-gnu
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:54.3428916Z 
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:54.3500955Z   stable-x86_64-unknown-linux-gnu unchanged - rustc 1.99.0 (b940084d7 2026-09-28)
+test (ubuntu-24.04)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:54.3501914Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	﻿2026-10-13T22:32:54.3551346Z ##[group]Run cargo test --release --locked --features jemalloc
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:54.3551831Z ^[[36;1mcargo test --release --locked --features jemalloc^[[0m
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:54.3615464Z shell: /usr/bin/bash -e {0}
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:54.3615747Z ##[endgroup]
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:55.8341129Z     Updating crates.io index
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.2770041Z  Downloading crates ...
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.4575852Z   Downloaded anstyle v1.0.13
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.4605860Z   Downloaded anstyle-parse v0.2.7
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.4629149Z   Downloaded equivalent v1.0.2
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.4661814Z   Downloaded aho-corasick v1.1.4
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.4755333Z   Downloaded log v0.4.29
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.4790393Z   Downloaded flate2 v1.1.9
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.4852322Z   Downloaded utf8parse v0.2.2
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.4866704Z   Downloaded rayon v1.11.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5024378Z   Downloaded syn v2.0.117
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5131769Z   Downloaded allocator-api2 v0.2.21
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5272891Z   Downloaded either v1.15.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5280553Z   Downloaded regex-automata v0.4.14
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5346040Z   Downloaded env_filter v1.0.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5361936Z   Downloaded memchr v2.8.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5420919Z   Downloaded find-msvc-tools v0.1.9
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5438322Z   Downloaded hashbrown v0.15.5
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5488860Z   Downloaded memmap2 v0.9.11
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5508320Z   Downloaded tikv-jemalloc-sys v0.6.1+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5936484Z   Downloaded crossbeam-utils v0.8.21
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5964736Z   Downloaded env_logger v0.11.9
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.5988651Z   Downloaded foldhash v0.1.5
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6001897Z   Downloaded heck v0.5.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6015898Z   Downloaded is_terminal_polyfill v1.70.2
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6026633Z   Downloaded libdeflater v1.26.1
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6047450Z   Downloaded rustc-hash v2.1.1
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6058871Z   Downloaded tikv-jemallocator v0.6.1
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6076204Z   Downloaded colorchoice v1.0.4
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6087359Z   Downloaded clap_lex v1.0.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6099319Z   Downloaded bincode v1.3.3
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6123321Z   Downloaded quote v1.0.44
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6150953Z   Downloaded strsim v0.11.1
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6165142Z   Downloaded thiserror v2.0.18
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6231411Z   Downloaded unicode-ident v1.0.24
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6260946Z   Downloaded anstyle-query v1.1.5
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6274060Z   Downloaded byteorder v1.5.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6291351Z   Downloaded crossbeam-deque v0.8.6
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6306466Z   Downloaded crossbeam-epoch v0.9.18
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6331406Z   Downloaded serde v1.0.228
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6366748Z   Downloaded shlex v1.3.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6380264Z   Downloaded thiserror-impl v2.0.18
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6395942Z   Downloaded wasm_sync v0.1.2
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6406464Z   Downloaded anstream v0.6.21
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6427545Z   Downloaded anyhow v1.0.102
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6468459Z   Downloaded serde_derive v1.0.228
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6500082Z   Downloaded bitflags v2.11.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6544027Z   Downloaded clap v4.5.60
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6642645Z   Downloaded clap_derive v4.5.55
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6665575Z   Downloaded proc-macro2 v1.0.106
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6696566Z   Downloaded cc v1.2.56
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6726702Z   Downloaded libdeflate-sys v1.26.1
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6817431Z   Downloaded rayon-core v1.13.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6856314Z   Downloaded serde_core v1.0.228
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6884539Z   Downloaded regex v1.12.3
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.6938333Z   Downloaded clap_builder v4.5.60
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.7002643Z   Downloaded zlib-rs v0.6.8
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.7058732Z   Downloaded regex-syntax v0.8.10
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.7126103Z   Downloaded jiff v0.2.22
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:56.7296983Z   Downloaded libc v0.2.182
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:57.0133370Z    Compiling proc-macro2 v1.0.106
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:32:57.0154188Z    Compiling quote v1.0.44
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.7634000Z    Compiling unicode-ident v1.0.24
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:04.0569484Z    Compiling shlex v1.3.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:04.4530851Z    Compiling find-msvc-tools v0.1.9
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:04.7839430Z    Compiling cc v1.2.56
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:05.1923096Z    Compiling syn v2.0.117
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.3893142Z    Compiling crossbeam-utils v0.8.21
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.5192608Z    Compiling serde_core v1.0.228
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.6584399Z    Compiling libc v0.2.182
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.8558787Z    Compiling memchr v2.8.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:08.7723405Z    Compiling serde v1.0.228
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:08.8921753Z    Compiling crossbeam-epoch v0.9.18
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:10.4973133Z    Compiling serde_derive v1.0.228
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.3273490Z    Compiling libdeflate-sys v1.26.1
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.4546989Z    Compiling rayon-core v1.13.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:13.9703210Z    Compiling crossbeam-deque v0.8.6
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:14.1133513Z    Compiling anyhow v1.0.102
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:14.2482797Z    Compiling log v0.4.29
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:14.4274164Z    Compiling wasm_sync v0.1.2
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:14.4583768Z    Compiling thiserror v2.0.18
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:15.9443068Z    Compiling thiserror-impl v2.0.18
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:16.9463529Z    Compiling bonefish-core v0.1.0 (/home/runner/work/bonefish/bonefish/bonefish-core)
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:17.0773821Z    Compiling foldhash v0.1.5
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:17.2483080Z    Compiling zlib-rs v0.6.8
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:19.8043055Z    Compiling equivalent v1.0.2
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:19.8343098Z    Compiling allocator-api2 v0.2.21
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:20.1563589Z    Compiling either v1.15.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:20.2883691Z    Compiling rayon v1.11.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:22.2382294Z    Compiling flate2 v1.1.9
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:22.7419640Z    Compiling hashbrown v0.15.5
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:23.0304502Z    Compiling libdeflater v1.26.1
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:23.5577603Z    Compiling bincode v1.3.3
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:23.5753528Z    Compiling memmap2 v0.9.11
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:23.7926603Z    Compiling bitflags v2.11.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:24.0058506Z    Compiling byteorder v1.5.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:24.0742001Z    Compiling utf8parse v0.2.2
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:24.1483183Z    Compiling rustc-hash v2.1.1
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:24.1923199Z    Compiling anstyle-parse v0.2.7
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:24.2024432Z    Compiling aho-corasick v1.1.4
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:24.3273444Z    Compiling is_terminal_polyfill v1.70.2
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:24.3623708Z    Compiling anstyle v1.0.13
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:24.5471855Z    Compiling regex-syntax v0.8.10
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:27.3563733Z    Compiling colorchoice v1.0.4
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:27.4007176Z    Compiling anstyle-query v1.1.5
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:27.4442977Z    Compiling anstream v0.6.21
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:27.7373774Z    Compiling regex-automata v0.4.14
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:33.9294093Z    Compiling tikv-jemalloc-sys v0.6.1+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:00.8782959Z    Compiling regex v1.12.3
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:01.5673576Z    Compiling clap_lex v1.0.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:01.7553329Z    Compiling heck v0.5.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:01.8823238Z    Compiling strsim v0.11.1
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4042996Z    Compiling clap_builder v4.5.60
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:09.1043382Z    Compiling clap_derive v4.5.55
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:10.6891893Z    Compiling env_filter v1.0.0
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:11.1334699Z    Compiling bonefish v0.1.0 (/home/runner/work/bonefish/bonefish/bonefish)
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:11.2192948Z    Compiling jiff v0.2.22
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:17.9323344Z    Compiling env_logger v0.11.9
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:18.4667531Z    Compiling clap v4.5.60
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:35:31.5443269Z    Compiling tikv-jemallocator v0.6.1
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:01.7422949Z     Finished `release` profile [optimized] target(s) in 3m 06s
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:01.7766686Z      Running unittests src/main.rs (target/release/deps/bonefish-77056cb5f5a1d85f)
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:01.7791543Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:01.7791959Z running 0 tests
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:01.7792844Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:01.7793576Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:01.7795412Z      Running tests/regression.rs (target/release/deps/regression-91a24d8313349f1f)
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:01.7798241Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:01.7808492Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:01.7813500Z running 5 tests
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:02.3167437Z test bgzipped_fastq_gives_same_output ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:02.3293021Z test bam_input_gives_same_output ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:02.7833034Z test raw_index_gives_same_output ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.4240899Z test sorted_bam_output ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6750520Z test outputs_match_expected ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6750993Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6763208Z      Running unittests src/lib.rs (target/release/deps/bonefish-ba23827d3a15609d)
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6764224Z test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.89s
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6765162Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6769745Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6786814Z running 136 tests
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6793296Z test align::align_simple::tests::test_nw_identical ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6794343Z test align::align_simple::tests::test_nw_with_gap ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6795340Z test align::align_simple::tests::test_simple_aligner_empty ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6796337Z test align::align_simple::tests::test_simple_aligner_single_anchor ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6797378Z test align::align_simple::tests::test_simple_aligner_two_anchors_with_gap ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6798338Z test align::chain::tests::test_chain_synthetic ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6799172Z test align::chain_rmq::tests::test_rmq_tree_basic ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6800205Z test align::chain_simd::masked_tests::test_masked_scores_all_chunk_lengths_and_offsets ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6801481Z test align::chain_simd::masked_tests::test_masked_scores_mixed_targets_in_vector_groups ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6802950Z test align::chain_simd::masked_tests::test_masked_scores_signed_coordinate_crossings ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6804053Z test align::chain_rmq::tests::test_chain_rmq_simple ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6813335Z test align::chain_simd::tests::test_chain_no_skip_fast_path ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6832910Z test align::chain_simd::tests::test_chain_simd_larger_window ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6837739Z test align::chain_simd::tests::test_chain_simd_vs_scalar_synthetic ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6862698Z test align::chain_simd::tests::test_simd_log2_vs_scalar ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6863766Z test align::chain_simple::tests::test_greedy_chain_break ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6882711Z test align::chain_simple::tests::test_greedy_empty ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6902726Z test align::chain_simple::tests::test_greedy_single_chain ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6922764Z test align::chain_simple::tests::test_greedy_sorted_by_score ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.6942550Z test align::dp::bench_gap::bench_gap_fill ... ignored
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.7660613Z test align::dp::dual_clean16::tests::clean16_golden_digest ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:03.9757593Z test align::dp::dual_clean16::tests::clean16_sse41_equals_avx2 ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.0003290Z test align::dp::dual_clean16::tests::clean16_static_band_equals_scalar ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4423020Z test align::chain_simd::tests::test_chain_simd_diag_buckets_dense ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4622858Z test align::dp::dual_clean::reg1_tests::reg1_matches_clean_impl ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4642787Z test align::dp::tests::test_1_mismatch ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4650090Z test align::dp::tests::test_avx2_vs_sse_cigar_concordance ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4673050Z test align::dp::tests::test_avx512_vs_sse_concordance ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4673914Z test align::dp::tests::test_cigar_all_matches ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4675988Z test align::dp::tests::test_cigar_with_deletion ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4676947Z test align::dp::tests::test_cigar_with_insertion ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4677896Z test align::dp::tests::test_dp_cache_cap_setter ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4678776Z test align::dp::tests::test_dual_affine_long_gap ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4679585Z test align::dp::tests::test_empty_sequences ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4680332Z test align::dp::tests::test_extd2 ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4681429Z test align::dp::tests::test_extd2_scalar ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4682552Z test align::dp::tests::test_extd2_score_only ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4683441Z test align::dp::tests::test_gap ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4684224Z test align::dp::tests::test_long_gap_uses_second_penalty ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4685116Z test align::dp::tests::test_medium_gap_at_crossover ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4685956Z test align::dp::tests::test_neon_dual_affine_small ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4686847Z test align::dp::tests::test_neon_vs_scalar_dual_affine ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4687732Z test align::dp::tests::test_scalar_dual_affine ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4688677Z test align::dp::tests::test_scalar_neon_consistency_various_sizes ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4689671Z test align::dp::tests::test_short_gap_uses_first_penalty ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4690534Z test align::dp::tests::test_simple_match ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4691330Z test align::dp::tests::test_single_affine_basic ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4692360Z test align::dp::tests::test_single_base_match ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4693215Z test align::dp::tests::test_single_base_mismatch ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4694123Z test align::filter::tests::test_parent_assignment_no_overlap ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4695257Z test align::filter::tests::test_parent_assignment_with_overlap ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4696312Z test align::filter::tests::test_secondary_filter_fails ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4713042Z test align::filter::tests::test_secondary_filter_passes_min_diff ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4732875Z test align::filter::tests::test_secondary_filter_passes_ratio ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.4741495Z test align::filter::tests::test_secondary_filter_passes_strand ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.5927143Z test align::index::tests::test_bincode_roundtrip ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.6054672Z test align::index::tests::test_cal_mid_occ ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.6143005Z test align::index::tests::test_idx_build ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.7364390Z test align::index::tests::test_lookup_matches_minimizers ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.9813109Z test align::index::tests::test_raw_roundtrip ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.9814279Z test align::index_bucket::bench_layout::bench_layout_region ... ignored
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.9815036Z test align::index_bucket::tests::test_bucket_hash_basic ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:05.9940158Z test align::map::tests::test_repetitive_filtering ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.0003132Z test align::map::tests::test_secondary_alignment ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.0033302Z test align::pipeline::tests::test_align_and_format_simple ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.0052704Z test align::pipeline::tests::test_count_cigar_ops ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.0053695Z test align::pipeline::tests::test_write_cigar_as_bam_uints ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.0793192Z test align::dp::lw::lw_score_tests::lightweight_score_matches_align_i16 ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.0812718Z test align::sketch::tests::test_kmer_hash_wraps_instead_of_overflowing ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.0813534Z test align::sketch::tests::test_sketch_basic ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.0814132Z test align::sketch::tests::test_sketch_empty ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1052864Z test align::sort::leaf_sort_tests::leaf_sort_matches_insertion_sort ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1062663Z test align::sort::tests::test_radix_sort_basic ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1063341Z test align::sort::tests::test_radix_sort_deterministic ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1063997Z test align::sort::tests::test_radix_sort_large ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1064694Z test align::strobemer::tests::test_randstrobe_deterministic ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1065492Z test align::strobemer::tests::test_randstrobe_handles_ambiguous_bases ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1066365Z test align::strobemer::tests::test_randstrobe_handles_short_sequence ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1067181Z test align::strobemer::tests::test_randstrobe_positions_valid ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1067947Z test align::strobemer::tests::test_randstrobe_produces_output ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1069131Z test align::strobemer::tests::test_randstrobe_span_in_range ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1069890Z test align::syncmer::tests::test_syncmer_density_varies_with_s ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1070644Z test align::syncmer::tests::test_syncmer_empty_and_short ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1071387Z test align::syncmer::tests::test_syncmer_handles_ambiguous_bases ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1082798Z test align::syncmer::tests::test_syncmer_produces_output ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1787347Z test align::sketch::tests::chunked_sketch_matches_one_pass ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1792920Z test align::wfa::vs_ksw2::wfa_vs_gap_dp ... ignored
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.1793800Z test api::tests::test_apply_preset_aliases_and_unknown ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2074015Z test api::tests::test_builder_k_override_rescales_chn_pen_gap ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2180333Z test api::tests::test_builder_rejects_invalid_params ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2184267Z test api::tests::test_dp_align_identical ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2185207Z test api::tests::test_dp_align_with_insertion ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2186148Z test api::tests::test_dp_align_with_mismatch ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2187019Z test api::tests::test_dp_dual_affine ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2187558Z test api::tests::test_dp_extension ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2194159Z test api::tests::test_dp_global_identical ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2195029Z test api::tests::test_dp_global_with_indel ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2216097Z test api::tests::test_dp_local_finds_best_region ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2216954Z test api::tests::test_encode_nt4 ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2573350Z test api::tests::test_from_index_derives_chn_pen_gap_from_index_k ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2793992Z test api::tests::test_from_index_reader_bounded_and_trailing ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.2815686Z test api::tests::test_map_result_empty ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3013251Z test api::tests::test_mid_occ_only_calibrated_when_unset ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3332696Z test api::tests::test_out_cigar_flag_matches_output_config ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3362867Z test api::tests::test_preset_as_str_roundtrip ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3393312Z test fasta::reader::tests::test_bad_input_errors_once_then_fused ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3394405Z test fasta::reader::tests::test_consumer_loop_terminates_on_bad_input ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3395402Z test fasta::reader::tests::test_detect_format_fasta ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3396261Z test fasta::reader::tests::test_detect_format_fastq ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3397103Z test fasta::reader::tests::test_empty_input_is_clean_eof ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3398425Z test fasta::reader::tests::test_for_each_record_fasta ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3399263Z test fasta::reader::tests::test_for_each_record_fastq ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3400101Z test fasta::reader::tests::test_read_fasta_owned ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3400883Z test fasta::reader::tests::test_read_fastq_owned ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3401666Z test fasta::record::tests::test_ref_record_to_owned ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3402754Z test fasta::record::tests::test_ref_record_to_owned_no_desc ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3403633Z test fasta::stream::tests::fasta_byte_by_byte ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3404429Z test fasta::stream::tests::fasta_chunk_splits_header ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3405264Z test fasta::stream::tests::fasta_chunk_splits_sequence ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3406087Z test fasta::stream::tests::fasta_crlf_line_endings ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3406900Z test fasta::stream::tests::fasta_multiline_sequence ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3407759Z test fasta::stream::tests::fasta_name_strips_at_whitespace ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3408618Z test fasta::stream::tests::fasta_no_trailing_newline ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3409409Z test fasta::stream::tests::fasta_rna_to_dna ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3410199Z test fasta::stream::tests::fasta_single_record ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3411097Z test fasta::stream::tests::fasta_two_records ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3411843Z test fasta::stream::tests::fastq_byte_by_byte ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3413214Z test fasta::stream::tests::fastq_chunk_splits_record ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3414041Z test fasta::stream::tests::fastq_crlf_line_endings ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3414892Z test fasta::stream::tests::fastq_name_strips_at_whitespace ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3415750Z test fasta::stream::tests::fastq_no_trailing_newline ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3416548Z test fasta::stream::tests::fastq_single_record ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3417311Z test fasta::stream::tests::fastq_two_records ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3418042Z test sorted_bam::tests::int_tag_types ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:06.3418768Z test sorted_bam::tests::reg2bin_matches_htslib ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:10.9020272Z test align::wfa::tests::wfa_matches_dp_score ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:10.9020756Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:10.9024725Z test result: ok. 133 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 7.23s
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:10.9028519Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:10.9043956Z    Doc-tests bonefish
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7666518Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7667098Z running 6 tests
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7669162Z test bonefish-core/src/api.rs - api (line 9) - compile ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7670373Z test bonefish-core/src/api.rs - api::Aligner (line 145) - compile ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7671570Z test bonefish-core/src/api.rs - api::Aligner::builder (line 350) - compile ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7673258Z test bonefish-core/src/api.rs - api::Aligner::from_seqs (line 386) - compile ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7681042Z test bonefish-core/src/api.rs - api::AlignerBuilder (line 186) - compile ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7693252Z test bonefish-core/src/api.rs - api::dp_align (line 648) ... ok
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7693898Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7694527Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7695223Z 
+test (ubuntu-24.04)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:36:14.7819422Z all doctests ran in 2.97s; merged doctests compilation took 2.92s
+test (ubuntu-24.04)	Validation scripts and recorded evidence	﻿2026-10-13T22:36:14.8206742Z ##[group]Run python3 -B -m unittest discover -s scripts/validation -p 'test_*.py'
+test (ubuntu-24.04)	Validation scripts and recorded evidence	2026-10-13T22:36:14.8207407Z ^[[36;1mpython3 -B -m unittest discover -s scripts/validation -p 'test_*.py'^[[0m
+test (ubuntu-24.04)	Validation scripts and recorded evidence	2026-10-13T22:36:14.8207911Z ^[[36;1mpython3 -B scripts/validation/verify_evidence.py^[[0m
+test (ubuntu-24.04)	Validation scripts and recorded evidence	2026-10-13T22:36:14.8275532Z shell: /usr/bin/bash -e {0}
+test (ubuntu-24.04)	Validation scripts and recorded evidence	2026-10-13T22:36:14.8275946Z ##[endgroup]
+test (ubuntu-24.04)	Validation scripts and recorded evidence	2026-10-13T22:36:15.3881035Z .............
+test (ubuntu-24.04)	Validation scripts and recorded evidence	2026-10-13T22:36:15.3881970Z ----------------------------------------------------------------------
+test (ubuntu-24.04)	Validation scripts and recorded evidence	2026-10-13T22:36:15.3883286Z Ran 13 tests in 0.426s
+test (ubuntu-24.04)	Validation scripts and recorded evidence	2026-10-13T22:36:15.3884108Z 
+test (ubuntu-24.04)	Validation scripts and recorded evidence	2026-10-13T22:36:15.3884424Z OK
+test (ubuntu-24.04)	Validation scripts and recorded evidence	2026-10-13T22:36:15.4889203Z Verified 95 imported artifacts, all bundle hashes, final trial aggregates, and 1x/10x/census receipt consistency.
+test (ubuntu-24.04)	Post Run actions/checkout@v4	﻿2026-10-13T22:36:15.5076565Z Post job cleanup.
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.6063024Z [command]/usr/bin/git version
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.6151936Z git version 2.55.0
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.6200528Z Temporarily overriding HOME='/home/runner/work/_temp/4f3b0b99-137d-45a5-be07-0d31c95e6d6a' before making global git config changes
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.6205099Z Adding repository directory to the temporary git global config as a safe directory
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.6218473Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/bonefish/bonefish
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.6282424Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.6333743Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.6702930Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.6762793Z http.https://github.com/.extraheader
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.6784128Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.6893646Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.7353002Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+test (ubuntu-24.04)	Post Run actions/checkout@v4	2026-10-13T22:36:15.7443138Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+test (ubuntu-24.04)	Complete job	﻿2026-10-13T22:36:15.8242758Z Cleaning up orphan processes
+test (ubuntu-24.04)	Complete job	2026-10-13T22:36:15.8520291Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+test (macos-14)	Set up job	﻿2026-10-13T22:32:53.1051540Z Current runner version: '2.337.0'
+test (macos-14)	Set up job	2026-10-13T22:32:53.1066960Z ##[group]Runner Image Provisioner
+test (macos-14)	Set up job	2026-10-13T22:32:53.1067480Z Hosted Compute Agent
+test (macos-14)	Set up job	2026-10-13T22:32:53.1067850Z Version: 20260828.587
+test (macos-14)	Set up job	2026-10-13T22:32:53.1068250Z Commit: abac92662cab4cc7352de4f9f9d2e2419aad9c29
+test (macos-14)	Set up job	2026-10-13T22:32:53.1068680Z Build Date: 2026-08-28T16:44:25Z
+test (macos-14)	Set up job	2026-10-13T22:32:53.1069090Z Worker ID: {ab8f25fa-a276-466a-81bf-8dad4c35e1c3}
+test (macos-14)	Set up job	2026-10-13T22:32:53.1069500Z Azure Region: westus
+test (macos-14)	Set up job	2026-10-13T22:32:53.1069840Z ##[endgroup]
+test (macos-14)	Set up job	2026-10-13T22:32:53.1070590Z ##[group]Operating System
+test (macos-14)	Set up job	2026-10-13T22:32:53.1070950Z macOS
+test (macos-14)	Set up job	2026-10-13T22:32:53.1071250Z 14.8.9
+test (macos-14)	Set up job	2026-10-13T22:32:53.1071540Z 23J631
+test (macos-14)	Set up job	2026-10-13T22:32:53.1071840Z ##[endgroup]
+test (macos-14)	Set up job	2026-10-13T22:32:53.1072170Z ##[group]Runner Image
+test (macos-14)	Set up job	2026-10-13T22:32:53.1072510Z Image: macos-14-arm64
+test (macos-14)	Set up job	2026-10-13T22:32:53.1072850Z Version: 20260831.0302.1
+test (macos-14)	Set up job	2026-10-13T22:32:53.1073530Z Included Software: https://github.com/actions/runner-images/blob/macos-14-arm64/20260831.0302/images/macos/macos-14-arm64-Readme.md
+test (macos-14)	Set up job	2026-10-13T22:32:53.1074560Z Image Release: https://github.com/actions/runner-images/releases/tag/macos-14-arm64%2F20260831.0302
+test (macos-14)	Set up job	2026-10-13T22:32:53.1075160Z ##[endgroup]
+test (macos-14)	Set up job	2026-10-13T22:32:53.1075860Z ##[group]GITHUB_TOKEN Permissions
+test (macos-14)	Set up job	2026-10-13T22:32:53.1076810Z Contents: read
+test (macos-14)	Set up job	2026-10-13T22:32:53.1077140Z Metadata: read
+test (macos-14)	Set up job	2026-10-13T22:32:53.1077460Z Packages: read
+test (macos-14)	Set up job	2026-10-13T22:32:53.1077780Z ##[endgroup]
+test (macos-14)	Set up job	2026-10-13T22:32:53.1078970Z Secret source: Actions
+test (macos-14)	Set up job	2026-10-13T22:32:53.1079470Z Cache mode: write
+test (macos-14)	Set up job	2026-10-13T22:32:53.1079870Z Prepare workflow directory
+test (macos-14)	Set up job	2026-10-13T22:32:53.1277210Z Prepare all required actions
+test (macos-14)	Set up job	2026-10-13T22:32:53.1325710Z Getting action download info
+test (macos-14)	Set up job	2026-10-13T22:32:53.3214450Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+test (macos-14)	Set up job	2026-10-13T22:32:53.8412290Z Complete job name: test (macos-14)
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	﻿2026-10-13T22:32:55.2668540Z ##[group]Run rustup toolchain install stable --profile minimal && rustup default stable
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:55.2670600Z ^[[36;1mrustup toolchain install stable --profile minimal && rustup default stable^[[0m
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:55.2735470Z shell: /bin/bash -e {0}
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:55.2736220Z ##[endgroup]
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:55.5739020Z info: syncing channel updates for stable-aarch64-apple-darwin
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:55.6822690Z info: latest update on 2026-10-01 for version 1.99.0 (b940084d7 2026-09-28)
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:55.6929680Z info: removing previous version of component clippy
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:55.6955580Z info: removing previous version of component rustfmt
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:55.6969030Z info: removing previous version of component cargo
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:55.7022320Z info: removing previous version of component rust-std
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:55.7102310Z info: removing previous version of component rustc
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:32:55.7175420Z info: downloading 5 components
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:33:02.0216150Z 
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:33:02.0509030Z info: self-update is disabled for this build of rustup
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:33:02.0510060Z info: any updates to rustup will need to be fetched with your system package manager
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:33:02.0510730Z   stable-aarch64-apple-darwin updated - rustc 1.99.0 (b940084d7 2026-09-28) (from rustc 1.98.0 (88d9e12ae 2026-08-18))
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:33:02.0511390Z 
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:33:02.0654500Z info: using existing install for stable-aarch64-apple-darwin
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:33:02.0664280Z info: default toolchain set to stable-aarch64-apple-darwin
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:33:02.0664540Z 
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:33:02.0780090Z   stable-aarch64-apple-darwin unchanged - rustc 1.99.0 (b940084d7 2026-09-28)
+test (macos-14)	Run rustup toolchain install stable --profile minimal && rustup default stable	2026-10-13T22:33:02.0780700Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	﻿2026-10-13T22:33:02.0918910Z ##[group]Run cargo test --release --locked --features jemalloc
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.0919340Z ^[[36;1mcargo test --release --locked --features jemalloc^[[0m
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.0981450Z shell: /bin/bash -e {0}
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.0981760Z ##[endgroup]
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.1985020Z     Updating crates.io index
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.6212110Z  Downloading crates ...
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8356660Z   Downloaded aho-corasick v1.1.4
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8453260Z   Downloaded anstyle-query v1.1.5
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8477580Z   Downloaded colorchoice v1.0.4
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8507470Z   Downloaded anstream v0.6.21
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8543470Z   Downloaded bincode v1.3.3
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8592870Z   Downloaded byteorder v1.5.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8617630Z   Downloaded clap_derive v4.5.55
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8652260Z   Downloaded allocator-api2 v0.2.21
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8691450Z   Downloaded anstyle v1.0.13
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8714290Z   Downloaded anstyle-parse v0.2.7
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8734430Z   Downloaded anyhow v1.0.102
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.8808040Z   Downloaded clap v4.5.60
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9259870Z   Downloaded clap_lex v1.0.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9272300Z   Downloaded crossbeam-epoch v0.9.18
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9306430Z   Downloaded rustc-hash v2.1.1
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9332080Z   Downloaded utf8parse v0.2.2
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9349920Z   Downloaded bitflags v2.11.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9405080Z   Downloaded either v1.15.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9599420Z   Downloaded env_filter v1.0.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9791780Z   Downloaded env_logger v0.11.9
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9824930Z   Downloaded equivalent v1.0.2
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9839200Z   Downloaded heck v0.5.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9858730Z   Downloaded find-msvc-tools v0.1.9
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9884820Z   Downloaded rayon-core v1.13.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:02.9967470Z   Downloaded serde_core v1.0.228
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0005390Z   Downloaded strsim v0.11.1
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0023620Z   Downloaded is_terminal_polyfill v1.70.2
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0035620Z   Downloaded tikv-jemallocator v0.6.1
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0058690Z   Downloaded wasm_sync v0.1.2
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0070170Z   Downloaded libdeflater v1.26.1
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0091380Z   Downloaded foldhash v0.1.5
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0107970Z   Downloaded thiserror-impl v2.0.18
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0590740Z   Downloaded clap_builder v4.5.60
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0691740Z   Downloaded crossbeam-deque v0.8.6
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0792110Z   Downloaded crossbeam-utils v0.8.21
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0834750Z   Downloaded quote v1.0.44
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0838650Z   Downloaded serde_derive v1.0.228
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0840950Z   Downloaded shlex v1.3.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.0851430Z   Downloaded thiserror v2.0.18
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.1246740Z   Downloaded unicode-ident v1.0.24
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.1347010Z   Downloaded log v0.4.29
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.1428680Z   Downloaded memmap2 v0.9.11
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.1466510Z   Downloaded proc-macro2 v1.0.106
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.1479460Z   Downloaded cc v1.2.56
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.1489860Z   Downloaded flate2 v1.1.9
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.1540220Z   Downloaded serde v1.0.228
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.1913450Z   Downloaded hashbrown v0.15.5
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.1986070Z   Downloaded memchr v2.8.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.2069290Z   Downloaded regex v1.12.3
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.2140850Z   Downloaded rayon v1.11.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.2556480Z   Downloaded zlib-rs v0.6.8
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.2634220Z   Downloaded libdeflate-sys v1.26.1
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.2788680Z   Downloaded syn v2.0.117
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.3291620Z   Downloaded regex-syntax v0.8.10
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.3401570Z   Downloaded regex-automata v0.4.14
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.3865210Z   Downloaded jiff v0.2.22
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.4419160Z   Downloaded libc v0.2.182
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.5545180Z   Downloaded tikv-jemalloc-sys v0.6.1+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.6789520Z    Compiling proc-macro2 v1.0.106
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.6812120Z    Compiling unicode-ident v1.0.24
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.6820450Z    Compiling quote v1.0.44
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.6845900Z    Compiling shlex v1.3.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.6851820Z    Compiling find-msvc-tools v0.1.9
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.7542390Z    Compiling crossbeam-utils v0.8.21
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.7838240Z    Compiling cc v1.2.56
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:03.8165770Z    Compiling libc v0.2.182
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:04.4993090Z    Compiling memchr v2.8.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:04.8879160Z    Compiling serde_core v1.0.228
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:05.6974540Z    Compiling serde v1.0.228
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:05.8557960Z    Compiling libdeflate-sys v1.26.1
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:05.9797250Z    Compiling rayon-core v1.13.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.1119370Z    Compiling crossbeam-epoch v0.9.18
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.1244300Z    Compiling wasm_sync v0.1.2
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.1602050Z    Compiling thiserror v2.0.18
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.2015730Z    Compiling syn v2.0.117
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.3139970Z    Compiling crossbeam-deque v0.8.6
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.3849510Z    Compiling anyhow v1.0.102
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.4277010Z    Compiling log v0.4.29
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:06.6188860Z    Compiling zlib-rs v0.6.8
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:07.1757820Z    Compiling bonefish-core v0.1.0 (/Users/runner/work/bonefish/bonefish/bonefish-core)
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:07.3057700Z    Compiling equivalent v1.0.2
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:07.3194890Z    Compiling allocator-api2 v0.2.21
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:07.3332530Z    Compiling either v1.15.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:07.4134750Z    Compiling foldhash v0.1.5
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:07.5115400Z    Compiling rayon v1.11.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:07.8075090Z    Compiling memmap2 v0.9.11
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:07.9446290Z    Compiling byteorder v1.5.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:08.0736350Z    Compiling bitflags v2.11.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:08.1273220Z    Compiling serde_derive v1.0.228
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:08.2576790Z    Compiling thiserror-impl v2.0.18
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:08.9943620Z    Compiling flate2 v1.1.9
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.0139660Z    Compiling utf8parse v0.2.2
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.0465170Z    Compiling rustc-hash v2.1.1
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.0809480Z    Compiling anstyle-parse v0.2.7
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.1660900Z    Compiling aho-corasick v1.1.4
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.2517330Z    Compiling libdeflater v1.26.1
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.2682360Z    Compiling colorchoice v1.0.4
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.3028720Z    Compiling is_terminal_polyfill v1.70.2
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.3085490Z    Compiling anstyle-query v1.1.5
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.3338640Z    Compiling anstyle v1.0.13
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.3393480Z    Compiling regex-syntax v0.8.10
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.3769380Z    Compiling tikv-jemalloc-sys v0.6.1+5.3.0-1-ge13ca993e8ccb9ba9847cc330696e02839f328f7
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.4423010Z    Compiling anstream v0.6.21
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:09.6530310Z    Compiling strsim v0.11.1
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:10.0748240Z    Compiling clap_lex v1.0.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:10.3249700Z    Compiling hashbrown v0.15.5
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:10.3964600Z    Compiling bincode v1.3.3
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:10.7169530Z    Compiling regex-automata v0.4.14
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.0098600Z warning: unused import: `super::common::*`
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.0114590Z   --> bonefish-core/src/align/dp/dual_clean.rs:18:5
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.0153820Z    |
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.0179300Z 18 | use super::common::*;
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.0199840Z    |     ^^^^^^^^^^^^^^^^
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.0213070Z    |
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.0318330Z    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.0425080Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.0528340Z    Compiling heck v0.5.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.1236630Z    Compiling clap_derive v4.5.55
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.7973940Z    Compiling clap_builder v4.5.60
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.9666480Z warning: static `REG1_OFF` is never used
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.9770220Z    --> bonefish-core/src/align/dp/dual_clean.rs:576:8
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.9890580Z     |
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:11.9997190Z 576 | static REG1_OFF: std::sync::LazyLock<bool> =
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.0098410Z     |        ^^^^^^^^
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.0199680Z     |
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.0301770Z     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.0400730Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.0501520Z warning: static `SKETCH_SCALAR` is never used
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.0603480Z    --> bonefish-core/src/align/sketch.rs:201:8
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.0703990Z     |
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.0805010Z 201 | static SKETCH_SCALAR: std::sync::LazyLock<bool> =
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.0905860Z     |        ^^^^^^^^^^^^^
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.1006110Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.1107240Z    Compiling bonefish v0.1.0 (/Users/runner/work/bonefish/bonefish/bonefish)
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.1936320Z    Compiling regex v1.12.3
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.6389760Z    Compiling env_filter v1.0.0
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:12.9120800Z    Compiling jiff v0.2.22
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:14.6793320Z    Compiling clap v4.5.60
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:15.9612910Z    Compiling env_logger v0.11.9
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:26.7899950Z warning: `bonefish-core` (lib) generated 3 warnings (run `cargo fix --lib -p bonefish-core` to apply 1 suggestion)
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:35.9491730Z warning: `bonefish-core` (lib test) generated 3 warnings (3 duplicates)
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:36.7448070Z    Compiling tikv-jemallocator v0.6.1
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.5169850Z     Finished `release` profile [optimized] target(s) in 53.34s
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.5380140Z      Running unittests src/main.rs (target/release/deps/bonefish-caf4a2fcc7c0f2cf)
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.5403650Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.5404240Z running 0 tests
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.5404440Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.5404690Z test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.5404970Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.5405570Z      Running tests/regression.rs (target/release/deps/regression-d3996ce9bc6cf979)
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.5424960Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.5425670Z running 5 tests
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.8826220Z test raw_index_gives_same_output ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.8840220Z test bgzipped_fastq_gives_same_output ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.8856030Z test bam_input_gives_same_output ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:55.9251310Z test sorted_bam_output ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2951740Z test outputs_match_expected ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2952190Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2952480Z test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.75s
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2952760Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2959180Z      Running unittests src/lib.rs (target/release/deps/bonefish-e3499a5b52265e64)
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2981310Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2981620Z running 134 tests
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2984640Z test align::align_simple::tests::test_simple_aligner_empty ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2985000Z test align::align_simple::tests::test_nw_identical ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2985870Z test align::align_simple::tests::test_nw_with_gap ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2986210Z test align::align_simple::tests::test_simple_aligner_two_anchors_with_gap ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2987010Z test align::align_simple::tests::test_simple_aligner_single_anchor ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2987390Z test align::chain::tests::test_chain_synthetic ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2987690Z test align::chain_rmq::tests::test_rmq_tree_basic ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2988030Z test align::chain_rmq::tests::test_chain_rmq_simple ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2988440Z test align::chain_simd::masked_tests::test_masked_scores_mixed_targets_in_vector_groups ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.2989310Z test align::chain_simd::masked_tests::test_masked_scores_signed_coordinate_crossings ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3089620Z test align::chain_simd::masked_tests::test_masked_scores_all_chunk_lengths_and_offsets ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3189900Z test align::chain_simd::neon_tests::test_neon_diag_buckets_signed_coordinate_boundary ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3290750Z test align::chain_simd::neon_tests::test_neon_diag_buckets_window_and_activation_boundaries ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3391450Z test align::chain_simple::tests::test_greedy_chain_break ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3492040Z test align::chain_simple::tests::test_greedy_empty ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3592690Z test align::chain_simple::tests::test_greedy_single_chain ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3631070Z test align::chain_simple::tests::test_greedy_sorted_by_score ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3642110Z test align::dp::bench_gap::bench_gap_fill ... ignored
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3659330Z test align::chain_simd::neon_tests::test_neon_masked_scan_sparse_anchors ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3687350Z test align::chain_simd::neon_tests::test_neon_diag_buckets_negative_diagonals_and_reuse ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3788190Z test align::dp::dual_clean16::tests::clean16_golden_digest ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3888710Z test align::dp::tests::test_1_mismatch ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.3989260Z test align::dp::tests::test_cigar_all_matches ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4089740Z test align::dp::tests::test_cigar_with_deletion ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4190200Z test align::dp::tests::test_cigar_with_insertion ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4282360Z test align::dp::tests::test_dp_cache_cap_setter ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4284220Z test align::dp::tests::test_dual_affine_long_gap ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4310290Z test align::dp::tests::test_empty_sequences ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4329680Z test align::dp::tests::test_extd2 ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4340970Z test align::dp::tests::test_extd2_scalar ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4365690Z test align::dp::tests::test_extd2_score_only ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4380880Z test align::dp::tests::test_gap ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4391680Z test align::dp::tests::test_long_gap_uses_second_penalty ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4404310Z test align::dp::tests::test_medium_gap_at_crossover ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4426040Z test align::dp::tests::test_neon_dual_affine_small ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4527630Z test align::dp::tests::test_neon_dual_affine_tiebreak_regression ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4628080Z test align::dp::tests::test_neon_vs_scalar_dual_affine ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4728830Z test align::dp::tests::test_scalar_dual_affine ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4814570Z test align::dp::tests::test_scalar_neon_consistency_various_sizes ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.4889110Z test align::dp::tests::test_short_gap_uses_first_penalty ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.5009510Z test align::dp::tests::test_simple_match ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.5073170Z test align::dp::tests::test_single_affine_basic ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.5173900Z test align::dp::tests::test_single_base_match ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.5288150Z test align::dp::tests::test_single_base_mismatch ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.5388860Z test align::filter::tests::test_parent_assignment_no_overlap ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.5489700Z test align::filter::tests::test_parent_assignment_with_overlap ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.5590750Z test align::filter::tests::test_secondary_filter_fails ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.5691370Z test align::filter::tests::test_secondary_filter_passes_min_diff ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.5791970Z test align::filter::tests::test_secondary_filter_passes_ratio ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.5892420Z test align::filter::tests::test_secondary_filter_passes_strand ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.5942010Z test align::index::tests::test_bincode_roundtrip ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6001530Z test align::index::tests::test_cal_mid_occ ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6102400Z test align::index::tests::test_idx_build ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6172870Z test align::chain_simd::neon_tests::test_neon_diag_buckets_randomized ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6275990Z test align::index::tests::test_lookup_matches_minimizers ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6373070Z test align::index_bucket::bench_layout::bench_layout_region ... ignored
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6474050Z test align::index_bucket::tests::test_bucket_hash_basic ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6508490Z test align::map::tests::test_repetitive_filtering ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6511060Z test align::map::tests::test_secondary_alignment ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6513410Z test align::pipeline::tests::test_align_and_format_simple ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6519210Z test align::pipeline::tests::test_count_cigar_ops ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6523860Z test align::pipeline::tests::test_write_cigar_as_bam_uints ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6526510Z test align::dp::dual_clean16::tests::clean16_static_band_equals_scalar ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6531410Z test align::sketch::tests::test_kmer_hash_wraps_instead_of_overflowing ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6534420Z test align::sketch::tests::test_sketch_basic ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6537320Z test align::sketch::tests::test_sketch_empty ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6557100Z test align::sort::leaf_sort_tests::leaf_sort_matches_insertion_sort ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6597090Z test align::sort::tests::test_radix_sort_basic ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6597770Z test align::sort::tests::test_radix_sort_deterministic ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6598300Z test align::sort::tests::test_radix_sort_large ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6598830Z test align::strobemer::tests::test_randstrobe_deterministic ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6599430Z test align::strobemer::tests::test_randstrobe_handles_ambiguous_bases ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6600120Z test align::strobemer::tests::test_randstrobe_handles_short_sequence ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6600730Z test align::strobemer::tests::test_randstrobe_positions_valid ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6601400Z test align::strobemer::tests::test_randstrobe_produces_output ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6602000Z test align::strobemer::tests::test_randstrobe_span_in_range ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6602550Z test align::syncmer::tests::test_syncmer_density_varies_with_s ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6603100Z test align::syncmer::tests::test_syncmer_empty_and_short ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6603660Z test align::syncmer::tests::test_syncmer_handles_ambiguous_bases ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6604220Z test align::syncmer::tests::test_syncmer_produces_output ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6604770Z test align::sketch::tests::chunked_sketch_matches_one_pass ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6605290Z test align::wfa::vs_ksw2::wfa_vs_gap_dp ... ignored
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6605800Z test api::tests::test_apply_preset_aliases_and_unknown ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6606410Z test api::tests::test_builder_k_override_rescales_chn_pen_gap ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6606950Z test api::tests::test_builder_rejects_invalid_params ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6607450Z test align::index::tests::test_raw_roundtrip ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6608000Z test api::tests::test_dp_align_identical ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6608580Z test api::tests::test_dp_align_with_insertion ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6609070Z test api::tests::test_dp_align_with_mismatch ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6609620Z test api::tests::test_dp_dual_affine ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6609970Z test api::tests::test_dp_extension ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6610710Z test api::tests::test_dp_global_identical ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6611090Z test api::tests::test_dp_global_with_indel ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6611480Z test api::tests::test_dp_local_finds_best_region ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6617590Z test api::tests::test_encode_nt4 ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6618010Z test api::tests::test_from_index_reader_bounded_and_trailing ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6618510Z test api::tests::test_map_result_empty ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6619000Z test api::tests::test_from_index_derives_chn_pen_gap_from_index_k ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6619440Z test api::tests::test_mid_occ_only_calibrated_when_unset ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6619810Z test api::tests::test_preset_as_str_roundtrip ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6620300Z test fasta::reader::tests::test_bad_input_errors_once_then_fused ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6620780Z test fasta::reader::tests::test_consumer_loop_terminates_on_bad_input ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6621200Z test fasta::reader::tests::test_detect_format_fasta ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6621590Z test fasta::reader::tests::test_detect_format_fastq ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6621960Z test fasta::reader::tests::test_empty_input_is_clean_eof ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6622360Z test fasta::reader::tests::test_for_each_record_fasta ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6622770Z test fasta::reader::tests::test_for_each_record_fastq ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6623140Z test fasta::reader::tests::test_read_fasta_owned ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6623940Z test fasta::reader::tests::test_read_fastq_owned ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6624300Z test fasta::record::tests::test_ref_record_to_owned ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6624680Z test fasta::record::tests::test_ref_record_to_owned_no_desc ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6625060Z test fasta::stream::tests::fasta_byte_by_byte ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6625440Z test fasta::stream::tests::fasta_chunk_splits_header ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6625820Z test fasta::stream::tests::fasta_chunk_splits_sequence ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6626230Z test fasta::stream::tests::fasta_crlf_line_endings ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6626600Z test fasta::stream::tests::fasta_multiline_sequence ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6626990Z test fasta::stream::tests::fasta_name_strips_at_whitespace ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6627370Z test fasta::stream::tests::fasta_no_trailing_newline ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6627760Z test fasta::stream::tests::fasta_rna_to_dna ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6628100Z test fasta::stream::tests::fasta_single_record ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6628450Z test fasta::stream::tests::fasta_two_records ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6628780Z test fasta::stream::tests::fastq_byte_by_byte ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6629130Z test fasta::stream::tests::fastq_chunk_splits_record ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6629500Z test fasta::stream::tests::fastq_crlf_line_endings ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6629870Z test fasta::stream::tests::fastq_name_strips_at_whitespace ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6630310Z test fasta::stream::tests::fastq_no_trailing_newline ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6630680Z test fasta::stream::tests::fastq_single_record ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6631040Z test fasta::stream::tests::fastq_two_records ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6631360Z test sorted_bam::tests::int_tag_types ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6631690Z test sorted_bam::tests::reg2bin_matches_htslib ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:56.6632050Z test api::tests::test_out_cigar_flag_matches_output_config ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:57.0275920Z test align::dp::lw::lw_score_tests::lightweight_score_matches_align_i16 ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:33:57.6475630Z test align::chain_simd::neon_tests::test_neon_diag_buckets_dense ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:00.1227100Z test align::wfa::tests::wfa_matches_dp_score ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:00.1229620Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:00.1230100Z test result: ok. 131 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 3.82s
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:00.1230430Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:00.1246720Z    Doc-tests bonefish
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4670230Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4671140Z running 6 tests
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4671850Z test bonefish-core/src/api.rs - api (line 9) - compile ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4672220Z test bonefish-core/src/api.rs - api::Aligner (line 145) - compile ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4672590Z test bonefish-core/src/api.rs - api::Aligner::builder (line 350) - compile ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4672990Z test bonefish-core/src/api.rs - api::Aligner::from_seqs (line 386) - compile ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4673430Z test bonefish-core/src/api.rs - api::AlignerBuilder (line 186) - compile ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4687370Z test bonefish-core/src/api.rs - api::dp_align (line 648) ... ok
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4687600Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4687830Z test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4688170Z 
+test (macos-14)	Tests (unit, golden-output regression, doctests)	2026-10-13T22:34:02.4693420Z all doctests ran in 2.17s; merged doctests compilation took 2.16s
+test (macos-14)	Validation scripts and recorded evidence	﻿2026-10-13T22:34:02.4789530Z ##[group]Run python3 -B -m unittest discover -s scripts/validation -p 'test_*.py'
+test (macos-14)	Validation scripts and recorded evidence	2026-10-13T22:34:02.4789990Z ^[[36;1mpython3 -B -m unittest discover -s scripts/validation -p 'test_*.py'^[[0m
+test (macos-14)	Validation scripts and recorded evidence	2026-10-13T22:34:02.4790320Z ^[[36;1mpython3 -B scripts/validation/verify_evidence.py^[[0m
+test (macos-14)	Validation scripts and recorded evidence	2026-10-13T22:34:02.4975290Z shell: /bin/bash -e {0}
+test (macos-14)	Validation scripts and recorded evidence	2026-10-13T22:34:02.4975490Z ##[endgroup]
+test (macos-14)	Validation scripts and recorded evidence	2026-10-13T22:34:03.1214710Z .............
+test (macos-14)	Validation scripts and recorded evidence	2026-10-13T22:34:03.1221990Z ----------------------------------------------------------------------
+test (macos-14)	Validation scripts and recorded evidence	2026-10-13T22:34:03.1223700Z Ran 13 tests in 0.232s
+test (macos-14)	Validation scripts and recorded evidence	2026-10-13T22:34:03.1223990Z 
+test (macos-14)	Validation scripts and recorded evidence	2026-10-13T22:34:03.1224070Z OK
+test (macos-14)	Validation scripts and recorded evidence	2026-10-13T22:34:03.2286000Z Verified 95 imported artifacts, all bundle hashes, final trial aggregates, and 1x/10x/census receipt consistency.
+test (macos-14)	Post Run actions/checkout@v4	﻿2026-10-13T22:34:03.2425590Z Post job cleanup.
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3203210Z [command]/opt/homebrew/bin/git version
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3247890Z git version 2.55.0
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3264540Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/f7ee1c49-82ca-4ec7-820a-524361035f8b/.gitconfig'
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3271610Z Temporarily overriding HOME='/Users/runner/work/_temp/f7ee1c49-82ca-4ec7-820a-524361035f8b' before making global git config changes
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3272470Z Adding repository directory to the temporary git global config as a safe directory
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3275130Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/bonefish/bonefish
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3320020Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3357110Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3844060Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3877400Z http.https://github.com/.extraheader
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3883110Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.3932550Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.4418980Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+test (macos-14)	Post Run actions/checkout@v4	2026-10-13T22:34:03.4460710Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+test (ubuntu-24.04-arm)	Validation scripts and recorded evidence	﻿2026-10-13T22:35:11.7599926Z ##[group]Run python3 -B -m unittest discover -s scripts/validation -p 'test_*.py'
+test (ubuntu-24.04-arm)	Validation scripts and recorded evidence	2026-10-13T22:35:11.7600721Z ^[[36;1mpython3 -B -m unittest discover -s scripts/validation -p 'test_*.py'^[[0m
+test (ubuntu-24.04-arm)	Validation scripts and recorded evidence	2026-10-13T22:35:11.7601203Z ^[[36;1mpython3 -B scripts/validation/verify_evidence.py^[[0m
+test (ubuntu-24.04-arm)	Validation scripts and recorded evidence	2026-10-13T22:35:11.7638469Z shell: /usr/bin/bash -e {0}
+test (ubuntu-24.04-arm)	Validation scripts and recorded evidence	2026-10-13T22:35:11.7638801Z ##[endgroup]
+test (ubuntu-24.04-arm)	Validation scripts and recorded evidence	2026-10-13T22:35:12.2594135Z .............
+test (ubuntu-24.04-arm)	Validation scripts and recorded evidence	2026-10-13T22:35:12.3295233Z ----------------------------------------------------------------------
+test (ubuntu-24.04-arm)	Validation scripts and recorded evidence	2026-10-13T22:35:12.3295735Z Ran 13 tests in 0.408s
+test (ubuntu-24.04-arm)	Validation scripts and recorded evidence	2026-10-13T22:35:12.3296147Z 
+test (ubuntu-24.04-arm)	Validation scripts and recorded evidence	2026-10-13T22:35:12.3296301Z OK
+test (ubuntu-24.04-arm)	Validation scripts and recorded evidence	2026-10-13T22:35:12.3296743Z Verified 95 imported artifacts, all bundle hashes, final trial aggregates, and 1x/10x/census receipt consistency.
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	﻿2026-10-13T22:35:12.3502087Z Post job cleanup.
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.4287889Z [command]/usr/bin/git version
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.4343018Z git version 2.55.0
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.4411384Z Temporarily overriding HOME='/home/runner/work/_temp/9649cf1a-dba8-4b61-a79e-381d9aaa06e1' before making global git config changes
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.4418943Z Adding repository directory to the temporary git global config as a safe directory
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.4420009Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/bonefish/bonefish
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.4486624Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.4544173Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.4786199Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.4833462Z http.https://github.com/.extraheader
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.4853709Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.4918416Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.5252271Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+test (ubuntu-24.04-arm)	Post Run actions/checkout@v4	2026-10-13T22:35:12.5289537Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url

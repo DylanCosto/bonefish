@@ -1,0 +1,44 @@
+{
+  "head_commit": "c1b7eb074b49806a86bbd0e48c617957ac436618",
+  "base_commit": "e8034d93ad7d7d213979147d648baaf98623117c",
+  "candidate": "${REPO}/target/release/bonefish",
+  "control": "${SESSION}/outputs/bonefish-masked-chaining/bonefish",
+  "reference": "${REFERENCE}",
+  "reads": "${SESSION}/outputs/bonefish-hg002-1x/HG002_R1041_UL.dorado0.4.0_sup4.1.0.nominal1x.fastq.gz",
+  "output": "${SESSION}/outputs/bonefish-neon-clean-dp",
+  "scratch": "${SESSION}/work/bonefish-neon-clean-dp/benchmark",
+  "runner": "${REPO}/scripts/validation/benchmark_sam.py",
+  "order": [
+    [
+      "control",
+      1
+    ],
+    [
+      "candidate",
+      1
+    ],
+    [
+      "candidate",
+      2
+    ],
+    [
+      "control",
+      2
+    ],
+    [
+      "control",
+      3
+    ],
+    [
+      "candidate",
+      3
+    ]
+  ],
+  "threads": 8,
+  "original_control_sam_sha256": "4004e1b32a5515b8d006fa16dec0323f56af1c4938cabfbfbb3f0805829d4c66",
+  "timing_scope": "Fresh index plus mapping and SAM output to the internal APFS SSD. Reference is read from the external SSD, reads from the internal SSD; identical for both builds. Validation/hashes outside timer.",
+  "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "build_command": "CARGO_PROFILE_RELEASE_STRIP=true cargo build --release --locked --features jemalloc",
+  "candidate_sha256": "40bfeb7053a0da22d1ce2a7709e77d441b9ca719afc684e949c38fd211109662",
+  "control_sha256": "1cb876c7cef4d1e3bebd433f9a6bfeea9e145669638687e89107a242004e669b"
+}

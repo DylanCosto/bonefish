@@ -29,6 +29,22 @@ pub fn clean_dual() -> bool {
     CLEAN_DUAL.load(Ordering::Relaxed) || *CLEAN_DUAL_ENV
 }
 
+/// Which clean kernel x86_64 can run: `Some(true)` AVX2, `Some(false)` the 16-lane SSE4.1 port
+/// (`dual_clean16`), `None` neither. `BONEFISH_FORCE_SSE=1` selects the SSE4.1 port on AVX2
+/// machines (tests and comparisons).
+#[cfg(target_arch = "x86_64")]
+#[inline]
+pub fn clean_x86() -> Option<bool> {
+    use crate::align::env_flags::FORCE_SSE;
+    if is_x86_feature_detected!("avx2") && !*FORCE_SSE {
+        Some(true)
+    } else if is_x86_feature_detected!("sse4.1") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
 /// BONEFISH_EXP_CLEAN_DP=1 selects the kernel too (experiments).
 static CLEAN_DUAL_ENV: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("BONEFISH_EXP_CLEAN_DP").is_ok_and(|v| v != "0"));

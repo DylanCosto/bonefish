@@ -1,0 +1,14 @@
+{
+  "Path": "hg001_wg_1x.fq.gz",
+  "Name": "hg001_wg_1x.fq.gz",
+  "Size": 1945506828,
+  "MimeType": "application/gzip",
+  "ModTime": "2026-10-08T17:45:56.036Z",
+  "IsDir": false,
+  "Hashes": {
+    "md5": "abc5b70661ace6c89eaa468feb110a29",
+    "sha1": "6e32df91a5bc74673088aa7330095f27edc13faa",
+    "sha256": "2edff9a3834d5d55963da198bad3717064e0ed5232a037d6783c84fbc8ffb288"
+  },
+  "ID": "1L2O5CAHXbbypQxm52ZLbp6xAqCYYS7XH"
+}

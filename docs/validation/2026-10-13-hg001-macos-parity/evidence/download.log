@@ -1,0 +1,6 @@
+2026/10/13 22:13:52 NOTICE: gdrive: This remote uses rclone's shared Google Drive client_id, which is being retired and will stop working during 2026. Create your own client_id to avoid interruption: https://rclone.org/drive/#making-your-own-client-id
+2026/10/13 22:14:07 INFO  :       512 MiB / 1.812 GiB, 28%, 36.571 MiB/s, ETA 36s
+2026/10/13 22:14:22 INFO  :       512 MiB / 1.812 GiB, 28%, 13.828 MiB/s, ETA 1m37s
+2026/10/13 22:14:37 INFO  :         1 GiB / 1.812 GiB, 55%, 28.358 MiB/s, ETA 29s
+2026/10/13 22:14:51 INFO  : hg001_wg_1x.fq.gz: Multi-thread Copied (new)
+2026/10/13 22:14:51 INFO  :     1.812 GiB / 1.812 GiB, 100%, 47.744 MiB/s, ETA 0s

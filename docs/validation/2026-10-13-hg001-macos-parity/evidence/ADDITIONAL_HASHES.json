@@ -1,0 +1,12 @@
+{
+  "algorithm": "MD5",
+  "normalizations": {
+    "raw_sam": "09d50d681b2612e67c79ab7a36f51eb4",
+    "sam_without_pg": "deed7949d35f15bd8eed935be47a1d81",
+    "records_without_all_headers": "dd48e3e9510def031eadb1e63ca2ed3b"
+  },
+  "expected_prefix": "deed7949d35f",
+  "prefix_matches": [
+    "sam_without_pg"
+  ]
+}

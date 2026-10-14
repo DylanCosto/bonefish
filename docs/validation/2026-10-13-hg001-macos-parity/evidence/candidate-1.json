@@ -1,0 +1,44 @@
+{
+  "run": "candidate-1",
+  "started_utc": "2026-10-14T02:17:15.554011+00:00",
+  "command": [
+    "${SESSION}/outputs/bonefish-neon-clean-dp/bonefish",
+    "-a",
+    "-t",
+    "8",
+    "${SESSION}/work/bonefish-hg001-parity/data/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta.gz",
+    "${SESSION}/work/bonefish-hg001-parity/data/hg001_wg_1x.fq.gz"
+  ],
+  "binary_sha256": "40bfeb7053a0da22d1ce2a7709e77d441b9ca719afc684e949c38fd211109662",
+  "input_sha256": {
+    "${SESSION}/work/bonefish-hg001-parity/data/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta.gz": "3c8def6d325c5d1e934b2dd530c4d1709f027677a15859467071fddf3fff2026",
+    "${SESSION}/work/bonefish-hg001-parity/data/hg001_wg_1x.fq.gz": "2edff9a3834d5d55963da198bad3717064e0ed5232a037d6783c84fbc8ffb288"
+  },
+  "returncode": 0,
+  "threads": 8,
+  "elapsed_seconds_including_index_and_sam": 88.17212779214606,
+  "census_instrumented": false,
+  "timing_scope": "Fresh FASTA-built index, mapping and SAM output. Input/output hashing and read validation are outside the timer.",
+  "warnings": [],
+  "peak_rss_bytes": 10279075840,
+  "instructions_retired": 7032445413747,
+  "peak_memory_footprint_bytes": 16749556288,
+  "worker_stage_sums_seconds": {
+    "Sequence Sketching": 25.856,
+    "Seeding (Lookup)": 191.349,
+    "Chaining": 105.47,
+    "Alignment (Ext)": 213.356,
+    "Post-chain": 52.206,
+    "Total Measured": 588.237
+  },
+  "sam_sha256_without_pg": "8da232f13b35280925914bc039132dddfaf61dfbcbf9131f7fa9179073eec8f1",
+  "records": 212292,
+  "primary": 161762,
+  "unique_primary_names": 161762,
+  "mapped_primary": 155784,
+  "missing_primary_names": 0,
+  "unexpected_primary_names": 0,
+  "input_sequences_and_qualities_preserved": true,
+  "same_as_original_release_sam": null,
+  "all_checks_passed": true
+}

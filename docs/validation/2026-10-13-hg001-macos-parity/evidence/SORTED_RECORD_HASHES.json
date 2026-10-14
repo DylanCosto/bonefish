@@ -1,0 +1,11 @@
+{
+  "normalization": "Exclude all SAM headers; bytewise full-line sort under LC_ALL=C; retain every record and every field, including multiplicity.",
+  "records": 212292,
+  "bytes": 5723886594,
+  "hashes": {
+    "sha256": "9484d9fc1ac2b7caa2014895bcddc31fefb4e62235cf7334f377886af5f2f25b",
+    "md5": "f705fd402b561bd9e14417afd2162855"
+  },
+  "expected_prefix": "deed7949d35f",
+  "prefix_matches": []
+}

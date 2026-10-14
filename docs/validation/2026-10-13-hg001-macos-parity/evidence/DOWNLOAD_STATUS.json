@@ -1,0 +1,34 @@
+{
+  "status": "complete",
+  "started_utc": "2026-10-14T02:13:51.949948+00:00",
+  "completed_utc": "2026-10-14T02:14:55.517710+00:00",
+  "seconds_including_verification": 63.00732820760459,
+  "drive_url": "https://drive.google.com/file/d/1L2O5CAHXbbypQxm52ZLbp6xAqCYYS7XH/view",
+  "drive_file_id": "1L2O5CAHXbbypQxm52ZLbp6xAqCYYS7XH",
+  "remote": "gdrive:hg001_wg_1x.fq.gz",
+  "local_file": "${SESSION}/work/bonefish-hg001-parity/data/hg001_wg_1x.fq.gz",
+  "bytes": 1945506828,
+  "hashes": {
+    "sha256": "2edff9a3834d5d55963da198bad3717064e0ed5232a037d6783c84fbc8ffb288",
+    "md5": "abc5b70661ace6c89eaa468feb110a29",
+    "sha1": "6e32df91a5bc74673088aa7330095f27edc13faa"
+  },
+  "drive_identity_unchanged": true,
+  "provider_hashes_match": true,
+  "command": [
+    "rclone",
+    "copyto",
+    "gdrive:hg001_wg_1x.fq.gz",
+    "${SESSION}/work/bonefish-hg001-parity/data/hg001_wg_1x.fq.gz",
+    "--checksum",
+    "--immutable",
+    "--stats",
+    "15s",
+    "--stats-one-line",
+    "--log-level",
+    "INFO",
+    "--log-file",
+    "${SESSION}/work/bonefish-hg001-parity/download.log"
+  ],
+  "download_log": "${SESSION}/work/bonefish-hg001-parity/download.log"
+}

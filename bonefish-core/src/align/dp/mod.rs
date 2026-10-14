@@ -16,6 +16,7 @@ mod common;
 mod single;
 mod dual;
 mod dual_clean;
+mod dual_clean16;
 pub use dual_clean::{clean_dual, set_clean_dual};
 mod lw;
 #[cfg(feature = "census")]

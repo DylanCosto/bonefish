@@ -103,6 +103,11 @@ pub fn extend_dual_affine(
 
     // Use SIMD implementation for speed
     #[cfg(target_arch = "aarch64")]
+    if super::dual_clean::clean_dual() && (flags & GENERIC_SCORING) == 0 {
+        unsafe { super::dual_clean16::extend_dual_affine_neon_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, 0, 0, result); }
+        return;
+    }
+    #[cfg(target_arch = "aarch64")]
     unsafe {
         extend_dual_affine_neon_impl(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, result);
     }
@@ -110,9 +115,12 @@ pub fn extend_dual_affine(
 
     #[cfg(target_arch = "x86_64")]
     {
-        if super::dual_clean::clean_dual() && (flags & GENERIC_SCORING) == 0 && is_x86_feature_detected!("avx2") {
-            unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, 0, 0, result); }
-            return;
+        if super::dual_clean::clean_dual() && (flags & GENERIC_SCORING) == 0 {
+            match super::dual_clean::clean_x86() {
+                Some(true) => { unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, 0, 0, result); } return; }
+                Some(false) => { unsafe { super::dual_clean16::extend_dual_affine_sse41_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, 0, 0, result); } return; }
+                None => {}
+            }
         }
         if super::use_avx512() {
             unsafe { extend_dual_affine_avx512_fn(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, result); }
@@ -2655,7 +2663,7 @@ extend_dual_affine_avx512_impl!(extend_dual_affine_avx512_fn);
 /// matching the SIMD implementation exactly but with scalar i8 operations.
 /// Used as fallback on non-SIMD targets and for testing via `BONEFISH_FORCE_SCALAR=1`.
 /// Dual-affine DP with an adaptive band of `width` cells per anti-diagonal (see `dual_clean`).
-/// Falls back to the static band `bandwidth` without AVX2 or for generic scoring.
+/// Falls back to the static band `bandwidth` for generic scoring or without AVX2, SSE4.1 or NEON.
 #[allow(clippy::too_many_arguments)]
 pub fn extend_dual_affine_adaptive(
     qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
@@ -2667,10 +2675,15 @@ pub fn extend_dual_affine_adaptive(
     } else {
         (gap_open, gap_extend, gap_open2, gap_extend2)
     };
-    #[cfg(target_arch = "x86_64")]
-    if (flags & GENERIC_SCORING) == 0 && gap_open != gap_open2 && is_x86_feature_detected!("avx2") {
-        unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, width, 0, result); }
-        return;
+    if (flags & GENERIC_SCORING) == 0 && gap_open != gap_open2 {
+        #[cfg(target_arch = "x86_64")]
+        match super::dual_clean::clean_x86() {
+            Some(true) => { unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, width, 0, result); } return; }
+            Some(false) => { unsafe { super::dual_clean16::extend_dual_affine_sse41_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, width, 0, result); } return; }
+            None => {}
+        }
+        #[cfg(target_arch = "aarch64")]
+        { unsafe { super::dual_clean16::extend_dual_affine_neon_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, width, 0, result); } return; }
     }
     let _ = width;
     extend_dual_affine(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, result);
@@ -2679,8 +2692,8 @@ pub fn extend_dual_affine_adaptive(
 /// Static band over the diagonals t - q in [diag_lo, diag_hi] (which must contain 0 and
 /// tlen - qlen for global alignment) instead of the symmetric |t - q| <= bandwidth: a gap fill
 /// whose ends differ by D needs [min(0, D), max(0, D)] plus a margin, about half the cells of
-/// the symmetric band around D. Clean AVX2 kernel when available; otherwise the symmetric band
-/// that contains the range.
+/// the symmetric band around D. Clean kernel (AVX2, SSE4.1 or NEON) when available; otherwise the
+/// symmetric band that contains the range.
 pub fn extend_dual_affine_diag_range(
     qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
     gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8,
@@ -2693,10 +2706,15 @@ pub fn extend_dual_affine_diag_range(
     } else {
         (gap_open, gap_extend, gap_open2, gap_extend2)
     };
-    #[cfg(target_arch = "x86_64")]
-    if (flags & GENERIC_SCORING) == 0 && go != go2 && is_x86_feature_detected!("avx2") {
-        unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, go, ge, go2, ge2, half, z_drop, end_bonus, flags, 0, shift, result); }
-        return;
+    if (flags & GENERIC_SCORING) == 0 && go != go2 {
+        #[cfg(target_arch = "x86_64")]
+        match super::dual_clean::clean_x86() {
+            Some(true) => { unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, go, ge, go2, ge2, half, z_drop, end_bonus, flags, 0, shift, result); } return; }
+            Some(false) => { unsafe { super::dual_clean16::extend_dual_affine_sse41_clean(qseq, tseq, alphabet_size, score_matrix, go, ge, go2, ge2, half, z_drop, end_bonus, flags, 0, shift, result); } return; }
+            None => {}
+        }
+        #[cfg(target_arch = "aarch64")]
+        { unsafe { super::dual_clean16::extend_dual_affine_neon_clean(qseq, tseq, alphabet_size, score_matrix, go, ge, go2, ge2, half, z_drop, end_bonus, flags, 0, shift, result); } return; }
     }
     let bw = diag_lo.abs().max(diag_hi.abs());
     super::extend_dual_affine_dispatch(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bw, z_drop, end_bonus, flags, result);

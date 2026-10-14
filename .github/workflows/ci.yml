@@ -23,3 +23,4 @@ jobs:
         run: |
           python3 -B -m unittest discover -s scripts/validation -p 'test_*.py'
           python3 -B scripts/validation/verify_evidence.py
+          python3 -B scripts/validation/verify_clean_dp_evidence.py
