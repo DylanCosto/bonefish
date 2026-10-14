@@ -1,0 +1,34 @@
+[2026-10-12 00:26:28] HG005: start (bonefish 0.1.0, minimap2 2.31-r1302)
+[2026-10-12 00:26:28] HG005: stage: truth
+[2026-10-12 00:27:14] HG005: stage: download
+[2026-10-12 00:30:58] HG005: start (bonefish 0.1.0, minimap2 2.31-r1302)
+[2026-10-12 00:30:58] HG005: stage: truth
+[2026-10-12 00:30:58] HG005: stage: download
+[2026-10-12 01:05:24] HG005: downloaded 93G in 2065.79 s
+[2026-10-12 01:05:24] HG005: stage: convert
+[2026-10-12 01:27:08] HG005: reads: 57G in 2065.79 s
+[2026-10-12 01:27:08] HG005: stage: align_minimap2
+[2026-10-12 03:21:49] HG005: minimap2: reads -> sorted BAM in 6880 s (aligner: 6246.71 83900.45 2456.24 17520580)
+[2026-10-12 03:21:49] HG005: stage: bamstats_minimap2
+[2026-10-12 03:26:30] HG005: minimap2: records	9346209 primary_mapped	6431077 unmapped	497054 secondary	1781816 supplementary	636262 reads	6928131 pct_reads_mapped	92.826 primary_query_bases	86356130098 primary_aligned_bases	83403492210 pct_primary_bases_aligned	96.581 supplementary_aligned_bases	2854933031 primary_identity	0.97679 mapq_0-0	39466 mapq_1-9	288138 mapq_10-19	57692 mapq_20-29	45622 mapq_30-59	131873 mapq_60-60	5868286 pct
+[2026-10-12 03:26:30] HG005: stage: clair3_minimap2
+[2026-10-12 04:41:15] HG005: minimap2: clair3 4484.45 47707.11 4081.71 6351508
+[2026-10-12 04:41:15] HG005: stage: vcfeval_minimap2
+[2026-10-12 04:42:15] HG005: minimap2 accuracy: snps F1 0.9975 (FP 8774 FN 7778); indels F1 0.9395 (FP 26098 FN 24434); 
+[2026-10-12 04:45:10] HG005: stage: sniffles_minimap2
+[2026-10-12 04:46:53] HG005: minimap2: sniffles 101.68 921.35 72.92 1879956, 26103 PASS SVs
+[2026-10-12 04:46:54] HG005: stage: align_bonefish
+[2026-10-12 05:21:42] HG005: bonefish: reads -> sorted BAM in 2088 s (aligner: 2082.25 25698.41 334.67 20518648)
+[2026-10-12 05:21:42] HG005: stage: bamstats_bonefish
+[2026-10-12 05:26:16] HG005: bonefish: records	9241552 primary_mapped	6431077 unmapped	497054 secondary	1649949 supplementary	663472 reads	6928131 pct_reads_mapped	92.826 primary_query_bases	86356041123 primary_aligned_bases	83083280041 pct_primary_bases_aligned	96.210 supplementary_aligned_bases	2793814392 primary_identity	0.97885 mapq_0-0	39436 mapq_1-9	279693 mapq_10-19	58000 mapq_20-29	45474 mapq_30-59	133214 mapq_60-60	5875260 pct
+[2026-10-12 05:26:16] HG005: stage: clair3_bonefish
+[2026-10-12 06:47:32] HG005: bonefish: clair3 4876.12 51992.00 3503.85 4988852
+[2026-10-12 06:47:32] HG005: stage: vcfeval_bonefish
+[2026-10-12 06:48:33] HG005: bonefish accuracy: snps F1 0.9974 (FP 8915 FN 7815); indels F1 0.9396 (FP 25948 FN 24510); 
+[2026-10-12 06:51:28] HG005: stage: sniffles_bonefish
+[2026-10-12 06:53:11] HG005: bonefish: sniffles 102.04 916.27 70.50 1979088, 26664 PASS SVs
+[2026-10-12 06:53:11] HG005: stage: compare
+[2026-10-12 06:53:35] HG005: stage: report
+[2026-10-12 06:53:35] HG005: report: ${REPO}/data/wgs/HG005/report.md
+[2026-10-12 06:53:35] HG005: stage: done
+[2026-10-12 06:53:35] HG005: done

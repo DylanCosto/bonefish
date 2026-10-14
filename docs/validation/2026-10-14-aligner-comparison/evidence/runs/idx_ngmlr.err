@@ -1,0 +1,19 @@
+ngmlr 0.2.7 (build: Jul  8 2025 22:08:42, start: 2026-10-14.10:24:46)
+Contact: fritz.sedlazeck@gmail.com, philipp.rescheneder@gmail.com
+Opening for output (SAM): /dev/null
+Encoding reference sequence.
+Size of reference genome 3100 Mbp (max. 68719 Mbp)
+0 reference sequences were skipped (length < 10).
+Writing encoded reference to ${REPO}/data/ref/GRCh38_no_alt.fa-enc.2.ngm
+Writing to disk took 5.09s
+Building reference index #0 (kmer length: 13, reference skip: 2)
+64705 prefixes were ignored due to the frequency cutoff (1000)
+Overall time for creating RefTable: 383.45s
+Writing reference index to ${REPO}/data/ref/GRCh38_no_alt.fa-ht-13-2.2.ngm
+Writing to disk took 13.32s
+Opening query file ${REPO}/data/index/bench/tiny.fq
+Mapping reads...
+Processed: 7 (0.71), R/S: 3.50, RL: 23367, Time: 0.00 0.00 0.00, Align: 0.78, 1646, 0.75
+[A[2KProcessed: 10 (0.80), R/S: 2.50, RL: 16357, Time: 19.00 1.00 25.50, Align: 0.83, 1311, 0.84
+[A[2KProcessed: 10 (0.80), R/S: 2.50, RL: 16357, Time: 19.00 1.00 25.50, Align: 0.83, 1311, 0.84
+Done (8 reads mapped (80.00%), 2 reads not mapped, 12 lines written)(elapsed: 6m, 0 r/s)

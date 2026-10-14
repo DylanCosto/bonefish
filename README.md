@@ -81,7 +81,10 @@ Against other ONT aligners on the genome-wide sample (same machine, 16 threads):
 aligner 4.3x slower to SAM and 10.5x slower to a sorted, indexed BAM; mm2plus 5.1x, mm2-fast 14x
 and Winnowmap2 38x slower; NGMLR about 260x slower on a 10% subset. Datasets, commands, memory,
 the full comparison and the known differences from minimap2 are in
-[docs/benchmarks.md](docs/benchmarks.md).
+[docs/benchmarks.md](docs/benchmarks.md); the raw measurements behind them are in
+[docs/validation/](docs/validation/) (whole genomes:
+[2026-10-12-giab-wgs](docs/validation/2026-10-12-giab-wgs/README.md); other aligners:
+[2026-10-14-aligner-comparison](docs/validation/2026-10-14-aligner-comparison/README.md)).
 
 **Apple Silicon.** arm64 builds produce the same output as x86: the genome-wide HG001 sample gives
 the identical MD5 (`deed7949d35f15bd8eed935be47a1d81`) on an Apple M4 Pro and on x86

@@ -1,0 +1,3 @@
+stratum	type	tp	fp	fn	precision	recall	f1
+all	snps	3358537	11752	7837	0.9965	0.9977	0.9971
+all	indels	457142	63973	68255	0.8772	0.8701	0.8737

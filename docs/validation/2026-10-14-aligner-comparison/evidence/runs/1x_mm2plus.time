@@ -1,0 +1,23 @@
+	Command being timed: "${HOME}/micromamba/envs/alnbench/bin/mm2plus.avx2 -t 16 -ax lr:hq ${REPO}/data/index/bench/mm2plus.lrhq.mmi ${REPO}/data/reads/hg001_wg_1x.fq.gz"
+	User time (seconds): 2978.32
+	System time (seconds): 80.28
+	Percent of CPU this job got: 1294%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 3:56.31
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 19375036
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 23096
+	Minor (reclaiming a frame) page faults: 37922849
+	Voluntary context switches: 436858
+	Involuntary context switches: 571713
+	Swaps: 0
+	File system inputs: 385264
+	File system outputs: 1
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

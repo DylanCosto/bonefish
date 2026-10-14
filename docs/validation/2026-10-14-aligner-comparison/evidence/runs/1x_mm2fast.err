@@ -1,0 +1,19 @@
+Looking to launch executable "${DATA}/tools/mm2-fast_src/mm2-fast/minimap2.avx2", simd = .avx2
+Launching executable "${DATA}/tools/mm2-fast_src/mm2-fast/minimap2.avx2"
+Executing in AVX2 mode!!
+-----------------------------
+[M::main::5.391*0.98] loaded/built the index for 195 target sequence(s)
+[M::mm_mapopt_update::6.599*0.99] mid_occ = 694
+[M::mm_idx_stat] kmer size: 15; skip: 10; is_hpc: 0; #seq: 195
+[M::mm_idx_stat::7.283*0.99] distinct minimizers: 100167746 (38.80% are singletons); average occurrences: 5.519; average spacing: 5.607; total length: 3099922541
+minimizer-lookup: 0 dp: 0 rmq: 0 rmq_t1: 0 rmq_t2: 0 rmq_t3: 0 rmq_t4: 0 alignment: 0 
+[M::worker_pipeline::140.191*14.90] mapped 28786 sequences
+[M::worker_pipeline::231.433*15.13] mapped 28851 sequences
+[M::worker_pipeline::309.556*15.11] mapped 28705 sequences
+[M::worker_pipeline::433.766*15.14] mapped 28532 sequences
+[M::worker_pipeline::546.575*15.12] mapped 28924 sequences
+[M::worker_pipeline::633.485*14.98] mapped 17964 sequences
+[M::main] Version: 2.24-r1122
+[M::main] CMD: ${DATA}/tools/mm2-fast_src/mm2-fast/minimap2 -t 16 -ax map-ont ${REPO}/data/index/bench/mm2fast.mapont.mmi ${REPO}/data/reads/hg001_wg_1x.fq.gz
+[M::main] Real time: 633.831 sec; CPU: 9488.145 sec; Peak RSS: 19.588 GB
+minimizer-lookup: 0 dp: 0 rmq: 0 rmq_t1: 0 rmq_t2: 0 rmq_t3: 0 rmq_t4: 0 alignment: 0 0

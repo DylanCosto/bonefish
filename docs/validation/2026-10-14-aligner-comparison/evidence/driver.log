@@ -1,0 +1,56 @@
+[10:10:13] making subset
+[10:10:45] start idx_bonefish
+[10:11:47] end idx_bonefish rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 1:01.81 Maximum resident set size (kbytes): 11012040 
+[10:11:47] start idx_minimap2
+[10:12:52] end idx_minimap2 rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 1:04.73 Maximum resident set size (kbytes): 11893712 
+[10:12:52] start idx_mm2plus
+[10:19:24] restart after freeing memory (23 GB available, swap 0)
+[10:19:25] start idx_mm2plus
+[10:20:27] end idx_mm2plus rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 1:01.36 Maximum resident set size (kbytes): 13942976 
+[10:20:27] start idx_mm2fast
+[10:21:30] end idx_mm2fast rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 1:03.37 Maximum resident set size (kbytes): 11891120 
+[10:21:30] start idx_meryl_count
+[10:23:41] end idx_meryl_count rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 2:10.35 Maximum resident set size (kbytes): 3319492 
+[10:23:41] start idx_meryl_print
+[10:23:42] end idx_meryl_print rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 0:01.63 Maximum resident set size (kbytes): 1392028 
+[10:23:42] start idx_winnowmap
+[10:24:46] end idx_winnowmap rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 1:03.29 Maximum resident set size (kbytes): 4853660 
+[10:24:46] start idx_ngmlr
+[10:31:42] end idx_ngmlr rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 6:56.44 Maximum resident set size (kbytes): 9994448 
+[10:31:42] start idx_lra
+[10:34:58] end idx_lra rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 3:15.98 Maximum resident set size (kbytes): 17024212 
+[10:35:07] start sub10_bonefish
+[10:35:18] end sub10_bonefish rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 0:11.08 Maximum resident set size (kbytes): 10582036 
+[10:35:23] start sub10_minimap2
+[10:35:58] end sub10_minimap2 rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 0:34.32 Maximum resident set size (kbytes): 16866644 
+[10:36:03] start sub10_mm2plus
+[10:36:36] end sub10_mm2plus rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 0:33.56 Maximum resident set size (kbytes): 17596508 
+[10:36:42] start sub10_mm2fast
+[10:37:50] end sub10_mm2fast rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 1:07.73 Maximum resident set size (kbytes): 17977360 
+[10:37:55] start sub10_dorado
+[10:38:23] end sub10_dorado rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 0:27.42 Maximum resident set size (kbytes): 13454180 
+[10:38:23] start sub10_winnowmap
+[10:41:46] end sub10_winnowmap rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 3:22.84 Maximum resident set size (kbytes): 14875284 
+[10:41:47] start sub10_ngmlr
+[11:30:16] end sub10_ngmlr rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 48:28.88 Maximum resident set size (kbytes): 13393916 
+[11:30:17] start sub10_lra
+[11:31:31] end sub10_lra rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 1:14.56 Maximum resident set size (kbytes): 11817908 
+[11:31:39] start 1x_bonefish
+[11:32:25] end 1x_bonefish rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 0:45.97 Maximum resident set size (kbytes): 15712432 
+[11:32:36] start 1x_minimap2
+[11:35:48] end 1x_minimap2 rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 3:11.74 Maximum resident set size (kbytes): 19145816 
+[11:35:58] start 1x_mm2plus
+[11:39:55] end 1x_mm2plus rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 3:56.31 Maximum resident set size (kbytes): 19375036 
+[11:40:08] start 1x_mm2fast
+[11:50:50] end 1x_mm2fast rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 10:41.34 Maximum resident set size (kbytes): 20538988 
+[11:51:02] start 1x_dorado
+[11:54:19] end 1x_dorado rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 3:17.69 Maximum resident set size (kbytes): 13932588 
+[11:54:27] start 1x_winnowmap
+[12:23:51] end 1x_winnowmap rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 29:24.41 Maximum resident set size (kbytes): 20304752 
+[12:24:04] start bam_bonefish
+[12:24:59] end bam_bonefish rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 0:54.75 Maximum resident set size (kbytes): 17234352 
+[12:25:05] start bam_dorado
+[12:34:38] end bam_dorado rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 9:33.49 Maximum resident set size (kbytes): 13917208 
+[12:34:42] start bam_minimap2
+[12:38:21] end bam_minimap2 rc=0 Elapsed (wall clock) time (h:mm:ss or m:ss): 3:38.47 Maximum resident set size (kbytes): 19513756 
+[12:38:21] ALLDONE

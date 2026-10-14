@@ -1,0 +1,3 @@
+matching	tp	fp	fn	precision	recall	f1
+strict	20389	1867	7734	0.9161	0.7250	0.8094
+multi	23363	1729	4760	0.9223	0.8307	0.8741

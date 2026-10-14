@@ -17,7 +17,8 @@ arm64 builds produce the same output as x86 (same MD5 on an Apple M4 Pro).
 ONT's GIAB 2025.01 data, R10.4.1, dorado sup v5.0.0. HG005: all reads of flow cell PAW87816
 (27.9x); HG002: 60% of PAW71238 (27.2x). minimap2 `-ax lr:hq | samtools sort -@16 --write-index`
 against `bonefish -o sample.bam` (built-in sort and index). Clair3 2.0.3 (sup v5.0.0 model) and
-rtg vcfeval against GIAB v4.2.1; Sniffles2 and Truvari against GIAB v5.0q (HG002).
+rtg vcfeval against GIAB v4.2.1; Sniffles2 and Truvari against GIAB v5.0q (HG002). Per-sample
+reports and raw results: [validation/2026-10-12-giab-wgs](validation/2026-10-12-giab-wgs/README.md).
 
 | | HG005 minimap2 | HG005 bonefish | HG002 minimap2 | HG002 bonefish |
 |---|---:|---:|---:|---:|
@@ -61,7 +62,9 @@ chrX/Y and difficult regions):
 - Peak memory for a human genome is about 20 GB with 16 threads (the GRCh38 index is 7.3 GB, or
   8.5 GB in the raw format that loads in under a second).
 
-## Other ONT aligners (14 Oct 2026, `bench/aligner_bench.sh` in the development repository)
+## Other ONT aligners (14 Oct 2026)
+
+Raw timings, logs, statistics and the script: [validation/2026-10-14-aligner-comparison](validation/2026-10-14-aligner-comparison/README.md).
 
 Same machine, reference, reads and 16 threads; one run each; SAM output unless noted. Each tool
 uses its own index and its recommended ONT preset: `lr:hq` for minimap2, dorado (default) and

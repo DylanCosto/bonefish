@@ -1,0 +1,13 @@
+
+Found 1 command tree.
+
+PROCESSING TREE #1 using 16 threads.
+  opGreaterThan
+    threshold=1112
+    fraction-distinct=0.999800
+    ${REPO}/data/index/bench/merylDB_k15
+    print to (stdout)
+
+Cleaning up.
+
+Bye.

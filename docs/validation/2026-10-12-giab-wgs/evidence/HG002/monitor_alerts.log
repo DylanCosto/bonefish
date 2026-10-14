@@ -1,0 +1,16 @@
+ALERT 08:20:15 low memory: 1.8 GB available (minimap2 RSS 16.4 GB)
+ALERT 08:20:35 swap grew to 12.96 GB
+ALERT 08:20:46 low memory: 1.8 GB available (minimap2 RSS 16.0 GB)
+ALERT 08:21:06 swap grew to 13.54 GB
+ALERT 08:23:08 swap grew to 14.14 GB
+ALERT 08:24:20 swap grew to 14.76 GB
+ALERT 08:31:46 swap grew to 15.78 GB
+ALERT 08:36:01 swap grew to 16.55 GB
+ALERT 09:05:27 low memory: 1.7 GB available (minimap2 RSS 15.7 GB)
+ALERT 09:05:37 low memory: 1.9 GB available (minimap2 RSS 15.7 GB)
+ALERT 09:46:27 low memory: 1.9 GB available (minimap2 RSS 16.2 GB)
+ALERT 12:11:36 CPU only 44% while bonefish runs (possible I/O or serial bottleneck)
+ALERT 12:15:08 CPU only 35% while bonefish runs (possible I/O or serial bottleneck)
+ALERT 12:23:33 swap grew to 19.72 GB
+ALERT 12:23:44 swap grew to 22.01 GB
+ALERT 12:23:54 swap grew to 24.42 GB
