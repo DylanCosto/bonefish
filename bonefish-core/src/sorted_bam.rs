@@ -297,6 +297,9 @@ fn encode_record(line: &[u8], name2tid: &HashMap<Vec<u8>, i32>, out: &mut Vec<u8
     let mut f = TabFields { rest: Some(line) };
     let mut next = || f.next().ok_or_else(|| bad("SAM line with fewer than 11 fields"));
     let qname = next()?;
+    if qname.is_empty() || qname.len() > 254 {
+        return Err(bad("read name empty or longer than 254 characters (the SAM/BAM limit)"));
+    }
     let flag = parse_i64(next()?)? as u16;
     let rname = next()?;
     let pos = parse_i64(next()?)? - 1;

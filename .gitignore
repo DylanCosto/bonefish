@@ -2,7 +2,7 @@
 /target
 **/target
 
-# wasm-pack build output (generated at repo root by scripts/build-wasm, see docs/wasm.md)
+# wasm-pack build output (generated at repo root by scripts/build-wasm, see docs/upstream-rammap/wasm.md)
 /pkg
 
 # Editors / IDEs

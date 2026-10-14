@@ -37,11 +37,11 @@ struct Cli {
 
 #[derive(Parser, Debug)]
 struct AlignArgs {
-    /// Target FASTA file (or .mmi/.idx index)
+    /// Reference FASTA (plain or gzipped) or an index built with -d (.idx; raw .raw with --idx-raw)
     pub target: String,
 
-    /// Query FASTA/FASTQ file(s) (- for stdin). Multiple files supported.
-    #[arg(trailing_var_arg = true)]
+    /// Reads: FASTQ, FASTA or BAM (e.g. dorado's unaligned BAM), plain or gzipped; - for stdin.
+    /// Several files are mapped one after another.
     pub queries: Vec<String>,
 
     /// Dump index to file
@@ -146,7 +146,8 @@ struct AlignArgs {
     #[arg(short = 'R')]
     pub sam_rg: Option<String>,
 
-    /// Copy input FASTA/Q comments to output
+    /// Copy read tags to the output: SAM-style tags from FASTQ/FASTA comments, and the
+    /// per-read tags of BAM input except alignment tags (dorado's MM/ML/MN, RG, qs, ch, ...)
     #[arg(short = 'y')]
     pub copy_comment: bool,
 
@@ -163,7 +164,7 @@ struct AlignArgs {
     pub ds: bool,
 
     /// Number of threads for alignment
-    #[arg(short = 't', long, default_value_t = 3)]
+    #[arg(short = 't', long = "threads", default_value_t = 3, value_parser = clap::builder::RangedU64ValueParser::<usize>::new().range(1..=4096))]
     pub align_threads: usize,
 
     /// Adaptive mid_occ floor,ceiling (format: min,max)
@@ -177,7 +178,7 @@ struct AlignArgs {
     pub for_only: bool,
 
     /// Only map to reverse strand
-    #[arg(long)]
+    #[arg(long, conflicts_with = "for_only")]
     pub rev_only: bool,
 
     /// Disable long-gap joining
@@ -195,11 +196,11 @@ struct AlignArgs {
 
 
 
-    /// Output to file instead of stdout
+    /// Output to file instead of stdout (FILE.bam writes a coordinate-sorted BAM, as --sort)
     #[arg(short = 'o')]
     pub output: Option<String>,
 
-    /// With -a and -o FILE.bam: write a coordinate-sorted BAM and FILE.bam.bai (as `| samtools sort --write-index`)
+    /// With -o FILE.bam: write a coordinate-sorted BAM and FILE.bam.bai (as `-a | samtools sort --write-index`)
     #[arg(long)]
     pub sort: bool,
 
@@ -211,7 +212,7 @@ struct AlignArgs {
     #[arg(long, value_name = "PREFIX")]
     pub sort_tmp: Option<String>,
 
-    /// --sort: BGZF compression level of the BAM [6]
+    /// --sort: BGZF compression level of the BAM
     #[arg(long, value_name = "INT", default_value_t = 6)]
     pub sort_level: i32,
 
@@ -227,15 +228,15 @@ struct AlignArgs {
     #[arg(short = 'Q')]
     pub no_qual: bool,
 
-    /// No exact diagonal for all-vs-all
-    #[arg(short = 'D')]
+    /// Skip seeds on the exact diagonal (self-mapping)
+    #[arg(short = 'D', hide = true)]
     pub no_diag: bool,
 
     /// Seed occurrence distance
     #[arg(short = 'e')]
     pub occ_dist: Option<i32>,
 
-    /// Minibatch size for mapping (query bases per batch; suffix K/M/G OK) [500M / preset dependent]
+    /// Minibatch size for mapping (query bases per batch; suffix K/M/G OK) [500M]
     #[arg(short = 'K', long = "mb-size")]
     pub mini_batch_size: Option<String>,
 
@@ -251,7 +252,7 @@ struct AlignArgs {
     #[arg(long)]
     pub max_chain_iter: Option<i32>,
 
-    /// DP bandwidth for read-end extensions [default: 1.5*bandwidth+1]
+    /// DP bandwidth for read-end extensions [200]
     #[arg(long)]
     pub ext_bw: Option<i32>,
 
@@ -259,13 +260,13 @@ struct AlignArgs {
     #[arg(long)]
     pub gap_bw_margin: Option<i32>,
 
-    /// Try an ungapped fill first for equal-length gaps (long reads; short reads always do)
-    #[arg(long)]
+    /// Try an ungapped fill first for equal-length gaps [on]
+    #[arg(long, hide = true)]
     pub ungapped_fill: bool,
 
     /// With --ext-bw: re-run a z-dropped extension with the default band when its unaligned tail
-    /// shows an indel wider than the narrow band
-    #[arg(long)]
+    /// shows an indel wider than the narrow band [on]
+    #[arg(long, hide = true)]
     pub ext_rescue: bool,
 
     /// Extension probe LEN,MIN_SCORE_PER_KB[,LOW_BW]: align the first LEN bases of a long
@@ -294,25 +295,25 @@ struct AlignArgs {
     pub ext_adaptive: Option<i32>,
 
     /// Dual-affine DP with exact band boundaries (the scalar reference's semantics) instead of
-    /// minimap2's SSE kernel behaviour; faster, output not minimap2-identical
-    #[arg(long)]
+    /// minimap2's SSE kernel behaviour [on]
+    #[arg(long, hide = true)]
     pub clean_dp: bool,
 
     /// RMQ chaining with a segment tree (faster; ties between equal-priority predecessors may
-    /// resolve differently from minimap2)
-    #[arg(long)]
+    /// resolve differently from minimap2) [on]
+    #[arg(long, hide = true)]
     pub seg_rmq: bool,
 
-    /// Run the long-gap (RMQ) rescue re-chain only when two first-pass chains could be joined [on in dna]
-    #[arg(long)]
+    /// Run the long-gap (RMQ) rescue re-chain only when two first-pass chains could be joined [on]
+    #[arg(long, hide = true)]
     pub rescue_join: bool,
 
     /// Skip the long-join rescue for reads with >= INT anchors per query base (0 = never) [2 in dna]
     #[arg(long, value_name = "INT")]
     pub rescue_max_density: Option<u32>,
 
-    /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between) [on in dna]
-    #[arg(long)]
+    /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between) [on]
+    #[arg(long, hide = true)]
     pub gap_subanchor: bool,
 
     /// Keep 1/F of the query minimizers (by hash) for reads of at least MIN_LEN bp [default 8000]:
@@ -332,7 +333,7 @@ struct AlignArgs {
     #[arg(long)]
     pub end_bonus: Option<i32>,
 
-    /// End seed penalty (anchor_ext_shift)
+    /// Penalty for seeds near read ends when extending
     #[arg(long)]
     pub end_seed_pen: Option<i32>,
 
@@ -348,7 +349,7 @@ struct AlignArgs {
     #[arg(long)]
     pub mask_len: Option<i32>,
 
-    /// Hard masking level
+    /// Use the masking level as a hard filter for secondary chains
     #[arg(long)]
     pub hard_mask_level: bool,
 
@@ -377,7 +378,7 @@ struct AlignArgs {
     pub rmq_inner: Option<i32>,
 
     /// Dual mapping (yes/no)
-    #[arg(long)]
+    #[arg(long, hide = true)]
     pub dual: Option<String>,
 
     /// Query occurrence fraction
@@ -445,8 +446,8 @@ struct AlignArgs {
     #[arg(long)]
     pub qstrand: bool,
 
-    /// Parallel chaining across reference sequences (asm2asm workloads)
-    #[arg(long)]
+    /// Parallel chaining across reference sequences (reads with very many anchors)
+    #[arg(long, hide = true)]
     pub par_chain: bool,
 
 
@@ -458,8 +459,11 @@ struct AlignArgs {
 
 }
 
+static VERBOSE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
+    VERBOSE.store(args.verbose || std::env::var_os("BONEFISH_TIMERS").is_some(), std::sync::atomic::Ordering::Relaxed);
 
     env_logger::Builder::new()
         .filter_level(if args.verbose {
@@ -502,7 +506,7 @@ fn read_alt_list(mi: &mut Index, alt_path: &str) -> anyhow::Result<usize> {
 
 /// Parse a number with optional K/M/G suffix.
 /// Uses decimal multipliers (1e3/1e6/1e9) and supports floating point (e.g. "4.5G").
-fn parse_num(s: &str) -> i64 {
+fn parse_num(opt: &str, s: &str) -> anyhow::Result<i64> {
     let s = s.trim();
     // Try to parse as float, then check suffix
     let (num_str, mult) = if s.ends_with('G') || s.ends_with('g') {
@@ -514,8 +518,20 @@ fn parse_num(s: &str) -> i64 {
     } else {
         (s, 1.0)
     };
-    let x: f64 = num_str.parse().unwrap_or(0.0);
-    (x * mult + 0.499) as i64
+    let x: f64 = num_str.parse().map_err(|_| anyhow::anyhow!("{opt}: '{s}' is not a number (suffix K, M or G allowed)"))?;
+    let v = (x * mult + 0.499) as i64;
+    if v <= 0 { anyhow::bail!("{opt}: '{s}' must be positive"); }
+    Ok(v)
+}
+
+/// Parse a comma-separated list of 1..=max numbers for option `opt`.
+fn parse_list<T: std::str::FromStr>(opt: &str, s: &str, max: usize) -> anyhow::Result<Vec<T>> {
+    let v: Vec<T> = s.split(',').map(|x| x.trim().parse::<T>())
+        .collect::<Result<_, _>>().map_err(|_| anyhow::anyhow!("{opt}: cannot parse '{s}'"))?;
+    if v.is_empty() || v.len() > max {
+        anyhow::bail!("{opt}: expected {} number{}, got '{s}'", if max == 1 { "1".to_string() } else { format!("1 to {max}") }, if max == 1 { "" } else { "s" });
+    }
+    Ok(v)
 }
 
 /// Apply preset configurations.
@@ -523,11 +539,26 @@ fn apply_preset(opt: &mut MapOptions, k: &mut usize, w: &mut usize, preset: &str
     bonefish::api::apply_preset_str(opt, k, w, preset).map_err(|e| anyhow::anyhow!("{}", e))
 }
 
-fn run(cli: AlignArgs) -> anyhow::Result<()> {
+fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
+    // BAM output is always the coordinate-sorted BAM; it implies SAM records.
+    if cli.output.as_deref().is_some_and(|p| p.ends_with(".bam")) { cli.sort = true; }
+    if cli.sort { cli.output_sam = true; }
+    if let Some(k) = cli.k && !(1..=28).contains(&k) { anyhow::bail!("-k must be between 1 and 28 (got {k})"); }
+    if let Some(w) = cli.w && !(1..=255).contains(&w) { anyhow::bail!("-w must be between 1 and 255 (got {w})"); }
+    if let Some(p) = cli.pri_ratio && !(0.0..=1.0).contains(&p) { anyhow::bail!("-p must be between 0 and 1 (got {p})"); }
+    if let Some(rg) = &cli.sam_rg {
+        let line = rg.replace("\\t", "\t");
+        if !line.starts_with("@RG\t") || !line.split('\t').any(|t| t.len() > 3 && t.starts_with("ID:")) {
+            anyhow::bail!("-R must be a read group line with an ID, like '@RG\\tID:sample1\\tSM:sample1' (got '{rg}')");
+        }
+    }
+    if let Some(d) = &cli.dump_index && d.ends_with(".mmi") {
+        eprintln!("Warning: -d writes bonefish's own index format, which minimap2 cannot read; consider a .idx name");
+    }
     let do_ds = cli.ds;
     let cs_mode: Option<&str> = cli.cs.as_ref().map(|v| v.as_deref().unwrap_or("short"));
     if let Some(m) = cs_mode && m != "short" && m != "long" && m != "none" {
-        eprintln!("[WARNING] --cs only takes 'short', 'long', or 'none'. '{}' is treated as 'short'.", m);
+        anyhow::bail!("--cs takes 'short', 'long' or 'none' (got '{m}')");
     }
     let cs_is_none = cs_mode == Some("none");
     let cs_long = cs_mode == Some("long");
@@ -557,6 +588,8 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     };
     let copy_comment = cli.copy_comment;
     bonefish::fasta::bam::set_copy_tags(copy_comment);
+    // -R replaces the read groups of BAM input.
+    bonefish::fasta::bam::set_drop_rg(cli.sam_rg.is_some());
 
     #[cfg(not(feature = "parallel"))]
     if cli.align_threads > 1 {
@@ -580,9 +613,9 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if let Some(vw) = cli.w { w = vw; }
 
     if let Some(r_str) = &cli.bw {
-        let parts: Vec<&str> = r_str.split(',').collect();
-        if !parts.is_empty() && let Ok(val) = parts[0].parse() { opt.chaining.bandwidth = val; }
-        if parts.len() > 1 && let Ok(val) = parts[1].parse() { opt.chaining.bandwidth_long = val; }
+        let v = parse_list("-r", r_str, 2)?;
+        opt.chaining.bandwidth = v[0];
+        if v.len() > 1 { opt.chaining.bandwidth_long = v[1]; }
     }
 
     if let Some(v) = cli.min_chain_score { opt.chaining.min_chain_score = v; }
@@ -596,29 +629,26 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     if let Some(v) = cli.scor_b { opt.scoring.mismatch_penalty = v; }
 
     if let Some(s) = &cli.scor_o {
-        let parts: Vec<&str> = s.split(',').collect();
-        if let Ok(v) = parts[0].parse() { opt.scoring.gap_open = v; }
-        if parts.len() > 1 && let Ok(v) = parts[1].parse() { opt.scoring.gap_open2 = v; }
+        let v = parse_list("-O", s, 2)?;
+        opt.scoring.gap_open = v[0];
+        if v.len() > 1 { opt.scoring.gap_open2 = v[1]; }
     }
     if let Some(s) = &cli.scor_e {
-        let parts: Vec<&str> = s.split(',').collect();
-        if let Ok(v) = parts[0].parse() { opt.scoring.gap_extend = v; }
-        if parts.len() > 1 && let Ok(v) = parts[1].parse() { opt.scoring.gap_extend2 = v; }
+        let v = parse_list("-E", s, 2)?;
+        opt.scoring.gap_extend = v[0];
+        if v.len() > 1 { opt.scoring.gap_extend2 = v[1]; }
     }
     if let Some(v) = cli.best_n { opt.filtering.best_n = v; }
     if let Some(v) = cli.pri_ratio { opt.filtering.pri_ratio = v; }
     if let Some(s) = &cli.z_drop {
-        let parts: Vec<&str> = s.split(',').collect();
-        if let Ok(v) = parts[0].parse::<i32>() {
-            opt.alignment.zdrop = v;
-            opt.alignment.zdrop_inv = v; // zdrop_inv = zdrop by default
-        }
-        if parts.len() > 1 && let Ok(v) = parts[1].parse() { opt.alignment.zdrop_inv = v; }
+        let v = parse_list::<i32>("-z", s, 2)?;
+        opt.alignment.zdrop = v[0];
+        opt.alignment.zdrop_inv = if v.len() > 1 { v[1] } else { v[0] }; // zdrop_inv = zdrop by default
     }
     if let Some(s) = &cli.mid_occ_range {
-        let parts: Vec<&str> = s.split(',').collect();
-        if let Ok(v) = parts[0].parse() { opt.seeding.min_mid_occ = v; }
-        if parts.len() > 1 && let Ok(v) = parts[1].parse() { opt.seeding.max_mid_occ = v; }
+        let v = parse_list("-U", s, 2)?;
+        opt.seeding.min_mid_occ = v[0];
+        if v.len() > 1 { opt.seeding.max_mid_occ = v[1]; }
     }
     if cli.for_only { opt.flags.insert(AlignFlags::FOR_ONLY); }
     if cli.rev_only { opt.flags.insert(AlignFlags::REV_ONLY); }
@@ -645,7 +675,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
         match v.as_slice() {
             [f] if *f >= 1 => opt.seeding.query_subsample = Some((*f, 8000)),
             [f, m] if *f >= 1 => opt.seeding.query_subsample = Some((*f, *m)),
-            _ => eprintln!("Warning: --query-subsample expects F[,MIN_LEN]"),
+            _ => anyhow::bail!("--query-subsample expects F[,MIN_LEN] (got '{sv}')"),
         }
     }
     if cli.clean_dp { opt.alignment.clean_dp = true; }
@@ -659,7 +689,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
             [0] => opt.alignment.ext_probe = None,
             [len, min] if *len > 0 => opt.alignment.ext_probe = Some((*len, *min, 0)),
             [len, min, low_bw] if *len > 0 => opt.alignment.ext_probe = Some((*len, *min, *low_bw)),
-            _ => eprintln!("Warning: --ext-probe expects LEN,MIN_SCORE_PER_KB[,LOW_BW]"),
+            _ => anyhow::bail!("--ext-probe expects LEN,MIN_SCORE_PER_KB[,LOW_BW] (got '{s}')"),
         }
     }
     if let Some(v) = cli.max_clip_ratio { opt.alignment.max_clip_ratio = v; }
@@ -690,21 +720,21 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
         match s.as_str() {
             "yes" => { opt.flags.remove(AlignFlags::NO_PRINT_2ND); }
             "no" => { opt.flags.insert(AlignFlags::NO_PRINT_2ND); }
-            _ => { eprintln!("Warning: --secondary must be 'yes' or 'no'"); }
+            _ => anyhow::bail!("--secondary must be 'yes' or 'no' (got '{s}')"),
         }
     }
     if let Some(s) = &cli.rmq {
         match s.as_str() {
             "yes" => { opt.flags.insert(AlignFlags::RMQ_CHAIN); }
             "no" => { opt.flags.remove(AlignFlags::RMQ_CHAIN); }
-            _ => { eprintln!("Warning: --rmq must be 'yes' or 'no'"); }
+            _ => anyhow::bail!("--rmq must be 'yes' or 'no' (got '{s}')"),
         }
     }
     if let Some(s) = &cli.dual {
         match s.as_str() {
             "yes" => { opt.flags.remove(AlignFlags::NO_DUAL); }
             "no" => { opt.flags.insert(AlignFlags::NO_DUAL); }
-            _ => { eprintln!("Warning: --dual must be 'yes' or 'no'"); }
+            _ => anyhow::bail!("--dual must be 'yes' or 'no' (got '{s}')"),
         }
     }
     if let Some(v) = cli.chain_skip_scale {
@@ -715,13 +745,14 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     bonefish::api::finalize_options(&mut opt, k);
 
     let target_path = &cli.target;
-    let batch_size: u64 = cli.batch_size.as_ref()
-        .map(|s| parse_num(s) as u64)
-        .unwrap_or(8_000_000_000); // 8G default
+    let batch_size: u64 = match cli.batch_size.as_ref() {
+        Some(s) => parse_num("-I", s)? as u64,
+        None => 8_000_000_000, // 8G default
+    };
 
     // -K: overrides opt.mini_batch_size (default 500M)
     if let Some(s) = cli.mini_batch_size.as_ref() {
-        opt.mini_batch_size = parse_num(s);
+        opt.mini_batch_size = parse_num("-K", s)?;
     }
 
     // Parse query files from positional args
@@ -742,6 +773,13 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     }
     let query_path = query_files.first().map(|s| s.as_str()).unwrap_or("-");
 
+    // Check the reference and the output combination before -o creates (truncates) its file.
+    std::fs::File::open(target_path).map_err(|e| anyhow::anyhow!("cannot open reference '{}': {}", target_path, e))?;
+    if cli.sort {
+        if !cli.output.as_deref().is_some_and(|p| p.ends_with(".bam")) { anyhow::bail!("--sort needs -o FILE.bam"); }
+        if let Some(m) = cli.sort_mem.as_deref() { parse_num("--sort-mem", m)?; }
+    }
+
     // ─── Output setup ───
     let t_start = Instant::now();
     let output_file: Option<std::fs::File> = if let Some(path) = &cli.output {
@@ -754,9 +792,8 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
     let sorted_out = if cli.sort {
         let path = cli.output.as_deref().filter(|p| p.ends_with(".bam"))
             .ok_or_else(|| anyhow::anyhow!("--sort needs -o FILE.bam"))?;
-        if !cli.output_sam { anyhow::bail!("--sort needs SAM output (-a)"); }
         let cfg = bonefish::sorted_bam::SortConfig {
-            mem: cli.sort_mem.as_deref().map(|m| parse_num(m) as usize).unwrap_or(4 << 30),
+            mem: match cli.sort_mem.as_deref() { Some(m) => parse_num("--sort-mem", m)? as usize, None => 4 << 30 },
             tmp_prefix: cli.sort_tmp.clone().unwrap_or_else(|| format!("{}.tmp", path)),
             threads: cli.align_threads.max(1),
             level: cli.sort_level,
@@ -776,8 +813,17 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
 
     let mut total_stats = AlignmentStats::default();
     let mid_occ_frac = cli.mid_occ_frac.unwrap_or(2e-4);
+    let mut input_rg: Vec<String> = Vec::new();
+    if cli.sam_rg.is_none() {
+        for qf in query_files.iter().filter(|q| *q != "-") {
+            for l in bonefish::fasta::bam::header_lines(std::path::Path::new(qf)).unwrap_or_default() {
+                if !input_rg.contains(&l) { input_rg.push(l); }
+            }
+        }
+    }
     let run_cfg = RunConfig {
         mid_occ_frac,
+        input_rg,
         copy_comment,
         cli: &cli,
         out_cfg: &out_cfg,
@@ -857,6 +903,9 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
             }
             saved_k = mi.kmer_size;
             saved_w = mi.window_size;
+            if n_parts == 1 && (cli.k.is_some_and(|v| v != mi.kmer_size) || cli.w.is_some_and(|v| v != mi.window_size)) {
+                eprintln!("Warning: -k/-w are ignored with a prebuilt index (it has k={}, w={})", mi.kmer_size, mi.window_size);
+            }
             if let Some(ref alt_path) = cli.alt {
                 read_alt_list(&mut mi, alt_path)?;
             }
@@ -910,7 +959,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let all_seqs = bonefish::fasta::read_fasta(target_path)
-                    .map_err(|e| anyhow::anyhow!("Error reading target: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("cannot read reference '{}': {}", target_path, e))?;
 
                 // Check if we need multiple parts
                 let total_bases: u64 = all_seqs.iter().map(|(_, s)| s.len() as u64).sum();
@@ -1042,7 +1091,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
         } else {
             // ─── Streaming FASTA/FASTQ: batch reading ───
             let mut reader = bonefish::fasta::open(target_path)
-                .map_err(|e| anyhow::anyhow!("Error reading target: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("cannot read reference '{}': {}", target_path, e))?;
             let mut dump_writer: Option<std::io::BufWriter<std::fs::File>> = if let Some(dump_path) = &cli.dump_index {
                 Some(std::io::BufWriter::new(std::fs::File::create(dump_path)
                     .map_err(|e| anyhow::anyhow!("Failed to create index '{}': {}", dump_path, e))?))
@@ -1052,7 +1101,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
 
             loop {
                 let (batch_seqs, is_eof) = reader.read_batch(batch_size)
-                    .map_err(|e| anyhow::anyhow!("Error reading target batch: {}", e))?;
+                    .map_err(|e| anyhow::anyhow!("cannot read reference '{}': {}", target_path, e))?;
                 if batch_seqs.is_empty() { break; }
 
                 n_parts += 1;
@@ -1149,8 +1198,10 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
         #[cfg(feature = "gpu")]
         if let Some(line) = bonefish::align::dp::gpu::report() { eprintln!("[*] {line}"); }
         let total_time = t_start.elapsed().as_secs_f64();
-        eprintln!("[*] Mapping done in {:.3}s ({} index part{})", total_time, n_parts, if n_parts != 1 { "s" } else { "" });
+        eprintln!("[*] Mapped {} reads in {:.3}s ({} index part{})", total_stats.n_reads, total_time, n_parts, if n_parts != 1 { "s" } else { "" });
 
+        // Per-stage timers (thread-seconds) for profiling: -v or BONEFISH_TIMERS=1.
+        if VERBOSE.load(std::sync::atomic::Ordering::Relaxed) {
         eprintln!("--- Alignment Breakdown ---");
         eprintln!("  Sequence Sketching: {:.3}s", total_stats.t_sketch.as_secs_f64());
         eprintln!("  Seeding (Lookup):   {:.3}s", total_stats.t_seed.as_secs_f64());
@@ -1164,6 +1215,7 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
             total_stats.n_reads, total_stats.n_seeds, total_stats.n_anchors, total_stats.n_chains);
         eprintln!("---------------------------");
         bonefish::align::map::print_post_chain_breakdown();
+        }
     }
 
     Ok(())
@@ -1172,6 +1224,8 @@ fn run(cli: AlignArgs) -> anyhow::Result<()> {
 /// Run-level configuration fields that stay constant across index parts.
 struct RunConfig<'a> {
     mid_occ_frac: f32,
+    /// `@RG` header lines of the BAM inputs (kept unless -R sets the read group).
+    input_rg: Vec<String>,
     cli: &'a AlignArgs,
     copy_comment: bool,
     out_cfg: &'a OutputConfig,
@@ -1213,6 +1267,9 @@ fn map_one_part(
             let expanded = rg_line.replace("\\t", "\t");
             writeln!(handle, "{}", expanded)?;
         }
+        for l in &run.input_rg {
+            writeln!(handle, "{}", l)?;
+        }
         *sam_header_written = true;
     }
 
@@ -1225,7 +1282,7 @@ fn map_one_part(
     }
 
     let mut reader = bonefish::fasta::open(query_path)
-        .map_err(|e| anyhow::anyhow!("Error reading query: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
     // Single-end reads only need the header comment for -y; skip copying it otherwise.
     if !copy_comment { reader.set_keep_description(false); }
 
@@ -1253,6 +1310,10 @@ fn map_one_part(
             let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<SeData>>(lookahead);
             let (tx_out, rx_out) = std::sync::mpsc::sync_channel::<Vec<(String, AlignmentStats)>>(2);
 
+            // A read error stops reading; it is reported (non-zero exit) once the reads before it
+            // are written.
+            let read_err: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+            let read_err_ref = &read_err;
             total_stats = std::thread::scope(|s| -> anyhow::Result<AlignmentStats> {
                 s.spawn(move || {
                     loop {
@@ -1263,13 +1324,13 @@ fn map_one_part(
                                 Some(Ok(r)) => {
                                     let (name, desc, seq, qual) = r.into_parts();
                                     let q = qual.map(|v| String::from_utf8(v).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()));
-                                    let c = if copy_comment { desc } else { None };
+                                    let c = if copy_comment { desc.and_then(|d| bonefish::fasta::bam::filter_comment_tags(&d)) } else { None };
                                     chunk_bases += seq.len() as u64;
                                     chunk_data.push((name, seq, q, c));
                                 },
                                 Some(Err(e)) => {
-                                    eprintln!("Warning: Error reading record: {}", e);
-                                    continue;
+                                    *read_err_ref.lock().unwrap() = Some(e.to_string());
+                                    break;
                                 },
                                 None => break,
                             }
@@ -1498,6 +1559,9 @@ fn map_one_part(
                 drop(tx_out);
                 writer_handle.join().expect("writer thread panicked")
             })?;
+            if let Some(e) = read_err.into_inner().unwrap() {
+                anyhow::bail!("{}: {}", query_path, e);
+            }
         }
 
         #[cfg(not(feature = "parallel"))]
@@ -1510,14 +1574,11 @@ fn map_one_part(
                         Some(Ok(r)) => {
                             let (name, desc, seq, qual) = r.into_parts();
                             let q = qual.map(|v| String::from_utf8(v).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()));
-                            let c = if copy_comment { desc } else { None };
+                            let c = if copy_comment { desc.and_then(|d| bonefish::fasta::bam::filter_comment_tags(&d)) } else { None };
                             chunk_bases += seq.len() as u64;
                             chunk_data.push((name, seq, q, c));
                         },
-                        Some(Err(e)) => {
-                            eprintln!("Warning: Error reading record: {}", e);
-                            continue;
-                        },
+                        Some(Err(e)) => anyhow::bail!("{}: {}", query_path, e),
                         None => break,
                     }
                     if chunk_bases >= mini_batch_size { break; }
@@ -1573,7 +1634,7 @@ fn map_one_part_split(
     }
 
     let reader = bonefish::fasta::open(query_path)
-        .map_err(|e| anyhow::anyhow!("Error reading query: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let mut total_stats = AlignmentStats::default();
     let mut record_iter = reader.records();
@@ -1586,7 +1647,7 @@ fn map_one_part_split(
         loop {
             let rec = match record_iter.next() {
                 Some(Ok(r)) => r,
-                Some(Err(e)) => { eprintln!("Warning: Error reading record: {}", e); continue; },
+                Some(Err(e)) => anyhow::bail!("{}: {}", query_path, e),
                 None => break,
             };
 

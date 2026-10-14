@@ -20,12 +20,14 @@ use crate::fasta::record::{Record, RefRecord};
 pub enum FastxError {
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
-    #[error("Unknown file format or empty file")]
+    #[error("not FASTA, FASTQ or BAM (the first record must start with '>' or '@')")]
     UnknownFormat,
-    #[error("Line {line}: Malformed FASTQ: {msg}")]
+    #[error("this looks like SAM text; give the reads as FASTQ, FASTA or BAM")]
+    SamText,
+    #[error("line {line}: malformed FASTQ: {msg}")]
     MalformedFastq { line: usize, msg: String },
-    #[error("Line {line}: Truncated file")]
-    Truncated { line: usize },
+    #[error("line {line}: file ends inside FASTQ record '{name}'")]
+    Truncated { line: usize, name: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -102,16 +104,28 @@ impl<R: BufRead> Reader<R> {
     /// `Ok(Some(fmt))` = recognized
     /// `Err(UnknownFormat)` only for non-empty, unrecognized input
     fn detect_format(&mut self) -> Result<Option<RecordType>, FastxError> {
-        let buffer = self.reader.fill_buf()?;
-        if buffer.is_empty() {
-             return Ok(None);
+        // Leading blank lines are skipped.
+        loop {
+            let buffer = self.reader.fill_buf()?;
+            if buffer.is_empty() {
+                return Ok(None);
+            }
+            match buffer.iter().position(|&c| !matches!(c, b'\n' | b'\r' | b' ' | b'\t')) {
+                Some(0) => break,
+                Some(i) => { self.reader.consume(i); }
+                None => { let n = buffer.len(); self.reader.consume(n); }
+            }
         }
+        let buffer = self.reader.fill_buf()?;
         if buffer[0] == b'>' {
             Ok(Some(RecordType::Fasta))
         } else if buffer[0] == b'@' {
+            let sam = [b"@HD\t", b"@SQ\t", b"@RG\t", b"@PG\t", b"@CO\t"];
+            if sam.iter().any(|t| buffer.starts_with(*t)) {
+                return Err(FastxError::SamText);
+            }
             Ok(Some(RecordType::Fastq))
         } else {
-            // maybe skip empty lines? For now strict.
             Err(FastxError::UnknownFormat)
         }
     }
@@ -144,65 +158,12 @@ impl<R: BufRead> Reader<R> {
     where
         F: FnMut(RefRecord),
     {
-        loop {
-            self.buf.clear();
-            
-            // Line 1: Header
-            let n1 = self.reader.read_until(b'\n', &mut self.buf)?;
-            if n1 == 0 { break; } // Normal EOF
-            if self.buf[0] != b'@' {
-                // we quietly skip malformed records...
-                // eprintln!("Warning: Line {} does not start with '@'. Skipping.", self.line_number);
-                self.line_number += 1;
-                continue;
-            }
-            self.line_number += 1;
-
-            let l1_end = trim_newline(&self.buf);
-            let head_range = 1..l1_end; // Skip @
-            
-            // Line 2: Sequence
-            let seq_start = self.buf.len();
-            let n2 = self.reader.read_until(b'\n', &mut self.buf)?;
-            if n2 == 0 { break; }
-            self.line_number += 1;
-
-            let l2_end = seq_start + trim_newline(&self.buf[seq_start..]);
-            let seq_range = seq_start..l2_end;
-            
-            // Line 3: +
-            let plus_start = self.buf.len();
-            let n3 = self.reader.read_until(b'\n', &mut self.buf)?;
-            if n3 == 0 { break; }
-            if self.buf[plus_start] != b'+' {
-                 self.line_number += 1;
-                 continue;
-            }
-            self.line_number += 1;
-            
-            // Line 4: Quality
-            let qual_start = self.buf.len();
-            let n4 = self.reader.read_until(b'\n', &mut self.buf)?;
-            if n4 == 0 { break; }
-            self.line_number += 1;
-
-            let l4_end = qual_start + trim_newline(&self.buf[qual_start..]);
-            let qual_range = qual_start..l4_end;
-            
-            // Validation
-            if (seq_range.end - seq_range.start) != (qual_range.end - qual_range.start) {
-                // Length mismatch
-                continue;
-            }
-            
-            {
-                let r = RefRecord {
-                    head: &self.buf[head_range],
-                    seq: &self.buf[seq_range],
-                    qual: Some(&self.buf[qual_range]),
-                };
-                callback(r);
-            }
+        while let Some(r) = self.read_next_fastq()? {
+            let head = match r.description() {
+                Some(d) => format!("{} {}", r.name(), d),
+                None => r.name().to_string(),
+            };
+            callback(RefRecord { head: head.as_bytes(), seq: r.sequence(), qual: r.quality() });
         }
         Ok(())
     }
@@ -316,60 +277,81 @@ impl<R: BufRead> Reader<R> {
     }
     
     fn read_next_fastq(&mut self) -> Result<Option<Record>, FastxError> {
+        // Skip blank lines between records.
         loop {
-            // Fast path: name only, comment skipped in place.
-            if !self.keep_description {
-                let peek = self.reader.fill_buf()?;
-                if peek.is_empty() { return Ok(None); }
-                if peek[0] == b'@' {
-                    if let Some(name) = self.read_fastq_name_only()? {
-                        let Some(name) = name else { return Ok(None); };
-                        self.line_number += 1;
-                        return self.read_fastq_body(name, None);
-                    }
-                }
+            let peek = self.reader.fill_buf()?;
+            if peek.is_empty() { return Ok(None); }
+            match peek[0] {
+                b'\n' => { self.reader.consume(1); self.line_number += 1; }
+                b'\r' => { self.reader.consume(1); }
+                _ => break,
             }
-            self.buf.clear();
-            let n1 = self.reader.read_until(b'\n', &mut self.buf)?;
-            if n1 == 0 { return Ok(None); }
-             if self.buf[0] != b'@' {
-                self.line_number += 1;
-                continue;
-            }
-            self.line_number += 1;
-            let h_end = trim_newline(&self.buf);
-            let name_line = String::from_utf8_lossy(&self.buf[1..h_end]).to_string(); // Excluding @
-            
-            // Parse name/desc
-            let mut parts = name_line.splitn(2, char::is_whitespace);
-            let name = parts.next().unwrap_or("").to_string();
-            let desc = if self.keep_description { parts.next().map(|s| s.to_string()) } else { None };
-            return self.read_fastq_body(name, desc);
         }
+        let peek = self.reader.fill_buf()?;
+        if peek[0] != b'@' {
+            return Err(FastxError::MalformedFastq { line: self.line_number, msg: "expected a header line starting with '@'".into() });
+        }
+        // Fast path: name only, comment skipped in place.
+        if !self.keep_description {
+            if let Some(name) = self.read_fastq_name_only()? {
+                let Some(name) = name else { return Ok(None); };
+                self.line_number += 1;
+                return self.read_fastq_body(name, None);
+            }
+        }
+        self.buf.clear();
+        self.reader.read_until(b'\n', &mut self.buf)?;
+        self.line_number += 1;
+        let h_end = trim_newline(&self.buf);
+        let name_line = String::from_utf8_lossy(&self.buf[1..h_end]).to_string(); // Excluding @
+        let mut parts = name_line.splitn(2, char::is_whitespace);
+        let name = parts.next().unwrap_or("").to_string();
+        let desc = if self.keep_description { parts.next().map(|s| s.trim_start().to_string()).filter(|s| !s.is_empty()) } else { None };
+        self.read_fastq_body(name, desc)
     }
 
-    /// Sequence, '+' and quality lines of a FASTQ record whose header has been read.
+    /// Sequence, '+' and quality lines of a FASTQ record whose header has been read. Sequence
+    /// and quality may span several lines (the quality is read until it is as long as the
+    /// sequence). A quality of exactly `*` means none (as SAM; written by the BAM reader).
     fn read_fastq_body(&mut self, name: String, desc: Option<String>) -> Result<Option<Record>, FastxError> {
-        // Seq
-        self.buf.clear();
-        if self.reader.read_until(b'\n', &mut self.buf)? == 0 { return Ok(None); }
-        self.line_number += 1;
-        let s_end = trim_newline(&self.buf);
-        let mut seq = self.buf[..s_end].to_vec();
+        if name.is_empty() || name.len() > 254 {
+            return Err(FastxError::MalformedFastq { line: self.line_number - 1, msg: format!("read name empty or longer than 254 characters (the SAM limit): '{name}'") });
+        }
+        let truncated = |s: &Self, name: &str| FastxError::Truncated { line: s.line_number, name: name.to_string() };
+        // Sequence lines, up to the '+' line.
+        let mut seq = Vec::new();
+        loop {
+            self.buf.clear();
+            if self.reader.read_until(b'\n', &mut self.buf)? == 0 { return Err(truncated(self, &name)); }
+            self.line_number += 1;
+            if self.buf[0] == b'+' { break; }
+            if self.buf[0] == b'@' && seq.is_empty() && trim_newline(&self.buf) > 1 {
+                return Err(FastxError::MalformedFastq { line: self.line_number, msg: format!("record '{name}' has no '+' line") });
+            }
+            let e = trim_newline(&self.buf);
+            seq.extend_from_slice(&self.buf[..e]);
+        }
         rna_to_dna_inplace(&mut seq);
-
-        // +
-        self.buf.clear();
-        if self.reader.read_until(b'\n', &mut self.buf)? == 0 { return Ok(None); }
-        self.line_number += 1;
-
-        // Qual
-        self.buf.clear();
-        if self.reader.read_until(b'\n', &mut self.buf)? == 0 { return Ok(None); }
-        self.line_number += 1;
-        let q_end = trim_newline(&self.buf);
-        let qual = self.buf[..q_end].to_vec();
-
+        // Quality lines until the quality is as long as the sequence.
+        let mut qual = Vec::with_capacity(seq.len());
+        while qual.len() < seq.len() {
+            self.buf.clear();
+            if self.reader.read_until(b'\n', &mut self.buf)? == 0 { return Err(truncated(self, &name)); }
+            self.line_number += 1;
+            let e = trim_newline(&self.buf);
+            if e == 0 { break; }
+            qual.extend_from_slice(&self.buf[..e]);
+            if qual.as_slice() == b"*" && seq.len() > 1 { break; }
+        }
+        if qual.as_slice() == b"*" && seq.len() > 1 {
+            return Ok(Some(Record::new(name, desc, seq, None)));
+        }
+        if qual.len() != seq.len() {
+            return Err(FastxError::MalformedFastq {
+                line: self.line_number,
+                msg: format!("record '{name}': {} bases but {} quality values", seq.len(), qual.len()),
+            });
+        }
         Ok(Some(Record::new(name, desc, seq, Some(qual))))
     }
 
@@ -401,7 +383,10 @@ impl<R: BufRead> Reader<R> {
         let mut parts = name_line.splitn(2, char::is_whitespace);
         let name = parts.next().unwrap_or("").to_string();
         let desc = parts.next().map(|s| s.to_string());
-        
+        if name.is_empty() || name.len() > 254 {
+            return Err(FastxError::MalformedFastq { line: self.line_number - 1, msg: format!("sequence name empty or longer than 254 characters (the SAM limit): '{name}'") });
+        }
+
         let mut seq = Vec::new();
         loop {
             self.buf.clear();
@@ -451,12 +436,11 @@ impl<R: BufRead> Reader<R> {
 }
 
 pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Reader<Box<dyn BufRead + Send>>> {
-    if path.as_ref().as_os_str() == "-" {
-        let stdin = io::stdin();
-        return Ok(Reader::new(Box::new(io::BufReader::new(stdin))));
-    }
-
-    let file = File::open(path.as_ref()).map_err(|e| io::Error::new(e.kind(), format!("Failed to open FASTA/FASTQ '{}': {}", path.as_ref().display(), e)))?;
+    let file: Box<dyn io::Read + Send> = if path.as_ref().as_os_str() == "-" {
+        Box::new(io::stdin())
+    } else {
+        Box::new(File::open(path.as_ref()).map_err(|e| io::Error::new(e.kind(), format!("cannot open '{}': {}", path.as_ref().display(), e)))?)
+    };
 
     // Detect by content (gzip magic 0x1f 0x8b) rather than trusting the extension.
     // `fill_buf` peeks without consuming, so the magic bytes remain available to
@@ -472,10 +456,12 @@ pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Reader<Box<dyn BufRead + Send
         return Ok(Reader::new(Box::new(io::BufReader::with_capacity(1 << 20, super::bam::BamFastq::new(buf_reader)))));
     }
     let ext_says_gz = path.as_ref().to_string_lossy().ends_with(".gz");
-    if ext_says_gz && !is_gz_content {
-        eprintln!("[WARN] '{}' has a .gz extension but is not gzipped; reading as plain text.", path.as_ref().display());
+    let stdin = path.as_ref().as_os_str() == "-";
+    if stdin {
+    } else if ext_says_gz && !is_gz_content {
+        eprintln!("Warning: '{}' has a .gz extension but is not gzipped; reading as plain text.", path.as_ref().display());
     } else if !ext_says_gz && is_gz_content {
-        eprintln!("[WARN] '{}' is gzipped but lacks a .gz extension; decompressing.", path.as_ref().display());
+        eprintln!("Warning: '{}' is gzipped but lacks a .gz extension; decompressing.", path.as_ref().display());
     }
 
     let reader: Box<dyn BufRead + Send> = if is_gz_content {
@@ -623,7 +609,7 @@ pub fn parse_fasta_bytes(data: &[u8]) -> io::Result<Vec<(String, Vec<u8>)>> {
         // Extract name (first whitespace-delimited token)
         let header_bytes = &data[header_start..header_end];
         let name_end = header_bytes.iter()
-            .position(|&b| b == b' ' || b == b'\t')
+            .position(|&b| b == b' ' || b == b'\t' || b == b'\r')
             .unwrap_or(header_bytes.len());
 
         let name = String::from_utf8_lossy(&header_bytes[..name_end]).to_string();
@@ -654,11 +640,25 @@ pub fn parse_fasta_bytes(data: &[u8]) -> io::Result<Vec<(String, Vec<u8>)>> {
             pos = line_end + 1;
         }
 
-        if !name.is_empty() {
-            sequences.push((name, seq));
+        if name.is_empty() {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "reference sequence with an empty name"));
         }
+        if seq.is_empty() {
+            eprintln!("Warning: skipping reference sequence '{name}' of length 0");
+            continue;
+        }
+        sequences.push((name, seq));
     }
 
+    if sequences.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "no sequences in the reference"));
+    }
+    let mut seen = std::collections::HashSet::with_capacity(sequences.len());
+    for (name, _) in &sequences {
+        if !seen.insert(name.as_str()) {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, format!("duplicate reference sequence name '{name}'")));
+        }
+    }
     Ok(sequences)
 }
 
