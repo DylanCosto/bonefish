@@ -1,0 +1,11 @@
+stratum	type	tp	fp	fn	precision	recall	f1
+alldifficultregions	snps	609467	10632	4812	0.9829	0.9922	0.9875
+alldifficultregions	indels	300191	63450	67601	0.8255	0.8162	0.8208
+notinalldifficultregions	snps	2749070	1120	3025	0.9996	0.9989	0.9992
+notinalldifficultregions	indels	157125	521	664	0.9967	0.9958	0.9962
+segdups	snps	118741	7067	2374	0.9438	0.9804	0.9618
+segdups	indels	10475	718	353	0.9359	0.9674	0.9514
+lowmappabilityall	snps	190389	5062	2255	0.9741	0.9883	0.9812
+lowmappabilityall	indels	10117	481	290	0.9546	0.9721	0.9633
+AllTandemRepeatsandHomopolymers_slop5	snps	184833	3506	2107	0.9814	0.9887	0.9850
+AllTandemRepeatsandHomopolymers_slop5	indels	271816	62892	67238	0.8121	0.8017	0.8069

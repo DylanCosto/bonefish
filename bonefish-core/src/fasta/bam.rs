@@ -2,21 +2,86 @@
 //!
 //! `BamFastq` decodes BGZF blocks with libdeflate and turns each primary or unmapped record
 //! (flags 0x100 and 0x800 skipped, like `samtools fastq -F 0x900`) into a FASTQ record. Reverse-
-//! strand records are reverse-complemented back to the read's original orientation, and the
-//! base-modification tags `MM`, `ML` and `MN` (which refer to that orientation) are written
-//! as the FASTQ comment in SAM text form, so `-y` carries them into the output exactly as
-//! `samtools fastq -T MM,ML,MN | bonefish -y` would.
+//! strand records are reverse-complemented back to the read's original orientation. With `-y`
+//! the record's tags are written as the FASTQ comment in SAM text form, except alignment tags
+//! that the new alignment replaces (see [`keep_tag`]), so dorado's per-read tags (`MM`/`ML`/`MN`,
+//! which refer to the original orientation, `RG`, `qs`, `ch`, ...) carry into the output as with
+//! `samtools fastq -T '*' | bonefish -y`. [`header_lines`] returns the header's `@RG` lines.
 
 use std::io::{self, Read};
 
-/// Tags copied into the FASTQ comment.
-const COPY_TAGS: [[u8; 2]; 3] = [*b"MM", *b"ML", *b"MN"];
+/// Tags written by an aligner for a particular alignment: stale after re-alignment, or
+/// duplicated by bonefish's own. Not copied from the input.
+const ALIGNMENT_TAGS: [[u8; 2]; 27] = [
+    *b"NM", *b"MD", *b"AS", *b"SA", *b"XS", *b"XA", *b"MC", *b"MQ", *b"HI", *b"NH", *b"H0", *b"H1",
+    *b"H2", *b"OA", *b"OC", *b"cs", *b"cg", *b"ds", *b"tp", *b"cm", *b"s1", *b"s2", *b"de", *b"dv",
+    *b"rl", *b"zd", *b"nn",
+];
 
 static COPY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+static DROP_RG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Whether to write the tags at all (they are only used with `-y`; ML arrays are large).
 pub fn set_copy_tags(on: bool) {
     COPY.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Drop the input's `RG` tags (`-R` sets the read group instead).
+pub fn set_drop_rg(on: bool) {
+    DROP_RG.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Is a read tag copied to the output with `-y`? Everything except alignment tags (and `RG`
+/// when `-R` replaces it). `ms` (minimap2's DP score) is an alignment tag too.
+pub fn keep_tag(tag: [u8; 2]) -> bool {
+    !(ALIGNMENT_TAGS.contains(&tag) || tag == *b"ms"
+        || (tag == *b"RG" && DROP_RG.load(std::sync::atomic::Ordering::Relaxed)))
+}
+
+/// The SAM-style tags (`XX:T:value`) of a FASTQ/FASTA comment that `-y` copies, tab-separated;
+/// other words (free text, `key=value` pairs) are dropped, so the SAM stays valid. None if
+/// nothing is left.
+pub fn filter_comment_tags(comment: &str) -> Option<String> {
+    let is_tag = |t: &str| {
+        let b = t.as_bytes();
+        b.len() >= 5 && b[0].is_ascii_alphabetic() && b[1].is_ascii_alphanumeric() && b[2] == b':'
+            && matches!(b[3], b'A' | b'i' | b'f' | b'Z' | b'H' | b'B') && b[4] == b':'
+            && keep_tag([b[0], b[1]])
+    };
+    let mut out = String::with_capacity(comment.len());
+    for field in comment.split('\t') {
+        let mut push = |t: &str| {
+            if is_tag(t) {
+                if !out.is_empty() { out.push('\t'); }
+                out.push_str(t);
+            }
+        };
+        if is_tag(field) { push(field) } else { field.split(' ').for_each(&mut push) }
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// The `@RG` lines of a BAM file's header (read from its first BGZF blocks), or an empty list
+/// if the file is not BAM.
+pub fn header_lines(path: &std::path::Path) -> io::Result<Vec<String>> {
+    let mut f = io::BufReader::new(std::fs::File::open(path)?);
+    let mut dec = libdeflater::Decompressor::new();
+    let mut block = Vec::with_capacity(1 << 16);
+    let mut data = Vec::new();
+    let mut need = 8usize;
+    while data.len() < need {
+        if !next_block(&mut f, &mut dec, &mut block, &mut data)? {
+            return Ok(Vec::new());
+        }
+        if data.len() >= 8 {
+            if &data[..4] != b"BAM\x01" {
+                return Ok(Vec::new());
+            }
+            need = 8 + i32::from_le_bytes(data[4..8].try_into().unwrap()).max(0) as usize;
+        }
+    }
+    let text = String::from_utf8_lossy(&data[8..need]);
+    Ok(text.lines().filter(|l| l.starts_with("@RG\t")).map(|l| l.trim_end_matches('\0').to_string()).collect())
 }
 
 /// Decimal text of 0..=255 with a leading comma, for `B:C` arrays (ML).
@@ -298,8 +363,8 @@ fn append_fastq(rec: &[u8], out: &mut Vec<u8>) -> io::Result<()> {
     out.extend_from_slice(b"\n+\n");
     let qual = &rec[qual_off..tag_off];
     if l_seq > 0 && qual[0] == 0xff {
-        // no qualities stored
-        out.extend(std::iter::repeat_n(b'!', l_seq));
+        // no qualities stored: `*`, as in SAM (the FASTQ reader maps it to no qualities)
+        out.push(b'*');
     } else if !rev {
         out.extend(qual.iter().map(|&q| q.saturating_add(33)));
     } else {
@@ -318,14 +383,14 @@ fn complement(b: u8) -> u8 {
     }
 }
 
-/// Write the `COPY_TAGS` among a record's aux fields as tab-separated SAM text.
+/// Write the tags `keep_tag` accepts among a record's aux fields as tab-separated SAM text.
 fn append_tags(mut aux: &[u8], out: &mut Vec<u8>) -> Result<(), ()> {
     use std::io::Write;
     while aux.len() >= 3 {
         let tag = [aux[0], aux[1]];
         let ty = aux[2];
         let body = &aux[3..];
-        let want = COPY_TAGS.contains(&tag);
+        let want = keep_tag(tag);
         let int_size = |t: u8| match t { b'c' | b'C' | b'A' => Some(1), b's' | b'S' => Some(2), b'i' | b'I' | b'f' => Some(4), _ => None };
         let read_int = |t: u8, b: &[u8]| -> i64 {
             match t {

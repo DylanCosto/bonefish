@@ -15,8 +15,17 @@ jobs:
         os: [ubuntu-24.04, ubuntu-24.04-arm, macos-14]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: CPU (which SIMD kernels the tests exercise)
+        # Informational only: never fails the job.
+        run: |
+          if [ -r /proc/cpuinfo ]; then
+            grep -m1 -E 'model name|CPU part' /proc/cpuinfo || true
+            for f in avx2 avx512f avx512bw asimd; do if grep -qw "$f" /proc/cpuinfo; then echo "has $f"; fi; done
+          else
+            sysctl -n machdep.cpu.brand_string || true; echo "arm64 (NEON)"
+          fi
       - name: Tests (unit, golden-output regression, doctests)
         run: cargo test --release --locked --features jemalloc
       - name: Validation scripts and recorded evidence

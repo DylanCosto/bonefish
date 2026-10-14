@@ -1,0 +1,15 @@
+[M::main::10.783*0.92] loaded/built the index for 195 target sequence(s)
+[M::mm_mapopt_update::13.453*0.94] mid_occ = 136
+[M::mm_idx_stat] kmer size: 19; skip: 19; is_hpc: 0; #seq: 195
+[M::mm_idx_stat::15.443*0.95] distinct minimizers: 214664461 (92.23% are singletons); average occurrences: 1.372; average spacing: 10.529; total length: 3099922541
+[M::worker_pipeline::32.216*7.10] mapped 26973 sequences
+[M::worker_pipeline::44.093*9.00] mapped 27022 sequences
+[M::worker_pipeline::162.948*12.89] mapped 26289 sequences
+[M::worker_pipeline::325.050*13.54] mapped 25313 sequences
+[M::worker_pipeline::413.665*11.29] mapped 26791 sequences
+[M::worker_pipeline::418.003*11.25] mapped 27228 sequences
+[M::worker_pipeline::430.174*11.31] mapped 27492 sequences
+[M::worker_pipeline::430.346*11.31] mapped 1032 sequences
+[M::main] Version: 2.31-r1302
+[M::main] CMD: ${HOME}/micromamba/envs/ontaln/bin/minimap2 -t 16 -ax lr:hq -y ${REPO}/data/index/bench/mm2.lrhq.mmi ${REPO}/results/modkit/reads.fq
+[M::main] Real time: 431.299 sec; CPU: 4867.612 sec; Peak RSS: 19.814 GB

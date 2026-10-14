@@ -2010,8 +2010,11 @@ fn format_unmapped_record(
     let qlen = qseq.len();
     let comment = read.comment;
     if out.output_sam && !opt.flags.contains(AlignFlags::SAM_HIT_ONLY) {
-        let qual_str = if opt.flags.contains(AlignFlags::NO_QUAL) { "*" } else { qual.unwrap_or("*") };
-        write!(output_buffer, "{}\t4\t*\t0\t0\t*\t*\t0\t0\t{}\t{}\trl:i:{}", qname, String::from_utf8_lossy(qseq), qual_str, rep_len).ok();
+        // An empty read is written with SEQ and QUAL `*` (an empty field is not valid SAM).
+        let qual_str = if opt.flags.contains(AlignFlags::NO_QUAL) || qlen == 0 { "*" } else { qual.unwrap_or("*") };
+        let seq_str = if qlen == 0 { std::borrow::Cow::Borrowed("*") } else { String::from_utf8_lossy(qseq) };
+        write!(output_buffer, "{}\t4\t*\t0\t0\t*\t*\t0\t0\t{}\t{}\trl:i:{}", qname, seq_str, qual_str, rep_len).ok();
+        if let Some(id) = &out.rg_id { write!(output_buffer, "\tRG:Z:{}", id).ok(); }
         if let Some(c) = comment { write!(output_buffer, "\t{}", c).ok(); }
         writeln!(output_buffer).ok();
     } else if !out.output_sam && opt.flags.contains(AlignFlags::PAF_NO_HIT) {

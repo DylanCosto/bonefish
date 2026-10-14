@@ -1,0 +1,80 @@
+
+Found 1 command tree.
+
+Counting 2998 (estimated) million canonical 15-mers from 1 input file:
+    sequence-file: ${REPO}/data/ref/GRCh38_no_alt.fa
+
+
+SIMPLE MODE
+-----------
+
+  15-mers
+    -> 1073741824 entries for counts up to 65535.
+    -> 16 Gbits memory used
+
+  3144230986 input bases
+    -> expected max count of 12576923, needing 9 extra bits.
+    -> 9216 Mbits memory used
+
+  3200 MB memory needed
+
+
+COMPLEX MODE
+------------
+
+prefix     # of   struct   kmers/    segs/      min     data    total
+  bits   prefix   memory   prefix   prefix   memory   memory   memory
+------  -------  -------  -------  -------  -------  -------  -------
+     1     2  P    10 MB   749 MM   679 kS  8192  B  5439 MB  5450 MB
+     2     4  P    10 MB   374 MM   328 kS    16 kB  5248 MB  5259 MB
+     3     8  P     9 MB   187 MM   158 kS    32 kB  5062 MB  5072 MB
+     4    16  P  9798 kB    93 MM    76 kS    64 kB  4873 MB  4883 MB
+     5    32  P  9476 kB    46 MM    36 kS   128 kB  4687 MB  4697 MB
+     6    64  P  9200 kB    23 MM    17 kS   256 kB  4499 MB  4507 MB
+     7   128  P  9030 kB    11 MM  8626  S   512 kB  4313 MB  4321 MB
+     8   256  P  9058 kB  5997 kM  4125  S  1024 kB  4125 MB  4133 MB
+     9   512  P  9492 kB  2998 kM  1969  S  2048 kB  3938 MB  3947 MB
+    10  1024  P    10 MB  1499 kM   938  S  4096 kB  3752 MB  3762 MB
+    11  2048  P    13 MB   749 kM   446  S  8192 kB  3568 MB  3581 MB
+    12  4096  P    19 MB   374 kM   211  S    16 MB  3376 MB  3395 MB
+    13  8192  P    31 MB   187 kM   100  S    32 MB  3200 MB  3231 MB
+    14    16 kP    56 MB    93 kM    47  S    64 MB  3008 MB  3064 MB
+    15    32 kP   106 MB    46 kM    22  S   128 MB  2816 MB  2922 MB  Best Value!
+    16    64 kP   207 MB    23 kM    11  S   256 MB  2816 MB  3023 MB
+    17   128 kP   409 MB    11 kM     5  S   512 MB  2560 MB  2969 MB
+    18   256 kP   814 MB  5998  M     3  S  1024 MB  3072 MB  3886 MB
+    19   512 kP  1624 MB  2999  M     2  S  2048 MB  4096 MB  5720 MB
+    20  1024 kP  3240 MB  1500  M     1  S  4096 MB  4096 MB  7336 MB
+    21  2048 kP  6480 MB   750  M     1  S  8192 MB  8192 MB    14 GB
+    22  4096 kP    12 GB   375  M     1  S    16 GB    16 GB    28 GB
+    23  8192 kP    25 GB   188  M     1  S    32 GB    32 GB    57 GB
+    24    16 MP    50 GB    94  M     1  S    64 GB    64 GB   114 GB
+
+
+FINAL CONFIGURATION
+-------------------
+
+Estimated to require 3200 MB memory out of 31 GB allowed.
+Estimated to require 2 batches.
+
+Configured simple mode for 3.125 GB memory per batch, and up to 2 batches.
+
+Start counting with SIMPLE method.
+Loading kmers from '${REPO}/data/ref/GRCh38_no_alt.fa' into buckets.
+Increasing to 17-bit storage (for kmer 0x00000000000000000000000000000000).
+Increasing to 18-bit storage (for kmer 0x00000000000000000000000000000000).
+Increasing to 19-bit storage (for kmer 0x00000000000000000000000000000000).
+Increasing to 20-bit storage (for kmer 0x00000000000000000000000000000000).
+Increasing to 21-bit storage (for kmer 0x00000000000000000000000000000000).
+Increasing to 22-bit storage (for kmer 0x00000000000000000000000000000000).
+
+Writing results to '${REPO}/data/index/bench/merylDB_k15', using 16 threads.
+             [ file ][  prefix ][  suffix ][ count-suffix ]
+   widths    [    6 ][       4 ][      20 ][            0 ]
+   number    [   64 ][      16 ][ 1048576 ][              ]
+
+finishIteration()--
+
+Cleaning up.
+
+Bye.

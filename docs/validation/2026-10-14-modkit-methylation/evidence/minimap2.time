@@ -1,0 +1,23 @@
+	Command being timed: "bash -c ${HOME}/micromamba/envs/ontaln/bin/minimap2 -t 16 -ax lr:hq -y ${REPO}/data/index/bench/mm2.lrhq.mmi ${REPO}/results/modkit/reads.fq 2>${REPO}/results/modkit/minimap2.err | ${HOME}/micromamba/envs/vareval/bin/samtools sort -@8 -m 1G --write-index -o ${REPO}/results/modkit/minimap2.bam -"
+	User time (seconds): 5026.76
+	System time (seconds): 122.63
+	Percent of CPU this job got: 1079%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 7:57.02
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 20776636
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 921121
+	Minor (reclaiming a frame) page faults: 42970454
+	Voluntary context switches: 4549395
+	Involuntary context switches: 1232168
+	Swaps: 0
+	File system inputs: 21201688
+	File system outputs: 17012818
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

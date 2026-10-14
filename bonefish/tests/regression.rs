@@ -7,6 +7,8 @@
 //!   after an intended output change, `BONEFISH_BLESS=1 cargo test --release --test regression`
 //!   prints the new lines for `expected.tsv`.
 //! * A raw (memory-mapped) index and BAM input must give the same output as FASTA/FASTQ.
+//! * Input handling: dorado BAM tags and read groups with -y, wrapped FASTQ, malformed input
+//!   failing with a non-zero exit, `-o x.bam` as --sort, options after the file arguments.
 //!
 //! Hashes are 64-bit FNV-1a over the output with `@PG` lines removed.
 
@@ -99,16 +101,21 @@ fn raw_index_gives_same_output() {
 
 /// Write the reads as an unaligned BAM (as a basecaller would), to check BAM input.
 fn write_ubam(fq_gz: &Path, out: &Path) {
+    write_ubam_with(fq_gz, out, "", |_| Vec::new());
+}
+
+/// `write_ubam` with extra header lines and per-record binary aux data (record index -> bytes).
+fn write_ubam_with(fq_gz: &Path, out: &Path, header_extra: &str, aux: impl Fn(usize) -> Vec<u8>) {
     let mut fq = String::new();
     flate2::read::GzDecoder::new(std::fs::File::open(fq_gz).unwrap()).read_to_string(&mut fq).unwrap();
     let mut raw: Vec<u8> = Vec::new();
-    let header = "@HD\tVN:1.6\tSO:unknown\n";
+    let header = format!("@HD\tVN:1.6\tSO:unknown\n{header_extra}");
     raw.extend_from_slice(b"BAM\x01");
     raw.extend_from_slice(&(header.len() as i32).to_le_bytes());
     raw.extend_from_slice(header.as_bytes());
     raw.extend_from_slice(&0i32.to_le_bytes()); // no reference sequences
     let lines: Vec<&str> = fq.lines().collect();
-    for rec in lines.chunks(4) {
+    for (i, rec) in lines.chunks(4).enumerate() {
         let (name, seq, qual) = (&rec[0][1..], rec[1].as_bytes(), rec[3].as_bytes());
         let mut r: Vec<u8> = Vec::new();
         r.extend_from_slice(&(-1i32).to_le_bytes()); // refID
@@ -129,6 +136,7 @@ fn write_ubam(fq_gz: &Path, out: &Path) {
             r.push(code(pair[0]) << 4 | pair.get(1).map_or(0, |&c| code(c)));
         }
         r.extend(qual.iter().map(|&q| q - 33));
+        r.extend_from_slice(&aux(i));
         raw.extend_from_slice(&(r.len() as i32).to_le_bytes());
         raw.extend_from_slice(&r);
     }
@@ -229,4 +237,163 @@ fn sorted_bam_output() {
         assert_eq!(&bai[..4], b"BAI\x01");
     }
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Run bonefish expecting failure; returns stderr.
+fn run_fails(args: &[&str]) -> String {
+    let out = Command::new(env!("CARGO_BIN_EXE_bonefish")).args(args).output().expect("failed to run bonefish");
+    assert!(!out.status.success(), "bonefish {:?} should have failed", args);
+    String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+fn reads_text() -> String {
+    let mut fq = String::new();
+    flate2::read::GzDecoder::new(std::fs::File::open(data("reads.fq.gz")).unwrap()).read_to_string(&mut fq).unwrap();
+    fq
+}
+
+/// dorado BAM input with -y: the read tags (here RG, qs, MM/ML) and the @RG header line reach
+/// the output; an old alignment tag (NM) is replaced, not duplicated; -R replaces the read group.
+#[test]
+fn bam_tags_and_read_groups_with_y() {
+    let dir = tmp_dir("tags");
+    let bam = dir.join("reads.bam");
+    let rg = "@RG\tID:run1_dna_r10.4.1_e8.2_400bps_sup@v5.0.0\tPL:ONT\tDS:basecall_model=dna_r10.4.1_e8.2_400bps_sup@v5.0.0\n";
+    write_ubam_with(&data("reads.fq.gz"), &bam, rg, |i| {
+        let mut a = Vec::new();
+        a.extend_from_slice(b"RGZrun1_dna_r10.4.1_e8.2_400bps_sup@v5.0.0\0");
+        a.extend_from_slice(b"qsi"); a.extend_from_slice(&(10 + i as i32 % 20).to_le_bytes());
+        a.extend_from_slice(b"MMZC+m?,0,1;\0");
+        a.extend_from_slice(b"MLBC"); a.extend_from_slice(&2u32.to_le_bytes()); a.extend_from_slice(&[200, 13]);
+        a.extend_from_slice(b"NMi"); a.extend_from_slice(&999i32.to_le_bytes());
+        a
+    });
+    let reference = data("ref.fa.gz");
+    let (reference, bam_s) = (reference.to_str().unwrap(), bam.to_str().unwrap());
+    let sam = run(&["-a", "-y", "-t", "2", reference, bam_s]);
+    assert!(sam.lines().any(|l| l == rg.trim_end()), "input @RG line missing from the header");
+    let recs: Vec<&str> = sam.lines().filter(|l| !l.starts_with('@')).collect();
+    assert!(!recs.is_empty());
+    for l in &recs {
+        let tags: Vec<&str> = l.split('\t').skip(11).collect();
+        for t in ["RG:Z:run1_dna_r10.4.1_e8.2_400bps_sup@v5.0.0", "MM:Z:C+m?,0,1;", "ML:B:C,200,13"] {
+            assert!(tags.contains(&t), "tag {t} missing: {l}");
+        }
+        assert!(tags.iter().any(|t| t.starts_with("qs:i:")), "qs missing: {l}");
+        assert!(!tags.contains(&"NM:i:999"), "stale NM copied: {l}");
+        let mut names: Vec<&str> = tags.iter().map(|t| &t[..2]).collect();
+        let n = names.len();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), n, "duplicate tags: {l}");
+    }
+    let sam_r = run(&["-a", "-y", "-t", "2", "-R", "@RG\\tID:mine\\tSM:s1", reference, bam_s]);
+    assert!(!sam_r.contains("run1_dna"), "-R must replace the input read group");
+    assert!(sam_r.lines().filter(|l| !l.starts_with('@')).all(|l| l.contains("\tRG:Z:mine")));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Wrapped (multi-line) FASTQ gives the same alignments as the four-line form.
+#[test]
+fn multiline_fastq_gives_same_output() {
+    let dir = tmp_dir("wrap");
+    let fq = reads_text();
+    let mut wrapped = String::new();
+    for rec in fq.lines().collect::<Vec<_>>().chunks(4) {
+        wrapped.push_str(rec[0]); wrapped.push('\n');
+        for c in rec[1].as_bytes().chunks(60) { wrapped.push_str(std::str::from_utf8(c).unwrap()); wrapped.push('\n'); }
+        wrapped.push_str("+\n");
+        for c in rec[3].as_bytes().chunks(60) { wrapped.push_str(std::str::from_utf8(c).unwrap()); wrapped.push('\n'); }
+    }
+    let p = dir.join("wrapped.fq");
+    std::fs::write(&p, wrapped).unwrap();
+    let reference = data("ref.fa.gz");
+    let reads = data("reads.fq.gz");
+    let a = run(&["-a", "-t", "2", reference.to_str().unwrap(), reads.to_str().unwrap()]);
+    let b = run(&["-a", "-t", "2", reference.to_str().unwrap(), p.to_str().unwrap()]);
+    assert!(a == b, "wrapped FASTQ output differs");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Malformed input fails (non-zero exit) instead of producing silently incomplete output.
+#[test]
+fn malformed_input_fails() {
+    let dir = tmp_dir("bad");
+    let reference = data("ref.fa.gz");
+    let reference = reference.to_str().unwrap();
+    let cases: [(&str, &str); 5] = [
+        ("qual_mismatch.fq", "@r1\nACGTACGTAC\n+\nIIIII\n@r2\nACGT\n+\nIIII\n"),
+        ("truncated.fq", "@r1\nACGTACGTAC\n+\nIIIIIIIIII\n@r2\nACGTACGT\n"),
+        ("garbage.txt", "this is not a sequence file\n"),
+        ("sam.txt", "@HD\tVN:1.6\n@SQ\tSN:x\tLN:10\n"),
+        ("longname.fq", &format!("@{}\nACGT\n+\nIIII\n", "n".repeat(255))),
+    ];
+    for (name, text) in cases {
+        let p = dir.join(name);
+        std::fs::write(&p, text).unwrap();
+        let err = run_fails(&["-a", "-t", "2", reference, p.to_str().unwrap()]);
+        assert!(err.contains(name), "error should name the file: {err}");
+    }
+    let err = run_fails(&["-a", "-k", "40", reference, data("reads.fq.gz").to_str().unwrap()]);
+    assert!(err.contains("-k"), "{err}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// `-o x.bam` alone writes the sorted BAM (as --sort), options may follow the file arguments,
+/// and a failing run (missing reference) leaves an existing output file untouched.
+#[test]
+fn bam_output_by_extension_and_option_order() {
+    let dir = tmp_dir("ext");
+    let reference = data("ref.fa.gz");
+    let reads = data("reads.fq.gz");
+    let (reference, reads) = (reference.to_str().unwrap(), reads.to_str().unwrap());
+    let a = dir.join("a.bam");
+    let b = dir.join("b.bam");
+    run(&["-t", "2", "-o", a.to_str().unwrap(), reference, reads]);
+    run(&["-a", "--sort", "-t", "2", "-o", b.to_str().unwrap(), reference, reads]);
+    let records = |p: &Path| {
+        let mut raw = Vec::new();
+        flate2::read::MultiGzDecoder::new(std::fs::File::open(p).unwrap()).read_to_end(&mut raw).unwrap();
+        let l_text = i32::from_le_bytes(raw[4..8].try_into().unwrap()) as usize;
+        raw.split_off(8 + l_text) // references and records; the header text holds @PG CL
+    };
+    assert!(records(&a) == records(&b), "-o x.bam differs from --sort");
+    assert!(dir.join("a.bam.bai").exists());
+    let before = run(&["-a", "-t", "2", reference, reads]);
+    let after = run(&[reference, reads, "-a", "-t", "2"]);
+    assert!(before == after, "options after the file arguments changed the output");
+    let keep = dir.join("keep.bam");
+    std::fs::write(&keep, b"precious").unwrap();
+    run_fails(&["-o", keep.to_str().unwrap(), "missing_reference.fa", reads]);
+    assert_eq!(std::fs::read(&keep).unwrap(), b"precious");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Every SIMD path gives the same output: the kernels picked at run time (AVX-512 where the CPU
+/// has it, e.g. on CI runners) against forced AVX2, SSE4.1 and scalar code, for SAM and PAF with
+/// --cs. On arm64 only NEON exists, so this is x86_64-only.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn simd_paths_give_same_output() {
+    let reference = data("ref.fa.gz");
+    let reads = data("reads.fq.gz");
+    let (reference, reads) = (reference.to_str().unwrap(), reads.to_str().unwrap());
+    let has_avx512 = std::arch::is_x86_feature_detected!("avx512bw");
+    eprintln!("simd_paths_give_same_output: CPU has AVX-512BW: {has_avx512}");
+    for args in [vec!["-a"], vec!["-c", "--cs"]] {
+        let run_env = |env: Option<&str>| {
+            let mut a: Vec<&str> = args.clone();
+            a.extend(["-t", "2", reference, reads]);
+            let mut c = Command::new(env!("CARGO_BIN_EXE_bonefish"));
+            c.args(&a);
+            if let Some(e) = env { c.env(e, "1"); }
+            let out = c.output().expect("failed to run bonefish");
+            assert!(out.status.success(), "{env:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8(out.stdout).unwrap().lines().filter(|l| !l.starts_with("@PG")).map(|l| format!("{l}\n")).collect::<String>()
+        };
+        let auto = run_env(None);
+        for env in ["BONEFISH_FORCE_AVX2", "BONEFISH_FORCE_SSE", "BONEFISH_FORCE_SCALAR"] {
+            assert!(run_env(Some(env)) == auto, "{env} output differs from the run-time kernels ({args:?}; AVX-512: {has_avx512})");
+        }
+    }
 }

@@ -1,0 +1,8 @@
+[M::main::8.476*1.00] loaded/built the index for 195 target sequence(s)
+[M::mm_mapopt_update::11.121*1.00] mid_occ = 136
+[M::mm_idx_stat] kmer size: 19; skip: 19; is_hpc: 0; #seq: 195
+[M::mm_idx_stat::13.018*1.00] distinct minimizers: 214664461 (92.23% are singletons); average occurrences: 1.372; average spacing: 10.529; total length: 3099922541
+[M::worker_pipeline::33.154*9.02] mapped 16177 sequences
+[M::main] Version: 1.3
+[M::main] CMD: ${HOME}/micromamba/envs/alnbench/bin/mm2plus.avx2 -t 16 -ax lr:hq ${REPO}/data/index/bench/mm2plus.lrhq.mmi ${REPO}/data/reads/hg001_wg_sub10.fq
+[M::main] Real time: 33.276 sec; CPU: 299.069 sec; Peak RSS: 16.781 GB

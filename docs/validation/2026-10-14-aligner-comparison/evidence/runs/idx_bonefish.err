@@ -1,0 +1,6 @@
+[*] Reading target: ${REPO}/data/ref/GRCh38_no_alt.fa
+[*] Building index for 195 sequences...
+[*] Index built in 20.107s
+[*] Calculated mid_occ: 136 (frac=0.0002)
+[*] Saving index to ${REPO}/data/index/bench/bonefish.raw...
+[*] Done in 61.801s (1 index part). No query file provided; skipping mapping.

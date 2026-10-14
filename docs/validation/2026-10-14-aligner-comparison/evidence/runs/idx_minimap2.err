@@ -1,0 +1,8 @@
+[M::mm_idx_gen::27.480*1.53] collected minimizers
+[M::mm_idx_gen::30.183*2.22] sorted minimizers
+[M::main::60.888*1.29] loaded/built the index for 195 target sequence(s)
+[M::mm_idx_stat] kmer size: 19; skip: 19; is_hpc: 0; #seq: 195
+[M::mm_idx_stat::63.802*1.27] distinct minimizers: 214664461 (92.23% are singletons); average occurrences: 1.372; average spacing: 10.529; total length: 3099922541
+[M::main] Version: 2.31-r1302
+[M::main] CMD: ${HOME}/micromamba/envs/ontaln/bin/minimap2 -t 16 -x lr:hq -d ${REPO}/data/index/bench/mm2.lrhq.mmi ${REPO}/data/ref/GRCh38_no_alt.fa
+[M::main] Real time: 64.230 sec; CPU: 81.670 sec; Peak RSS: 11.343 GB

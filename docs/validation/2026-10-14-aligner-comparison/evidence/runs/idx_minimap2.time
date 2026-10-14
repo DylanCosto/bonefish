@@ -1,0 +1,23 @@
+	Command being timed: "${HOME}/micromamba/envs/ontaln/bin/minimap2 -t 16 -x lr:hq -d ${REPO}/data/index/bench/mm2.lrhq.mmi ${REPO}/data/ref/GRCh38_no_alt.fa"
+	User time (seconds): 63.59
+	System time (seconds): 18.58
+	Percent of CPU this job got: 126%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:04.73
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 11893712
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 3
+	Minor (reclaiming a frame) page faults: 5862975
+	Voluntary context switches: 2301669
+	Involuntary context switches: 3497
+	Swaps: 0
+	File system inputs: 480
+	File system outputs: 11242716
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

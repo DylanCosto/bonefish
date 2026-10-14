@@ -1,0 +1,23 @@
+	Command being timed: "${DATA}/tools/mm2-fast_src/mm2-fast/minimap2 -t 16 -x map-ont -d ${REPO}/data/index/bench/mm2fast.mapont.mmi ${REPO}/data/ref/GRCh38_no_alt.fa"
+	User time (seconds): 73.69
+	System time (seconds): 19.92
+	Percent of CPU this job got: 147%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:03.37
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 11891120
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 2
+	Minor (reclaiming a frame) page faults: 7193835
+	Voluntary context switches: 2219308
+	Involuntary context switches: 4121
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 14188975
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
