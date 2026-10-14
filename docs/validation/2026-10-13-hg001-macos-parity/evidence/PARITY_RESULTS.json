@@ -1,0 +1,98 @@
+{
+  "status": "complete",
+  "completed_utc": "2026-10-14T02:19:43.181827+00:00",
+  "tested_source_commit": "c1b7eb074b49806a86bbd0e48c617957ac436618",
+  "branch_documentation_commit": "22619975719bbf59ea816e6b6349bb8ad5fee170",
+  "run": {
+    "run": "candidate-1",
+    "started_utc": "2026-10-14T02:17:15.554011+00:00",
+    "command": [
+      "${SESSION}/outputs/bonefish-neon-clean-dp/bonefish",
+      "-a",
+      "-t",
+      "8",
+      "${SESSION}/work/bonefish-hg001-parity/data/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta.gz",
+      "${SESSION}/work/bonefish-hg001-parity/data/hg001_wg_1x.fq.gz"
+    ],
+    "binary_sha256": "40bfeb7053a0da22d1ce2a7709e77d441b9ca719afc684e949c38fd211109662",
+    "input_sha256": {
+      "${SESSION}/work/bonefish-hg001-parity/data/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta.gz": "3c8def6d325c5d1e934b2dd530c4d1709f027677a15859467071fddf3fff2026",
+      "${SESSION}/work/bonefish-hg001-parity/data/hg001_wg_1x.fq.gz": "2edff9a3834d5d55963da198bad3717064e0ed5232a037d6783c84fbc8ffb288"
+    },
+    "returncode": 0,
+    "threads": 8,
+    "elapsed_seconds_including_index_and_sam": 88.17212779214606,
+    "census_instrumented": false,
+    "timing_scope": "Fresh FASTA-built index, mapping and SAM output. Input/output hashing and read validation are outside the timer.",
+    "warnings": [],
+    "peak_rss_bytes": 10279075840,
+    "instructions_retired": 7032445413747,
+    "peak_memory_footprint_bytes": 16749556288,
+    "worker_stage_sums_seconds": {
+      "Sequence Sketching": 25.856,
+      "Seeding (Lookup)": 191.349,
+      "Chaining": 105.47,
+      "Alignment (Ext)": 213.356,
+      "Post-chain": 52.206,
+      "Total Measured": 588.237
+    },
+    "sam_sha256_without_pg": "8da232f13b35280925914bc039132dddfaf61dfbcbf9131f7fa9179073eec8f1",
+    "records": 212292,
+    "primary": 161762,
+    "unique_primary_names": 161762,
+    "mapped_primary": 155784,
+    "missing_primary_names": 0,
+    "unexpected_primary_names": 0,
+    "input_sequences_and_qualities_preserved": true,
+    "same_as_original_release_sam": null,
+    "all_checks_passed": true
+  },
+  "dataset": {
+    "drive_file_id": "1L2O5CAHXbbypQxm52ZLbp6xAqCYYS7XH",
+    "compressed_bytes": 1945506828,
+    "compressed_sha256": "2edff9a3834d5d55963da198bad3717064e0ed5232a037d6783c84fbc8ffb288",
+    "reads": 161762,
+    "bases": 2713864134,
+    "read_n50": 28334,
+    "identity_source": "User-selected HG001 genome-wide sample and Drive filename; no independent donor or chemistry qualification."
+  },
+  "counts": {
+    "records": 212292,
+    "primary": 161762,
+    "mapped_primary": 155784,
+    "secondary": 35898,
+    "supplementary": 14632,
+    "unmapped_primary": 5978
+  },
+  "sam_bytes": 5723893452,
+  "sam_sha256": {
+    "raw_sam": "a2cb5bf5f4e77c66d29e38f7f03482c25044f82be641c8ef451f498b1201887e",
+    "sam_without_pg": "8da232f13b35280925914bc039132dddfaf61dfbcbf9131f7fa9179073eec8f1",
+    "records_without_all_headers": "3a3e23a17db4fea47e2d5abbfd713737eaa7aed09802603b6f6ab2f128e1c275"
+  },
+  "validation": {
+    "gzip_crc_and_fastq_framing_passed": true,
+    "exact_primary_inventory_passed": true,
+    "input_sequence_quality_fingerprints_passed": true,
+    "positive_complete_cigar_operations_passed": true,
+    "full_query_cigar_consumption_passed": true,
+    "cigar_sequence_lengths_passed": true,
+    "reference_header_matches_fasta": true,
+    "reference_bounds_passed": true
+  },
+  "expected_x86_hash_prefix_from_user": "deed7949d35f",
+  "expected_full_x86_hash": null,
+  "prefix_matches": [
+    "md5:sam_without_pg"
+  ],
+  "full_x86_arm_parity_established": false,
+  "qualification": "Mac SAM excluding only @PG has MD5 deed7949d35f15bd8eed935be47a1d81, reproducing the supplied x86 prefix deed7949d35f. Only the 12-digit x86 prefix was provided; its full MD5, original command and reference receipt were not supplied. Full-value confirmation remains pending. SHA256 and all structural/input checks are recorded independently.",
+  "storage": "FASTQ, reference and SAM on internal APFS SSD; download, hashing and all validation outside the aligner timer.",
+  "sam_md5": {
+    "raw_sam": "09d50d681b2612e67c79ab7a36f51eb4",
+    "sam_without_pg": "deed7949d35f15bd8eed935be47a1d81",
+    "records_without_all_headers": "dd48e3e9510def031eadb1e63ca2ed3b"
+  },
+  "expected_hash_algorithm_inferred": "MD5; inferred from matching supplied prefix, not from an x86 receipt",
+  "provided_x86_prefix_reproduced": true
+}

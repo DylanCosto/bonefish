@@ -75,6 +75,10 @@ records native platform checks and a paired nominal 1× HG002 experiment: 16.85%
 mean elapsed time on the tested Mac, with all six trial receipts and changed-read evidence.
 Older ARM alignment records change; full WGS x86/ARM parity remains untested.
 
+A subsequent [HG001 genome-wide Mac replay](docs/validation/2026-10-13-hg001-macos-parity/README.md)
+reproduced the supplied x86 MD5 prefix with 161,762 reads. The report records the full
+Mac MD5/SHA256 and structural validation; full-value x86 confirmation remains pending.
+
 ## How it differs from minimap2
 
 Same seeding and scoring as minimap2's `lr:hq`, with cheaper alignment and chaining: narrower,

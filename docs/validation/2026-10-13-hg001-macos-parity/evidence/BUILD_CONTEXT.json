@@ -1,0 +1,9 @@
+{
+  "head_commit": "c1b7eb074b49806a86bbd0e48c617957ac436618",
+  "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+  "build_command": "CARGO_PROFILE_RELEASE_STRIP=true cargo build --release --locked --features jemalloc",
+  "candidate_sha256": "40bfeb7053a0da22d1ce2a7709e77d441b9ca719afc684e949c38fd211109662",
+  "profile": "Generic ARM64 release, jemalloc, opt-level 3, fat LTO, one codegen unit; no native CPU flags.",
+  "hardware": "Apple M4 Pro, 12 CPUs (8P+4E), 24 GiB RAM",
+  "executable_sha256_verified_before_replay": true
+}

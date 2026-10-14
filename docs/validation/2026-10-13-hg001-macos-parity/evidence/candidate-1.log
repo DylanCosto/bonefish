@@ -1,0 +1,43 @@
+[*] Reading target: ${SESSION}/work/bonefish-hg001-parity/data/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta.gz
+[*] Building index part 1 for 195 sequences...
+[*] Index part 1 built in 10.635s
+[*] Calculated mid_occ: 136 (frac=0.0002) [part 1]
+[*] Mapping done in 87.981s (1 index part)
+--- Alignment Breakdown ---
+  Sequence Sketching: 25.856s
+  Seeding (Lookup):   191.349s
+  Chaining:           105.470s
+  Alignment (Ext):    213.356s
+  Post-chain:         52.206s
+  Total Measured:     588.237s
+  Reads: 161762, Seeds: 270631798, Anchors: 1178695239, Chains: 402318754
+---------------------------
+--- Post-chain sub-timers ---
+  RMQ rescue:      48.553s (36158 calls, 193307375 anchors, 66535 skipped: no joinable chains)
+    of which high-occ re-chain: 0.000s (0 calls)
+  Build regs:      1.676s
+  Parent+filter:   0.644s
+  Div+strand:      0.935s
+  Squeezed+bounds: 0.384s
+  Extension probe stops: 56356
+  Sub-anchored long gaps: 99036
+  Narrow gap band: 5225975 used (24811 widened), 24792 too wide, 1395 edge fallbacks
+-----------------------------
+       88.15 real       471.61 user        83.40 sys
+         10279075840  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+            12902700  page reclaims
+                  23  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+               53712  voluntary context switches
+             2292851  involuntary context switches
+       7032445413747  instructions retired
+       2098475535800  cycles elapsed
+         16749556288  peak memory footprint

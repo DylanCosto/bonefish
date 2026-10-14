@@ -1,0 +1,141 @@
+{
+  "tested_implementation_commit": "c1b7eb074b49806a86bbd0e48c617957ac436618",
+  "measurement_date_local": "2026-10-13",
+  "timezone": "America/New_York",
+  "transform": "UTF-8 replacement of local machine paths only; measurements, public read hashes and all numerical results are unchanged. Analysis scripts are historical snapshots with path placeholders.",
+  "placeholders": {
+    "${REPO}": "Checkout of the tested source",
+    "${SESSION}": "Original local experiment session",
+    "${EXTERNAL_SSD}": "External source of the reference before internal staging",
+    "${USER_HOME}": "Original local home directory"
+  },
+  "excluded": [
+    "Large FASTQ",
+    "Compressed reference",
+    "Full SAM",
+    "Executable"
+  ],
+  "artifacts": [
+    {
+      "source": "outputs/bonefish-hg001-parity/ADDITIONAL_HASHES.json",
+      "path": "ADDITIONAL_HASHES.json",
+      "original_sha256": "8445494847701e0fef8c799a8356fb30830e3c9d707bce5fb6649080b59c81b8",
+      "packaged_sha256": "8445494847701e0fef8c799a8356fb30830e3c9d707bce5fb6649080b59c81b8",
+      "bytes": 316,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/BUILD_CONTEXT.json",
+      "path": "BUILD_CONTEXT.json",
+      "original_sha256": "f105aea268053647da3ec17ba0119408c1cd4566c0ed6e20af5ab3f6e648b250",
+      "packaged_sha256": "f105aea268053647da3ec17ba0119408c1cd4566c0ed6e20af5ab3f6e648b250",
+      "bytes": 696,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/DOWNLOAD_STATUS.json",
+      "path": "DOWNLOAD_STATUS.json",
+      "original_sha256": "4c474c8b3f71d8d007197a103ca7d756b70e3b42df1b899973c45fa829b46732",
+      "packaged_sha256": "8aa9d656efdd43a64ffc5cd59a55eb4b4d6043a2bbc38834c0180875ce49dda6",
+      "bytes": 1163,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/DRIVE_SOURCE.json",
+      "path": "DRIVE_SOURCE.json",
+      "original_sha256": "b37362d417a01ded5ff49b0e2b3fb91d57a6c5210d47b510025ce6b03cc242e9",
+      "packaged_sha256": "b37362d417a01ded5ff49b0e2b3fb91d57a6c5210d47b510025ce6b03cc242e9",
+      "bytes": 428,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/PARITY_RESULTS.json",
+      "path": "PARITY_RESULTS.json",
+      "original_sha256": "e2887d0cace3a05bccafc4098d5fd62f13b13f7f6c00529612c5a6ba6c148598",
+      "packaged_sha256": "25b79719f3fdf1f2689c4f95fa0ef27bb344891b0c959f3172a793f155804e17",
+      "bytes": 4437,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/README.md",
+      "path": "ORIGINAL_REPORT.md",
+      "original_sha256": "d9e3c4dc43f97c9df65b66435418f999aed6b0af5408a6567d8a076f7f92e590",
+      "packaged_sha256": "d9e3c4dc43f97c9df65b66435418f999aed6b0af5408a6567d8a076f7f92e590",
+      "bytes": 2354,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/REFERENCE_RECEIPT.json",
+      "path": "REFERENCE_RECEIPT.json",
+      "original_sha256": "6fcae97106320c04073ca3ec219f9b4b3f486405672275a2f87e6c36395cead0",
+      "packaged_sha256": "899cd0d9db321b9638813ce3ec236101c10475f81453dab7b19a8912ca579b16",
+      "bytes": 465,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/SHA256SUMS.txt",
+      "path": "ORIGINAL_SHA256SUMS.txt",
+      "original_sha256": "e427dac0cd81aabc4a3f9e30dce9d3fd970882ab79169a4f77fe24705c682d5a",
+      "packaged_sha256": "e427dac0cd81aabc4a3f9e30dce9d3fd970882ab79169a4f77fe24705c682d5a",
+      "bytes": 1102,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/SORTED_RECORD_HASHES.json",
+      "path": "SORTED_RECORD_HASHES.json",
+      "original_sha256": "7f3769fddfa00d5a28aace4aa331992f76af4134a461ff74e8b701b43fcfcea8",
+      "packaged_sha256": "7f3769fddfa00d5a28aace4aa331992f76af4134a461ff74e8b701b43fcfcea8",
+      "bytes": 403,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/candidate-1.json",
+      "path": "candidate-1.json",
+      "original_sha256": "be3b9d64623a98fca6be18f1473637bb4b37db0f8af2de66c49aad1aa8fc41c6",
+      "packaged_sha256": "317fc6e56f637470fb778691ae7ac09e9f0dd25b0783701fdd045b1d308aa373",
+      "bytes": 1777,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/candidate-1.log",
+      "path": "candidate-1.log",
+      "original_sha256": "71a60343bdd2133e7c7631387ead46cac1bd14325816764c2451507349b21d7b",
+      "packaged_sha256": "cf9f85b579837cd114021d8f328eafa786271495c7cfbb87b40b0b2a950a72b4",
+      "bytes": 1838,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/default-sam.driver.log",
+      "path": "default-sam.driver.log",
+      "original_sha256": "be3b9d64623a98fca6be18f1473637bb4b37db0f8af2de66c49aad1aa8fc41c6",
+      "packaged_sha256": "317fc6e56f637470fb778691ae7ac09e9f0dd25b0783701fdd045b1d308aa373",
+      "bytes": 1777,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "outputs/bonefish-hg001-parity/download.log",
+      "path": "download.log",
+      "original_sha256": "4f12e8ba821923df1b125316be35c5e19222333e4d6614b3d2387b5dafea0e5a",
+      "packaged_sha256": "4f12e8ba821923df1b125316be35c5e19222333e4d6614b3d2387b5dafea0e5a",
+      "bytes": 655,
+      "local_paths_redacted": false
+    },
+    {
+      "source": "work/analyze_hg001_parity.py",
+      "path": "analysis/analyze_hg001_parity.py",
+      "original_sha256": "322886535abf03ca490d1b93cd2e8b08e1128b6194af2dc2114f15cad22ebb00",
+      "packaged_sha256": "f9c935cdd0dec497d34b29036eabce4f17060810fc4551067c81070fd43765e2",
+      "bytes": 8938,
+      "local_paths_redacted": true
+    },
+    {
+      "source": "work/download_hg001_parity.py",
+      "path": "analysis/download_hg001_parity.py",
+      "original_sha256": "70bb7e8987265c837961974831e3caf5e45ab92717a18b2174de8a9c87aac7ad",
+      "packaged_sha256": "4a1ea4d2e7ed0d16dccdcfce3da31c4802d9f56054ea216cc91cff0df5d55f47",
+      "bytes": 2654,
+      "local_paths_redacted": true
+    }
+  ],
+  "historical_snapshots": "PREFLIGHT.json is excluded; ORIGINAL_SHA256SUMS.txt covers local source files, including the excluded preflight. The packaged SHA256SUMS covers every file in this evidence directory."
+}

@@ -15,6 +15,11 @@ against main
 Testing did not change aligner source. This later results commit publishes the
 evidence; its commit ID is separate from the measured implementation.
 
+The subsequent [HG001 replay](../2026-10-13-hg001-macos-parity/README.md) used the
+user-supplied genome-wide sample and reproduced the supplied x86 MD5 prefix after
+excluding only `@PG`. It records the full Mac hashes; the complete expected x86
+hash and original command/reference receipt remain unprovided.
+
 ## Native and local checks
 
 [Native CI run 38478508116](https://github.com/DylanCosto/bonefish/actions/runs/38478508116)

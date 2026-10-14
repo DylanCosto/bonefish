@@ -1,0 +1,9 @@
+{
+  "source": "${EXTERNAL_SSD}/GenomeOS/metalign_data/references/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta.gz",
+  "internal_copy": "${SESSION}/work/bonefish-hg001-parity/data/GCA_000001405.15_GRCh38_no_alt_analysis_set.fasta.gz",
+  "bytes": 886344618,
+  "sha256": "3c8def6d325c5d1e934b2dd530c4d1709f027677a15859467071fddf3fff2026",
+  "copy_verified": true,
+  "x86_reference_identity_confirmed": false,
+  "verified_utc": "2026-10-14T02:14:35.389475+00:00"
+}
