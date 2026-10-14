@@ -499,6 +499,9 @@ pub struct BgzfParallel {
     cur: Vec<u8>,
     pos: usize,
     eof: bool,
+    /// Number of batches, set by the splitter once it has read the input to its end without
+    /// error; until then u64::MAX.
+    total: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 
 /// Whether `head` starts with a BGZF block (gzip with the `BC` extra subfield).
@@ -514,6 +517,8 @@ impl BgzfParallel {
         let (job_tx, job_rx) = std::sync::mpsc::sync_channel::<(u64, io::Result<Vec<u8>>)>(2 * workers);
         let job_rx = std::sync::Arc::new(std::sync::Mutex::new(job_rx));
         let (res_tx, res_rx) = std::sync::mpsc::sync_channel::<(u64, io::Result<Vec<u8>>)>(2 * workers);
+        let total = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX));
+        let total_w = std::sync::Arc::clone(&total);
         // Splitter: whole blocks into batches.
         std::thread::spawn(move || {
             let mut seq = 0u64;
@@ -541,7 +546,11 @@ impl BgzfParallel {
                     seq += 1;
                 }
             }
-            if !batch.is_empty() { let _ = job_tx.send((seq, Ok(batch))); }
+            if !batch.is_empty() {
+                if job_tx.send((seq, Ok(batch))).is_err() { return; }
+                seq += 1;
+            }
+            total_w.store(seq, std::sync::atomic::Ordering::SeqCst);
         });
         for _ in 0..workers {
             let job_rx = std::sync::Arc::clone(&job_rx);
@@ -576,7 +585,7 @@ impl BgzfParallel {
                 }
             });
         }
-        BgzfParallel { rx: res_rx, pending: Default::default(), next: 0, cur: Vec::new(), pos: 0, eof: false }
+        BgzfParallel { rx: res_rx, pending: Default::default(), next: 0, cur: Vec::new(), pos: 0, eof: false, total }
     }
 }
 
@@ -601,7 +610,13 @@ impl io::BufRead for BgzfParallel {
             }
             match self.rx.recv() {
                 Ok((seq, r)) => { self.pending.insert(seq, r); }
-                Err(_) => { self.eof = true; }
+                // All threads have finished: the end of the input only if every batch arrived.
+                Err(_) => {
+                    self.eof = true;
+                    if self.next != self.total.load(std::sync::atomic::Ordering::SeqCst) || !self.pending.is_empty() {
+                        return Err(io::Error::other("BGZF decompression stopped before the end of the input"));
+                    }
+                }
             }
         }
         Ok(&self.cur[self.pos.min(self.cur.len())..])

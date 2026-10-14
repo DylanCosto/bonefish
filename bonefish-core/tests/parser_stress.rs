@@ -414,7 +414,7 @@ fn feed_file(rng: &mut Rng, d: &[u8], tmp: &Path) {
         r.set_keep_description(rng.chance(1, 2));
         drain(r);
     }
-    let _ = std::hint::black_box(bam::header_lines(&path));
+    let _ = std::hint::black_box(fasta::input_read_groups(&path));
     let _ = std::fs::remove_file(&path);
 }
 

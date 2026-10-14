@@ -579,7 +579,9 @@ impl BufRead for ThreadedRead {
                     self.pos = 0;
                 }
                 Ok(Err(e)) => { self.eof = true; return Err(e); }
-                Err(_) => { self.eof = true; }
+                // The worker ends with an empty block; a closed channel without it means the
+                // thread died, which must not look like the end of the input.
+                Err(_) => { self.eof = true; return Err(io::Error::other("decompression thread stopped before the end of the input")); }
             }
         }
         Ok(&self.cur[self.pos.min(self.cur.len())..])
