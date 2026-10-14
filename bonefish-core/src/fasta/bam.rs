@@ -97,12 +97,22 @@ pub fn looks_like_bam(head: &[u8]) -> bool {
     if head.len() < bsize {
         return false;
     }
-    let mut out = vec![0u8; u32::from_le_bytes(head[bsize - 4..bsize].try_into().unwrap()) as usize];
+    let isize = u32::from_le_bytes(head[bsize - 4..bsize].try_into().unwrap()) as usize;
+    if isize > MAX_ISIZE {
+        return false;
+    }
+    let mut out = vec![0u8; isize];
     let mut dec = libdeflater::Decompressor::new();
     matches!(dec.gzip_decompress(&head[..bsize], &mut out), Ok(n) if n >= 4 && &out[..4] == b"BAM\x01")
 }
 
-/// Total size of the BGZF block starting at `h[0]` (from the `BC` extra subfield).
+/// Smallest BGZF block: 18-byte header and 8-byte footer (CRC32, ISIZE).
+const MIN_BLOCK: usize = 26;
+/// Largest uncompressed BGZF block (ISIZE), as in htslib.
+const MAX_ISIZE: usize = 1 << 16;
+
+/// Total size of the BGZF block starting at `h[0]` (from the `BC` extra subfield); None if
+/// there is no such field or the size cannot hold the header and footer.
 fn bgzf_block_size(h: &[u8]) -> Option<usize> {
     if h.len() < 12 {
         return None;
@@ -112,7 +122,8 @@ fn bgzf_block_size(h: &[u8]) -> Option<usize> {
     while i + 4 <= 12 + xlen && i + 4 <= h.len() {
         let slen = u16::from_le_bytes([h[i + 2], h[i + 3]]) as usize;
         if h[i] == b'B' && h[i + 1] == b'C' && slen == 2 && i + 6 <= h.len() {
-            return Some(u16::from_le_bytes([h[i + 4], h[i + 5]]) as usize + 1);
+            let size = u16::from_le_bytes([h[i + 4], h[i + 5]]) as usize + 1;
+            return (size >= MIN_BLOCK).then_some(size);
         }
         i += 4 + slen;
     }
@@ -206,23 +217,28 @@ impl BamFastq {
         i32::from_le_bytes(self.raw[self.pos + off..self.pos + off + 4].try_into().unwrap())
     }
 
+    /// A length field (i32) at `off`; None if negative.
+    fn len_at(&self, off: usize) -> Option<usize> {
+        usize::try_from(self.i32_at(off)).ok()
+    }
+
     fn skip_header(&mut self) -> io::Result<()> {
         let bad = || io::Error::new(io::ErrorKind::InvalidData, "truncated or invalid BAM header");
         if !self.want(12)? || &self.raw[self.pos..self.pos + 4] != b"BAM\x01" {
             return Err(bad());
         }
-        let l_text = self.i32_at(4) as usize;
+        let l_text = self.len_at(4).ok_or_else(bad)?;
         if !self.want(8 + l_text + 4)? {
             return Err(bad());
         }
         self.pos += 8 + l_text;
-        let n_ref = self.i32_at(0) as usize;
+        let n_ref = self.len_at(0).ok_or_else(bad)?;
         self.pos += 4;
         for _ in 0..n_ref {
             if !self.want(4)? {
                 return Err(bad());
             }
-            let l_name = self.i32_at(0) as usize;
+            let l_name = self.len_at(0).ok_or_else(bad)?;
             if !self.want(4 + l_name + 4)? {
                 return Err(bad());
             }
@@ -245,7 +261,8 @@ impl BamFastq {
                 self.eof = true;
                 return Ok(());
             }
-            let block_size = self.i32_at(0) as usize;
+            let block_size = self.len_at(0)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "malformed BAM record"))?;
             if !self.want(4 + block_size)? {
                 return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "truncated BAM record"));
             }
@@ -295,6 +312,9 @@ fn next_block<R: Read>(inner: &mut R, dec: &mut libdeflater::Decompressor, block
         return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "truncated BGZF block"));
     }
     let isize = u32::from_le_bytes(block[bsize - 4..].try_into().unwrap()) as usize;
+    if isize > MAX_ISIZE {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "BGZF block larger than 64 KiB"));
+    }
     let start = out.len();
     out.reserve(isize);
     // Decompress straight into the spare capacity (no zero-fill).
@@ -328,10 +348,11 @@ fn append_fastq(rec: &[u8], out: &mut Vec<u8>) -> io::Result<()> {
     let l_read_name = rec[8] as usize;
     let n_cigar = u16::from_le_bytes([rec[12], rec[13]]) as usize;
     let flag = u16::from_le_bytes([rec[14], rec[15]]);
-    let l_seq = i32::from_le_bytes(rec[16..20].try_into().unwrap()) as usize;
+    let l_seq = i32::from_le_bytes(rec[16..20].try_into().unwrap());
     if flag & 0x900 != 0 {
         return Ok(());
     }
+    let l_seq = usize::try_from(l_seq).map_err(|_| bad())?;
     let name_end = 32 + l_read_name;
     let seq_off = name_end + 4 * n_cigar;
     let qual_off = seq_off + l_seq.div_ceil(2);
@@ -391,7 +412,7 @@ fn append_tags(mut aux: &[u8], out: &mut Vec<u8>) -> Result<(), ()> {
         let ty = aux[2];
         let body = &aux[3..];
         let want = keep_tag(tag);
-        let int_size = |t: u8| match t { b'c' | b'C' | b'A' => Some(1), b's' | b'S' => Some(2), b'i' | b'I' | b'f' => Some(4), _ => None };
+        let int_size = |t: u8| match t { b'c' | b'C' => Some(1), b's' | b'S' => Some(2), b'i' | b'I' | b'f' => Some(4), _ => None };
         let read_int = |t: u8, b: &[u8]| -> i64 {
             match t {
                 b'c' => b[0] as i8 as i64, b'C' => b[0] as i64,
@@ -537,6 +558,9 @@ impl BgzfParallel {
                             let bsize = bgzf_block_size(&b[i..]).unwrap_or(b.len() - i);
                             let blk = &b[i..i + bsize];
                             let isize = u32::from_le_bytes(blk[bsize - 4..].try_into().unwrap()) as usize;
+                            if isize > MAX_ISIZE {
+                                return Err(io::Error::new(io::ErrorKind::InvalidData, "BGZF block larger than 64 KiB"));
+                            }
                             let start = out.len();
                             out.reserve(isize);
                             // SAFETY: decompress into reserved spare capacity; length set from the result.
