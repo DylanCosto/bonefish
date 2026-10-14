@@ -293,6 +293,47 @@ fn bam_tags_and_read_groups_with_y() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// Reads given on stdin or through a pipe (`<(zcat reads.fq.gz)`) give the same output as the
+/// file, and a BAM streamed this way keeps its `@RG` header lines (they are read before mapping,
+/// so the bytes consumed for that must be replayed).
+#[cfg(unix)]
+#[test]
+fn stdin_and_pipe_input() {
+    use std::process::Stdio;
+    let dir = tmp_dir("pipe");
+    let bam = dir.join("reads.bam");
+    let rg = "@RG\tID:run1\tPL:ONT\n";
+    write_ubam_with(&data("reads.fq.gz"), &bam, rg, |_| b"RGZrun1\0".to_vec());
+    let reference = data("ref.fa.gz");
+    let reference = reference.to_str().unwrap();
+    let reads = data("reads.fq.gz");
+    for (input, extra) in [(&reads, &[][..]), (&bam, &["-y"][..])] {
+        assert!(extra.is_empty() || run(&["-a", "-y", "-t", "2", reference, bam.to_str().unwrap()]).contains(rg.trim_end()));
+        let mut args = vec!["-a", "-t", "2"];
+        args.extend_from_slice(extra);
+        let expected = run(&[&args[..], &[reference, input.to_str().unwrap()]].concat());
+        // stdin
+        let out = Command::new(env!("CARGO_BIN_EXE_bonefish")).args(&args).args([reference, "-"])
+            .stdin(Stdio::from(std::fs::File::open(input).unwrap())).output().unwrap();
+        assert!(out.status.success(), "stdin run failed: {}", String::from_utf8_lossy(&out.stderr));
+        let text: String = String::from_utf8(out.stdout).unwrap().lines()
+            .filter(|l| !l.starts_with("@PG")).map(|l| format!("{}\n", l)).collect();
+        assert!(text == expected, "stdin output differs for {}", input.display());
+        // named pipe
+        let fifo = dir.join("fifo");
+        std::fs::remove_file(&fifo).ok();
+        assert!(Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+        let (src, dst) = (input.clone(), fifo.clone());
+        let writer = std::thread::spawn(move || {
+            std::io::copy(&mut std::fs::File::open(src).unwrap(), &mut std::fs::File::create(dst).unwrap()).ok();
+        });
+        let out = run(&[&args[..], &[reference, fifo.to_str().unwrap()]].concat());
+        writer.join().unwrap();
+        assert!(out == expected, "pipe output differs for {}", input.display());
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// Wrapped (multi-line) FASTQ gives the same alignments as the four-line form.
 #[test]
 fn multiline_fastq_gives_same_output() {

@@ -61,10 +61,10 @@ pub fn filter_comment_tags(comment: &str) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
-/// The `@RG` lines of a BAM file's header (read from its first BGZF blocks), or an empty list
-/// if the file is not BAM.
-pub fn header_lines(path: &std::path::Path) -> io::Result<Vec<String>> {
-    let mut f = io::BufReader::new(std::fs::File::open(path)?);
+/// The `@RG` lines of a BAM header (read from the first BGZF blocks of `input`), or an empty
+/// list if the input is not BAM.
+pub fn header_lines<R: Read>(input: R) -> io::Result<Vec<String>> {
+    let mut f = io::BufReader::new(input);
     let mut dec = libdeflater::Decompressor::new();
     let mut block = Vec::with_capacity(1 << 16);
     let mut data = Vec::new();

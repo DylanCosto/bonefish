@@ -815,8 +815,8 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
     let mid_occ_frac = cli.mid_occ_frac.unwrap_or(2e-4);
     let mut input_rg: Vec<String> = Vec::new();
     if cli.sam_rg.is_none() {
-        for qf in query_files.iter().filter(|q| *q != "-") {
-            for l in bonefish::fasta::bam::header_lines(std::path::Path::new(qf)).unwrap_or_default() {
+        for qf in query_files.iter() {
+            for l in bonefish::fasta::input_read_groups(qf).unwrap_or_default() {
                 if !input_rg.contains(&l) { input_rg.push(l); }
             }
         }
