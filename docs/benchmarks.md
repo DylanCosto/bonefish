@@ -65,6 +65,13 @@ The same HG002 chr20 reads aligned by minimap2 and by bonefish, then ONT's
 
 Details: [validation/2026-10-14-wf-human-variation](validation/2026-10-14-wf-human-variation/README.md).
 
+## Other references
+
+Same genome-wide HG001 sample, bonefish vs minimap2: on T2T-CHM13 41 s vs 166 s (4.0x), both mapping
+96.01% of reads; on GRCh38 with 261 ALT contigs and decoys (`--alt` given to both) 49 s vs 206 s (4.2x),
+with the same number of primaries on ALT contigs (155 vs 154) and the same MHC mapping quality.
+Details: [validation/2026-10-14-other-references](validation/2026-10-14-other-references/README.md).
+
 ## Aligner speed alone (SAM output)
 
 | dataset | minimap2 | bonefish | speedup |

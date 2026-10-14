@@ -91,7 +91,8 @@ the full comparison and the known differences from minimap2 are in
 [2026-10-12-giab-wgs](docs/validation/2026-10-12-giab-wgs/README.md); other aligners:
 [2026-10-14-aligner-comparison](docs/validation/2026-10-14-aligner-comparison/README.md);
 methylation: [2026-10-14-modkit-methylation](docs/validation/2026-10-14-modkit-methylation/README.md);
-ONT's wf-human-variation pipeline: [2026-10-14-wf-human-variation](docs/validation/2026-10-14-wf-human-variation/README.md)).
+ONT's wf-human-variation pipeline: [2026-10-14-wf-human-variation](docs/validation/2026-10-14-wf-human-variation/README.md);
+T2T-CHM13 and ALT contigs: [2026-10-14-other-references](docs/validation/2026-10-14-other-references/README.md)).
 
 **Apple Silicon.** arm64 builds produce the same output as x86: the genome-wide HG001 sample gives
 the identical MD5 (`deed7949d35f15bd8eed935be47a1d81`) on an Apple M4 Pro and on x86

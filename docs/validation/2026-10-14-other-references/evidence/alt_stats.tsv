@@ -1,0 +1,2 @@
+alt_bonefish	primaries=155858	on_alt=155	on_decoy=1077	MHC_primaries=217	MHC_MAPQ>=20=213 (98.16%)
+alt_minimap2	primaries=155858	on_alt=154	on_decoy=1073	MHC_primaries=217	MHC_MAPQ>=20=213 (98.16%)

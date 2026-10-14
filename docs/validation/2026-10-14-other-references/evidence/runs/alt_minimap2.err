@@ -1,0 +1,14 @@
+[M::main::9.193*0.98] loaded/built the index for 2841 target sequence(s)
+[M::mm_mapopt_update::11.902*0.98] mid_occ = 142
+[M::mm_idx_stat] kmer size: 19; skip: 19; is_hpc: 0; #seq: 2841
+[M::mm_idx_stat::14.011*0.98] distinct minimizers: 215099744 (90.59% are singletons); average occurrences: 1.418; average spacing: 10.538; total length: 3215250450
+[M::mm_idx_alt_read] found 261 ALT contigs
+[M::worker_pipeline::71.877*10.87] mapped 28786 sequences
+[M::worker_pipeline::102.298*11.71] mapped 28851 sequences
+[M::worker_pipeline::116.538*11.91] mapped 28705 sequences
+[M::worker_pipeline::151.632*11.98] mapped 28532 sequences
+[M::worker_pipeline::186.830*12.43] mapped 28924 sequences
+[M::worker_pipeline::205.225*12.51] mapped 17964 sequences
+[M::main] Version: 2.31-r1302
+[M::main] CMD: ${HOME}/micromamba/envs/ontaln/bin/minimap2 -t 16 -ax lr:hq --alt ${REPO}/data/ref/extra/GRCh38_alt.list ${REPO}/data/index/extra/GRCh38_alt.mm2.mmi ${REPO}/data/reads/hg001_wg_1x.fq.gz
+[M::main] Real time: 206.378 sec; CPU: 2567.945 sec; Peak RSS: 19.209 GB
