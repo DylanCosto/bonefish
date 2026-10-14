@@ -49,6 +49,29 @@ HG002 chr20 (55x, dorado sup v5.0.0 with 5mC/5hmC models), aligned by both with 
 the few discordant sites are where the aligners placed different reads. Details:
 [validation/2026-10-14-modkit-methylation](validation/2026-10-14-modkit-methylation/README.md).
 
+## ONT's wf-human-variation pipeline
+
+The same HG002 chr20 reads aligned by minimap2 and by bonefish, then ONT's
+[wf-human-variation](https://github.com/epi2me-labs/wf-human-variation) v2.8.1 with every analysis on
+(Clair3, Sniffles2, modkit, Straglr, Spectre), unchanged:
+
+| | minimap2 BAM | bonefish BAM |
+|---|---:|---:|
+| SNP F1 (vs GIAB v4.2.1) | 0.9987 | 0.9987 (identical TP/FP/FN) |
+| indel F1 | 0.9014 | 0.9018 |
+| SV F1 (vs GIAB v5.0q) | 0.7817 | 0.7879 |
+| CpG 5mC level / per-site r | 64.62% | 64.66% / 0.9988 |
+| STR loci (chr20 catalogue), CNV calls | 2, 1 DUP | 2 (same alleles), same DUP |
+
+Details: [validation/2026-10-14-wf-human-variation](validation/2026-10-14-wf-human-variation/README.md).
+
+## Other references
+
+Same genome-wide HG001 sample, bonefish vs minimap2: on T2T-CHM13 41 s vs 166 s (4.0x), both mapping
+96.01% of reads; on GRCh38 with 261 ALT contigs and decoys (`--alt` given to both) 49 s vs 206 s (4.2x),
+with the same number of primaries on ALT contigs (155 vs 154) and the same MHC mapping quality.
+Details: [validation/2026-10-14-other-references](validation/2026-10-14-other-references/README.md).
+
 ## Aligner speed alone (SAM output)
 
 | dataset | minimap2 | bonefish | speedup |

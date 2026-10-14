@@ -1,0 +1,15 @@
+[13:54:26] start minimap2
+[13:54:35] end minimap2 rc=1
+[13:54:35] start bonefish
+[13:54:38] end bonefish rc=1
+[13:54:38] ALLDONE
+[13:54:52] retry with NXF_SYNTAX_PARSER=v1
+[13:54:52] start minimap2
+[13:58:37] end minimap2 rc=1
+[13:58:37] start bonefish
+[14:00:28] retry with work dirs on ~/wfhv_work (space in the data volume path broke Clair3)
+[14:00:28] start minimap2
+[14:18:44] end minimap2 rc=0
+[14:18:56] start bonefish
+[14:39:27] end bonefish rc=0
+[14:39:42] ALLDONE

@@ -1,0 +1,23 @@
+	Command being timed: "${REPO}/bonefish/target/release/bonefish -t 16 -d ${REPO}/data/index/extra/GRCh38_alt.bonefish.raw --idx-raw ${REPO}/data/ref/extra/GRCh38_alt.fa"
+	User time (seconds): 63.53
+	System time (seconds): 19.38
+	Percent of CPU this job got: 99%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 1:23.53
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 11120468
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 51928
+	Minor (reclaiming a frame) page faults: 10498007
+	Voluntary context switches: 2564571
+	Involuntary context switches: 14952
+	Swaps: 0
+	File system inputs: 3117536
+	File system outputs: 16870157
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

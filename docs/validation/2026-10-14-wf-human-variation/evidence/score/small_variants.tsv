@@ -1,0 +1,5 @@
+aligner	type	truth_tp	fp	fn	precision	recall	f1
+minimap2	snps	71267	90	95	0.9987	0.9987	0.9987
+minimap2	indels	9914	828	1342	0.9229	0.8808	0.9014
+bonefish	snps	71267	90	95	0.9987	0.9987	0.9987
+bonefish	indels	9921	826	1335	0.9232	0.8814	0.9018

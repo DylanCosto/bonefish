@@ -1,0 +1,23 @@
+	Command being timed: "${HOME}/micromamba/envs/nf/bin/nextflow run epi2me-labs/wf-human-variation -r v2.8.1 -c ${REPO}/results/wfhv/local.config -w ${HOME}/wfhv_work/work_bonefish --bam ${REPO}/results/modkit/bonefish.bam --ref ${REPO}/data/ref/GRCh38_no_alt.fa --bed ${REPO}/results/wfhv/chr20.bed --snp --sv --mod --str --cnv --sex XY --override_basecaller_cfg dna_r10.4.1_e8.2_400bps_sup@v5.0.0 --sample_name HG002_bonefish --threads 16 --out_dir ${HOME}/wfhv_work/out_bonefish"
+	User time (seconds): 48.09
+	System time (seconds): 6.41
+	Percent of CPU this job got: 4%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 20:30.80
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 1279680
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 133
+	Minor (reclaiming a frame) page faults: 1675118
+	Voluntary context switches: 293726
+	Involuntary context switches: 7602
+	Swaps: 0
+	File system inputs: 3004168
+	File system outputs: 6712941
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
