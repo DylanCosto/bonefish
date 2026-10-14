@@ -59,6 +59,7 @@ unsafe fn simd_fast_log2_avx2(x: __m256) -> __m256 {
 /// Writes scores to sc_buf[start..end]. Invalid pairs get i32::MIN.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
+#[allow(clippy::too_many_arguments)]
 unsafe fn compute_chain_scores_batch_avx2(
     qi: i32,
     ri: i32,
@@ -311,6 +312,7 @@ impl DiagBuckets {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::needless_range_loop)] // tail loop over sc_buf[j..end] builds a lane mask from k
 unsafe fn chain_scores_masked_avx2(
     qi: i32, ri: i32, rid_strand_i: u32, diag_i: i32,
     soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32], soa_rid_strand: &[u32], soa_diag: &[i32],
@@ -802,6 +804,7 @@ unsafe fn sse2_min_epi32(a: __m128i, b: __m128i) -> __m128i {
 /// Batch-compute chain scores for 4 predecessors at a time (SSE2).
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
+#[allow(clippy::too_many_arguments)]
 unsafe fn compute_chain_scores_batch_sse(
     qi: i32, ri: i32, rid_strand_i: u32,
     soa_ref_pos: &[i32], soa_query_pos: &[i32],
@@ -1143,6 +1146,7 @@ unsafe fn simd_fast_log2_avx512(x: __m512) -> __m512 {
 /// Batch-compute chain scores for 16 predecessors at a time (AVX-512).
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f", enable = "avx512bw")]
+#[allow(clippy::too_many_arguments)]
 unsafe fn compute_chain_scores_batch_avx512(
     qi: i32, ri: i32, rid_strand_i: u32,
     soa_ref_pos: &[i32], soa_query_pos: &[i32],

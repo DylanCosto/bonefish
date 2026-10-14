@@ -143,6 +143,7 @@ pub fn align(q: &[u8], t: &[u8], p: &Penalties, max_pen: i32) -> Option<(i32, Ve
 /// Walk back from (s, k_end) at the end of M, building the CIGAR of the reversed alignment; it
 /// is emitted forward-oriented for the original sequences.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::int_plus_one)] // bounds are written on the next offset, x + 1
 fn backtrace(w: &Wfs, p: &Penalties, s_end: i32, k_end: i32, n: i32, m: i32, qr: &[u8], tr: &[u8]) -> Vec<u32> {
     let _ = (qr, tr);
     // ops in backtrace order (end of reversed alignment first) = start of the forward alignment
@@ -235,6 +236,7 @@ fn aget(meta: &[Meta], data: &[i32], s: i32, c: usize, k: i32) -> i32 {
 fn gcd(a: i32, b: i32) -> i32 { if b == 0 { a } else { gcd(b, a % b) } }
 
 /// As `align`, with flat reusable storage and penalties divided by their gcd.
+#[allow(clippy::int_plus_one)] // bounds are written on the next offset, x + 1
 pub fn align_fast(q: &[u8], t: &[u8], p0: &Penalties, max_pen: i32, buf: &mut WfaBuf) -> Option<(i32, Vec<u32>)> {
     let g = [p0.x, p0.o1, p0.e1, p0.o2, p0.e2].into_iter().fold(0, gcd).max(1);
     let p = Penalties { x: p0.x / g, o1: p0.o1 / g, e1: p0.e1 / g, o2: p0.o2 / g, e2: p0.e2 / g };
@@ -365,6 +367,7 @@ pub fn align_fast(q: &[u8], t: &[u8], p0: &Penalties, max_pen: i32, buf: &mut Wf
 mod tests {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     fn dp_score(q: &[u8], t: &[u8], a: i32, b: i32, go: i32, ge: i32, go2: i32, ge2: i32) -> i32 {
         // Plain O(nm) dual-affine global DP (max score) as the reference.
         let (n, m) = (q.len(), t.len());
@@ -391,6 +394,7 @@ mod tests {
         h[n][m]
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn cigar_score(c: &[u32], q: &[u8], t: &[u8], a: i32, b: i32, go: i32, ge: i32, go2: i32, ge2: i32) -> i32 {
         let (mut i, mut j, mut sc) = (0usize, 0usize, 0i32);
         for &op in c {

@@ -292,12 +292,10 @@ impl<R: BufRead> Reader<R> {
             return Err(FastxError::MalformedFastq { line: self.line_number, msg: "expected a header line starting with '@'".into() });
         }
         // Fast path: name only, comment skipped in place.
-        if !self.keep_description {
-            if let Some(name) = self.read_fastq_name_only()? {
-                let Some(name) = name else { return Ok(None); };
-                self.line_number += 1;
-                return self.read_fastq_body(name, None);
-            }
+        if !self.keep_description && let Some(name) = self.read_fastq_name_only()? {
+            let Some(name) = name else { return Ok(None); };
+            self.line_number += 1;
+            return self.read_fastq_body(name, None);
         }
         self.buf.clear();
         self.reader.read_until(b'\n', &mut self.buf)?;
@@ -417,6 +415,7 @@ impl<R: BufRead> Reader<R> {
     /// Returns (seqs, is_eof). Caller can call again for the next batch.
     /// Check before the next read,
     /// meaning the last sequence that pushes past the limit IS included.
+    #[allow(clippy::type_complexity)]
     pub fn read_batch(&mut self, batch_size: u64) -> Result<(Vec<(String, Vec<u8>)>, bool), FastxError> {
         let mut seqs = Vec::new();
         let mut sum_len: u64 = 0;

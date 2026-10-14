@@ -1519,6 +1519,7 @@ fn map_one_part(
                         .collect();
                     for o in open.iter_mut() { o.pending.clear(); }
                     let t_cpu = std::time::Instant::now();
+                    #[allow(clippy::type_complexity)]
                     let attempted: Vec<(usize, usize, Option<(String, AlignmentStats)>)> = work.par_iter().map_init(
                         || (bonefish::align::extend::AlignmentContext::new(), bonefish::align::map::MapContext::new()),
                         |(ctx, map_ctx), &(ci, ri)| {
@@ -1569,6 +1570,7 @@ fn map_one_part(
         #[cfg(not(feature = "parallel"))]
         {
             loop {
+                #[allow(clippy::type_complexity)]
                 let mut chunk_data: Vec<(String, Vec<u8>, Option<String>, Option<String>)> = Vec::new();
                 let mut chunk_bases: u64 = 0;
                 loop {

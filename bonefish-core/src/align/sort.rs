@@ -29,7 +29,7 @@ impl RadixKey for Minimizer {
     #[inline]
     fn leaf_sort(arr: &mut [Self], s: u32) {
         let n = arr.len();
-        if n < 16 || n > 64 || s > 56 {
+        if !(16..=64).contains(&n) || s > 56 {
             rs_insertsort(arr);
             return;
         }
@@ -135,7 +135,7 @@ fn rs_sort<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
                     loop {
                         // Place tmp into bucket cur, pick up what was there
                         let p = a.add(*bb.get_unchecked(cur));
-                        std::mem::swap(&mut tmp, &mut *p);
+                        std::ptr::swap(&mut tmp, p);
                         *bb.get_unchecked_mut(cur) += 1;
                         // Where does the picked-up element belong?
                         cur = ((tmp.radix_key() >> s) & m) as usize;

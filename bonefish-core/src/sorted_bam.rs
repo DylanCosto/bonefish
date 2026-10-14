@@ -261,6 +261,7 @@ fn parse_i64(s: &[u8]) -> io::Result<i64> {
 }
 
 /// htslib's hts_reg2bin(beg, end, 14, 5) for BAI.
+#[allow(clippy::eq_op)] // level offsets spelled as in htslib, incl. ((1 << 3) - 1) / 7
 pub fn reg2bin(beg: i64, end: i64) -> u32 {
     let end = end - 1;
     if beg >> 14 == end >> 14 { return (((1 << 15) - 1) / 7 + (beg >> 14)) as u32; }
@@ -388,9 +389,8 @@ fn encode_record(line: &[u8], name2tid: &HashMap<Vec<u8>, i32>, out: &mut Vec<u8
     }
     if l_seq > 0 {
         out.reserve(l_seq.div_ceil(2) + l_seq);
-        let pairs = seq.chunks_exact(2);
-        let odd = pairs.remainder();
-        out.extend(pairs.map(|p| SEQ_NT16[p[0] as usize] << 4 | SEQ_NT16[p[1] as usize]));
+        let (pairs, odd) = seq.as_chunks::<2>();
+        out.extend(pairs.iter().map(|&[a, b]| SEQ_NT16[a as usize] << 4 | SEQ_NT16[b as usize]));
         if let [b] = odd { out.push(SEQ_NT16[*b as usize] << 4); }
         if qual == b"*" {
             out.extend(std::iter::repeat_n(0xffu8, l_seq));

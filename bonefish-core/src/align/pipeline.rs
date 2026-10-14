@@ -353,6 +353,7 @@ impl DpRecalcInfo {
 }
 
 // Recompute dp_max values using divergence-scaled scoring
+#[allow(clippy::too_many_arguments)]
 pub fn update_dp_max(
     dp_max_vals: &mut [i32],
     recalc_infos: &[DpRecalcInfo],
@@ -466,6 +467,7 @@ fn estimate_match_block_lengths(anchors: &[Minimizer]) -> (usize, usize) {
 }
 
 // Helper: align a mapping and produce an AlnResult + DpRecalcInfo + optional split
+#[allow(clippy::too_many_arguments)]
 fn align_single_mapping(
     mapping: &mut Mapping,
     opt: &MapOptions,
@@ -924,6 +926,7 @@ fn align_single_mapping(
 
 /// Attempt inversion alignment from z-drop split positions.
 /// Returns Some(AlnResult) if an inversion alignment was produced.
+#[allow(clippy::too_many_arguments)]
 fn try_align_inversion(
     opt: &MapOptions,
     mi: &Index,
@@ -1295,7 +1298,7 @@ fn filter_alignment_results(
         let mut new_recalc = Vec::with_capacity(recalc.len());
         let old_results = std::mem::take(results);
         let old_recalc = std::mem::take(recalc);
-        for (i, (r, rc)) in old_results.into_iter().zip(old_recalc.into_iter()).enumerate() {
+        for (i, (r, rc)) in old_results.into_iter().zip(old_recalc).enumerate() {
             if keep[i] {
                 new_results.push(r);
                 new_recalc.push(rc);
@@ -2059,6 +2062,7 @@ fn write_cigar_as_bam_uints(out: &mut String, cigar: &str) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn format_sam_record(
     output_buffer: &mut String,
     r: &AlnResult,
@@ -2260,6 +2264,7 @@ fn format_sam_record(
 }
 
 /// Format a single mapped PAF record.
+#[allow(clippy::too_many_arguments)]
 fn format_paf_record(
     output_buffer: &mut String,
     r: &AlnResult,

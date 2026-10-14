@@ -127,6 +127,7 @@ pub(crate) fn chain_backtrack_end(max_drop: i32, candidates: &[Minimizer], score
 /// `(u, n_u, n_v)` where `u[i]` packs `(score, anchor_count)` for chain `i`,
 /// `n_u` is the chain count, and `n_v` is the total anchor count across chains.
 /// Anchors are emitted into `v` in backtrack (reverse) order.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn chain_backtrack(
     // km: void* - allocator, redundant in Rust
     n: usize,
@@ -498,6 +499,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::vec_init_then_push)] // anchors grouped by chain, with comments
     fn test_chain_synthetic() {
         let k = 15;
         let span_mask = (k as u64) << 32;

@@ -110,6 +110,7 @@ pub fn lightweight_score(query: &[u8], target: &[u8], score_matrix: &[i8], gap_o
 
 #[cfg(target_arch = "x86_64")]
 thread_local! {
+    #[allow(clippy::type_complexity)] // four i16 DP rows
     static LW_BUF: std::cell::RefCell<(Vec<i16>, Vec<i16>, Vec<i16>, Vec<i16>)> =
         const { std::cell::RefCell::new((Vec::new(), Vec::new(), Vec::new(), Vec::new())) };
 }
@@ -575,6 +576,7 @@ pub fn lightweight_align_i16_scalar(qp: &mut LightweightProfile, target_len: i32
 ///
 /// Both produce correct end-to-end CIGARs. The SIMD path recomputes
 /// the score from the CIGAR (stripping the end_bonus inflation).
+#[allow(clippy::too_many_arguments)]
 pub fn global_align(
     qseq: &[u8], tseq: &[u8],
     alphabet_size: i8, score_matrix: &[i8],
@@ -609,6 +611,7 @@ pub fn global_align(
 /// Uses the same SIMD kernels as the mapper (AVX512/AVX2/SSE2). The large
 /// end_bonus forces the alignment to cover both sequences end-to-end.
 /// Score is recomputed from CIGAR for correctness (end_bonus inflates ez.score).
+#[allow(clippy::too_many_arguments)]
 fn global_align_simd(
     qseq: &[u8], tseq: &[u8],
     alphabet_size: i8, score_matrix: &[i8],
@@ -651,6 +654,7 @@ fn global_align_simd(
 ///
 /// Row-by-row Gotoh NW (scalar fallback for non-SIMD architectures).
 /// Simple H[i][j], E[j], F recurrence with banded backtrack matrix.
+#[allow(clippy::too_many_arguments)]
 fn global_align_gotoh(
     qseq: &[u8], tseq: &[u8],
     _alphabet_size: i8, score_matrix: &[i8],

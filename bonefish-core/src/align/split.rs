@@ -53,6 +53,7 @@ pub fn split_write_query(
 
 /// Read headers from all part files, build global seqs list + rid_shifts.
 /// Returns (k, all_seqs, rid_shifts, readers).
+#[allow(clippy::type_complexity)]
 pub fn split_merge_prep(
     prefix: &str,
     n_parts: usize,

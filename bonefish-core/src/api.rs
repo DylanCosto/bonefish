@@ -277,6 +277,7 @@ impl AlignerBuilder {
 
     /// Apply the preset to an already-loaded index. Its seeding geometry is
     /// fixed, so any `k` or `w` set here must agree with the stored values.
+    #[allow(clippy::wrong_self_convention)] // named like the public from_* finishers above
     fn from_loaded_index(self, index: Index) -> io::Result<Aligner> {
         let (opt, _, _) = self.resolve()?;
         if let Some(k) = self.k && k != index.kmer_size {
@@ -827,6 +828,7 @@ pub fn encode_nt4(seq: &[u8]) -> Vec<u8> {
 /// Walks the CIGAR, scoring matches/mismatches from the matrix and gaps with
 /// affine penalties. If gap_open2/gap_extend2 are nonzero, uses dual-affine
 /// model (min of both gap costs).
+#[allow(clippy::too_many_arguments)]
 fn compute_score_from_cigar(
     cigar: &[u32], query: &[u8], target: &[u8],
     mat: &[i8], gapo: i32, gape: i32, gapo2: i32, gape2: i32,

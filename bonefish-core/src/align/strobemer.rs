@@ -227,7 +227,7 @@ mod tests {
         for m in &out {
             let pos = (m.y >> 1) as usize;
             // No strobemers should start in the N region
-            assert!(pos < 4 || pos >= 14,
+            assert!(!(4..14).contains(&pos),
                 "strobemer at pos {} overlaps N region", pos);
         }
     }

@@ -1237,71 +1237,6 @@ pub fn map_query(
     (filtered_regs, rep_len, stats, squeezed)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::align::index::Index;
-
-    #[test]
-    fn test_repetitive_filtering() {
-        // Create an index where a k-mer appears many times
-        let mut seqs = Vec::new();
-        // 20 sequences, each containing "AAAAAAAAAAAAAAAA"
-        for i in 0..20 {
-             seqs.push((format!("seq{}", i), "AAAAAAAAAAAAAAAA".as_bytes().to_vec()));
-        }
-        // Build index with default parameters (w=10, k=15). 
-        // 16 A's -> 2 k-mers of len 15 (overlapping). 
-        // All seqs have identical content.
-        let idx = Index::build(seqs, 10, 15, 50000);
-        
-        // A single A...A k-mer will appear 20+ times.
-        
-        let mut opt = MapOptions::default();
-        opt.chaining.min_cnt = 1; // Allow single-anchor chains
-        opt.chaining.min_chain_score = 10; // Allow low-scoring chains
-        opt.seeding.mid_occ = 10; // Aggressive filter
-        opt.seeding.max_occ = 10; // Same as mid_occ to prevent re-chaining path
-        opt.seeding.occ_dist = 0; // Disable select_seeds, use simple mid_occ filtering
-
-        // Need ctx
-        let mut ctx = MapContext::new();
-
-        let query = "AAAAAAAAAAAAAAAA";
-        let (res, _, _, _) = map_query(&opt, &idx, "query", query.as_bytes(), &mut ctx);
-        assert_eq!(res.len(), 0, "Should filter out repetitive k-mers with mid_occ=10");
-        
-        opt.seeding.mid_occ = 50; // Relaxed filter
-        let (res, _, _, _) = map_query(&opt, &idx, "query", query.as_bytes(), &mut ctx);
-
-        assert!(res.len() > 0, "Should align repetitive k-mers with mid_occ=50 (found {})", res.len());
-    }
-
-    #[test]
-    fn test_secondary_alignment() {
-        // Create 2 identical sequences
-        let seqs = vec![
-            ("seq1".to_string(), "ACGTACGTACGTACGT".as_bytes().to_vec()),
-            ("seq2".to_string(), "ACGTACGTACGTACGT".as_bytes().to_vec()),
-        ];
-        let idx = Index::build(seqs, 10, 15, 50000);
-        
-        let mut opt = MapOptions::default();
-        opt.chaining.min_cnt = 1; 
-        opt.chaining.min_chain_score = 10;
-        opt.filtering.best_n = 5; // Allow secondaries
-        
-        let mut ctx = MapContext::new();
-        let query = "ACGTACGTACGTACGT";
-        let (res, _, _, _) = map_query(&opt, &idx, "query", query.as_bytes(), &mut ctx);
-        
-        // Should find 2 alignments
-        assert_eq!(res.len(), 2, "Should find 2 alignments (1 primary, 1 secondary)");
-        assert!(!res[0].is_secondary, "First should be primary");
-        assert!(res[1].is_secondary, "Second should be secondary (overlapping)");
-    }
-}
-
 /// Whether two of the chains (`u`: score << 32 | count, anchors in `chains` chain by chain,
 /// each in reference order) could be joined by long-gap chaining: same reference and strand,
 /// the second starting after the first in both reference and query (overlap allowed) with
@@ -1345,4 +1280,69 @@ fn joinable_pairs(u: &[u64], chains: &[Minimizer], max_dist: i32, bw: i32, first
         }
     }
     any.then_some(member)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::align::index::Index;
+
+    #[test]
+    fn test_repetitive_filtering() {
+        // Create an index where a k-mer appears many times
+        let mut seqs = Vec::new();
+        // 20 sequences, each containing "AAAAAAAAAAAAAAAA"
+        for i in 0..20 {
+             seqs.push((format!("seq{}", i), "AAAAAAAAAAAAAAAA".as_bytes().to_vec()));
+        }
+        // Build index with default parameters (w=10, k=15). 
+        // 16 A's -> 2 k-mers of len 15 (overlapping). 
+        // All seqs have identical content.
+        let idx = Index::build(seqs, 10, 15, 50000);
+        
+        // A single A...A k-mer will appear 20+ times.
+        
+        let mut opt = MapOptions::default();
+        opt.chaining.min_cnt = 1; // Allow single-anchor chains
+        opt.chaining.min_chain_score = 10; // Allow low-scoring chains
+        opt.seeding.mid_occ = 10; // Aggressive filter
+        opt.seeding.max_occ = 10; // Same as mid_occ to prevent re-chaining path
+        opt.seeding.occ_dist = 0; // Disable select_seeds, use simple mid_occ filtering
+
+        // Need ctx
+        let mut ctx = MapContext::new();
+
+        let query = "AAAAAAAAAAAAAAAA";
+        let (res, _, _, _) = map_query(&opt, &idx, "query", query.as_bytes(), &mut ctx);
+        assert_eq!(res.len(), 0, "Should filter out repetitive k-mers with mid_occ=10");
+        
+        opt.seeding.mid_occ = 50; // Relaxed filter
+        let (res, _, _, _) = map_query(&opt, &idx, "query", query.as_bytes(), &mut ctx);
+
+        assert!(!res.is_empty(), "Should align repetitive k-mers with mid_occ=50 (found {})", res.len());
+    }
+
+    #[test]
+    fn test_secondary_alignment() {
+        // Create 2 identical sequences
+        let seqs = vec![
+            ("seq1".to_string(), "ACGTACGTACGTACGT".as_bytes().to_vec()),
+            ("seq2".to_string(), "ACGTACGTACGTACGT".as_bytes().to_vec()),
+        ];
+        let idx = Index::build(seqs, 10, 15, 50000);
+        
+        let mut opt = MapOptions::default();
+        opt.chaining.min_cnt = 1; 
+        opt.chaining.min_chain_score = 10;
+        opt.filtering.best_n = 5; // Allow secondaries
+        
+        let mut ctx = MapContext::new();
+        let query = "ACGTACGTACGTACGT";
+        let (res, _, _, _) = map_query(&opt, &idx, "query", query.as_bytes(), &mut ctx);
+        
+        // Should find 2 alignments
+        assert_eq!(res.len(), 2, "Should find 2 alignments (1 primary, 1 secondary)");
+        assert!(!res[0].is_secondary, "First should be primary");
+        assert!(res[1].is_secondary, "Second should be secondary (overlapping)");
+    }
 }
