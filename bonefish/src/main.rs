@@ -1325,7 +1325,9 @@ fn map_one_part(
                                     let (name, desc, seq, qual) = r.into_parts();
                                     let q = qual.map(|v| String::from_utf8(v).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()));
                                     let c = if copy_comment { desc.and_then(|d| bonefish::fasta::bam::filter_comment_tags(&d)) } else { None };
-                                    chunk_bases += seq.len() as u64;
+                                    // Copied tags count towards the batch size: ONT's MM/ML tags take more
+                                    // memory than the bases themselves.
+                                    chunk_bases += (seq.len() + c.as_ref().map_or(0, |c| c.len())) as u64;
                                     chunk_data.push((name, seq, q, c));
                                 },
                                 Some(Err(e)) => {
@@ -1575,7 +1577,7 @@ fn map_one_part(
                             let (name, desc, seq, qual) = r.into_parts();
                             let q = qual.map(|v| String::from_utf8(v).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned()));
                             let c = if copy_comment { desc.and_then(|d| bonefish::fasta::bam::filter_comment_tags(&d)) } else { None };
-                            chunk_bases += seq.len() as u64;
+                            chunk_bases += (seq.len() + c.as_ref().map_or(0, |c| c.len())) as u64;
                             chunk_data.push((name, seq, q, c));
                         },
                         Some(Err(e)) => anyhow::bail!("{}: {}", query_path, e),

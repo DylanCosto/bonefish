@@ -41,8 +41,10 @@ bonefish -t 16 -a ref.fa reads.fq.gz > sample.sam     # FASTQ in, SAM out
   header lines (which carry the basecalling model); from FASTQ, the SAM-style tags of the comment.
   `-R` sets the read group instead.
 - `-o FILE.bam` writes a coordinate-sorted BAM and `FILE.bam.bai` directly (same records and order
-  as `bonefish -a | samtools sort --write-index`); `--sort-mem` (default 4G) bounds memory, with
-  spills to `--sort-tmp`.
+  as `bonefish -a | samtools sort --write-index`); `--sort-mem` (default 4G) sets the sorter's
+  in-memory batches, with spills to `--sort-tmp`. A human genome needs about 15-20 GB with 16
+  threads, and about 23 GB when `-y` carries methylation tags into a sorted BAM; `--sort-mem 1G`
+  brings that to about 19 GB on smaller machines.
 - Malformed input (truncated records, quality/sequence length mismatches, read names over the
   SAM limit, non-sequence files) stops the run with an error naming the file and line, and a
   non-zero exit status.
@@ -110,7 +112,8 @@ options.
 - Output is SAM, PAF or sorted BAM (no CRAM).
 - Indexes written with `-d` are bonefish's own format; minimap2 `.mmi` files can be read but not
   written.
-- A human genome needs about 20 GB of memory with 16 threads.
+- A human genome needs about 20 GB of memory with 16 threads (about 23 GB for a sorted BAM with
+  methylation tags; see `--sort-mem`).
 - The browser demo (`web/`, WebAssembly) still uses the older DP kernels, so its alignments can
   differ slightly from the native builds.
 
