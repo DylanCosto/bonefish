@@ -368,3 +368,32 @@ fn bam_output_by_extension_and_option_order() {
     assert_eq!(std::fs::read(&keep).unwrap(), b"precious");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Every SIMD path gives the same output: the kernels picked at run time (AVX-512 where the CPU
+/// has it, e.g. on CI runners) against forced AVX2, SSE4.1 and scalar code, for SAM and PAF with
+/// --cs. On arm64 only NEON exists, so this is x86_64-only.
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn simd_paths_give_same_output() {
+    let reference = data("ref.fa.gz");
+    let reads = data("reads.fq.gz");
+    let (reference, reads) = (reference.to_str().unwrap(), reads.to_str().unwrap());
+    let has_avx512 = std::arch::is_x86_feature_detected!("avx512bw");
+    eprintln!("simd_paths_give_same_output: CPU has AVX-512BW: {has_avx512}");
+    for args in [vec!["-a"], vec!["-c", "--cs"]] {
+        let run_env = |env: Option<&str>| {
+            let mut a: Vec<&str> = args.clone();
+            a.extend(["-t", "2", reference, reads]);
+            let mut c = Command::new(env!("CARGO_BIN_EXE_bonefish"));
+            c.args(&a);
+            if let Some(e) = env { c.env(e, "1"); }
+            let out = c.output().expect("failed to run bonefish");
+            assert!(out.status.success(), "{env:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8(out.stdout).unwrap().lines().filter(|l| !l.starts_with("@PG")).map(|l| format!("{l}\n")).collect::<String>()
+        };
+        let auto = run_env(None);
+        for env in ["BONEFISH_FORCE_AVX2", "BONEFISH_FORCE_SSE", "BONEFISH_FORCE_SCALAR"] {
+            assert!(run_env(Some(env)) == auto, "{env} output differs from the run-time kernels ({args:?}; AVX-512: {has_avx512})");
+        }
+    }
+}

@@ -17,6 +17,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install stable --profile minimal && rustup default stable
+      - name: CPU (which SIMD kernels the tests exercise)
+        run: |
+          if [ -r /proc/cpuinfo ]; then
+            grep -m1 'model name' /proc/cpuinfo
+            for f in avx2 avx512f avx512bw neon asimd; do grep -qw "$f" /proc/cpuinfo && echo "has $f"; done
+          else
+            sysctl -n machdep.cpu.brand_string; echo "arm64 (NEON)"
+          fi
       - name: Tests (unit, golden-output regression, doctests)
         run: cargo test --release --locked --features jemalloc
       - name: Validation scripts and recorded evidence
