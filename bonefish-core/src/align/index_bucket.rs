@@ -23,6 +23,9 @@ const MIX_INV: u64 = {
     while i < 6 { x = x.wrapping_mul(2u64.wrapping_sub(MIX.wrapping_mul(x))); i += 1; }
     x
 };
+/// One bucket of a minimap2 .mmi index: (p array, hash entries).
+pub type MmiBucket = (Vec<u64>, Vec<(u64, u64)>);
+
 /// Empty-slot marker; compares greater than every stored probe key.
 const EMPTY: u64 = u64::MAX;
 
@@ -187,7 +190,7 @@ impl BucketHashLookup {
     /// own bucket hash format with a unified positions array.
     pub fn from_minimap2_buckets(
         bucket_bits: u32,
-        bucket_data: Vec<(Vec<u64>, Vec<(u64, u64)>)>, // per-bucket: (p_array, hash_entries)
+        bucket_data: Vec<MmiBucket>,
     ) -> Self {
         let mut positions: Vec<u64> = Vec::new();
         let mut tb = TableBuilder::default();

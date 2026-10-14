@@ -193,6 +193,7 @@ pub use lw::{
 };
 
 #[cfg(test)]
+#[allow(clippy::needless_range_loop)] // score-matrix setup loops, as in ksw2's tests
 mod tests {
     use super::*;
     // Also import internal SIMD functions needed by concordance tests
