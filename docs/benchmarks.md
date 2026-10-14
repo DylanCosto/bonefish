@@ -60,3 +60,55 @@ chrX/Y and difficult regions):
 - Clair3 takes 9–12% longer on bonefish BAMs.
 - Peak memory for a human genome is about 20 GB with 16 threads (the GRCh38 index is 7.3 GB, or
   8.5 GB in the raw format that loads in under a second).
+
+## Other ONT aligners (14 Oct 2026, `bench/aligner_bench.sh` in the development repository)
+
+Same machine, reference, reads and 16 threads; one run each; SAM output unless noted. Each tool
+uses its own index and its recommended ONT preset: `lr:hq` for minimap2, dorado (default) and
+mm2plus; `map-ont` for mm2-fast (based on minimap2 2.24, which predates `lr:hq`) and Winnowmap2;
+`-x ont` for NGMLR, `-ONT` for LRA. mm2-fast ran its AVX2 code (this CPU has no AVX-512).
+
+**Genome-wide HG001 sample** (161,762 R10.4.1 sup reads, 2.7 Gbp):
+
+| aligner | wall | vs bonefish | CPU time | peak memory | reads mapped | bases aligned | identity |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| **bonefish 0.1.1** | **46 s** | 1.0x | 658 s | 15.0 GB | 96.30% | 96.44% | 0.979 |
+| minimap2 2.31 | 192 s | 4.2x | 2,563 s | 18.3 GB | 96.30% | 96.78% | 0.977 |
+| dorado 2.1.2 aligner | 198 s | 4.3x | 2,167 s | 13.3 GB | 96.30% | 95.85% | 0.979 |
+| mm2plus 1.3 | 236 s | 5.1x | 3,059 s | 18.5 GB | 96.30% | 96.78% | 0.977 |
+| mm2-fast (minimap2 2.24) | 641 s | 13.9x | 9,488 s | 19.6 GB | 96.99% | 97.14% | 0.974 |
+| Winnowmap2 2.03 | 1,764 s | 38x | 25,356 s | 19.4 GB | 96.19% | 96.83% | 0.980 |
+
+Winnowmap 2.03 maps nothing from a prebuilt index, so its time includes building one (63 s).
+
+**10% of the same reads** (16,177 reads, 270 Mbp), to include the slower aligners (times include
+loading the index, which favours tools with small or fast-loading indexes on short runs):
+
+| aligner | wall | CPU time | reads mapped |
+|---|---:|---:|---:|
+| **bonefish** | **11 s** | 68 s | 96.30% |
+| dorado aligner | 27 s | 210 s | 96.30% |
+| mm2plus | 34 s | 299 s | 96.30% |
+| minimap2 | 34 s | 268 s | 96.30% |
+| mm2-fast | 68 s | 932 s | 96.92% |
+| LRA 1.3.7 | 75 s | 702 s | 89.56% |
+| Winnowmap2 | 203 s | 2,307 s | 96.08% |
+| NGMLR 0.2.7 | 2,909 s | 24,561 s | 93.00% |
+
+**Reads to sorted, indexed BAM** (genome-wide sample; output on the same disk):
+
+| pipeline | wall | CPU time | peak memory |
+|---|---:|---:|---:|
+| **bonefish `-o out.bam`** | **55 s** | 758 s | 16.4 GB |
+| minimap2 `-ax lr:hq` \| samtools sort `--write-index` | 219 s (4.0x) | 2,699 s | 18.6 GB |
+| dorado aligner `-o DIR` (sorted, indexed) | 574 s (10.5x) | 2,501 s | 13.3 GB |
+
+**Index build:** bonefish 62 s; minimap2, mm2plus and mm2-fast 61–65 s; Winnowmap 63 s plus
+130 s of k-mer counting (meryl); LRA 196 s; NGMLR 416 s.
+
+Notes: the mapping columns are not accuracy (see the variant-calling results above for
+bonefish against minimap2). dorado aligner reports far more supplementary alignments than minimap2
+on the same index (22,430 vs 13,543), so its defaults differ from minimap2's command line.
+Identity is over aligned bases, so tools that clip more score higher; LRA and NGMLR leave 7-10% of
+reads unmapped. Swap use rose briefly during the minimap2 run (to 7.9 GB); its time matches earlier
+measurements on this machine.
