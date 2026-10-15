@@ -10,7 +10,11 @@ both aligners. Apple Silicon results are in [validation/](validation/).
 
 **Version.** The x86 runs below were made with builds whose output is byte-identical to v0.1.1
 (checked on the genome-wide HG001 sample, MD5 `deed7949d35f15bd8eed935be47a1d81`). Since v0.1.1
-arm64 builds produce the same output as x86 (same MD5 on an Apple M4 Pro).
+arm64 builds produce the same output as x86 (same MD5 on an Apple M4 Pro). v0.1.4 turns off
+sub-anchored gap filling (MD5 `8fbcd8ce9df67b78a978ef6497873caa`; about 6% more CPU): it fixes the
+tandem-repeat false positives below with SNP/indel accuracy unchanged and SV calls within 1-3 per
+chromosome on chr20/chr22 ([details](validation/2026-10-15-tandem-repeat-detours/README.md)); the
+whole-genome comparisons were not re-run.
 
 ## Whole genomes, reads to sorted and indexed BAM
 
@@ -92,7 +96,8 @@ longphase against the Q100 truth: 7 switch errors on chr20 from either aligner's
 
 HG002 whole-genome calls (minimap2 / bonefish F1). GIAB CMRG v1.00: SNPs 0.9650 / 0.9649, indels
 0.7514 / 0.7518, SVs 0.9082 / 0.9032. GIAB tandem-repeat benchmark v1.0.1, Tier 1, after
-`truvari refine`: 0.9026 / 0.9000. Details:
+`truvari refine`: 0.9026 / 0.9000 (v0.1.3; traced to misaligned reads in VNTRs and fixed in v0.1.4,
+see [validation/2026-10-15-tandem-repeat-detours](validation/2026-10-15-tandem-repeat-detours/README.md)). Details:
 [validation/2026-10-14-cmrg-tandem-repeats](validation/2026-10-14-cmrg-tandem-repeats/README.md).
 
 ## Output checks and limits
@@ -132,8 +137,9 @@ Genome-wide HG001 sample: 360 s on 1 thread, 103 s on 4, 51 s on 16 (minimap2: 3
 - Peak memory for a human genome to sorted BAM is about 20 GB with 16 threads (measured with the
   old 500 Mbp batch; the 100 Mbp default lowers it by about 1.5 GB). The GRCh38 index is 7.3 GB, or
   8.5 GB in the raw format that loads in under a second.
-- In tandem repeats, SV calls from bonefish BAMs have more false positives (+463 of 50 bp or more in
-  GIAB's Tier 1 repeats; refined F1 0.9000 vs 0.9026), though genome-wide SV accuracy is higher.
+- Up to v0.1.3, SV calls in tandem repeats had more false positives (+463 of 50 bp or more in GIAB's
+  Tier 1 repeats; refined F1 0.9000 vs 0.9026). Fixed in v0.1.4: on chr20 and chr22 the tandem-repeat
+  F1 is 0.8983 / 0.9037 against minimap2's 0.8993 / 0.9030.
 - For low-accuracy reads (simulated, ~93% identity), minimap2 `map-ont` maps about 1% more reads.
 - Alignment heuristics depend slightly on absolute reference positions, as minimap2's do: shifting a
   chromosome by 1 kb changes about 3% of the reads on it (minimap2: the same).

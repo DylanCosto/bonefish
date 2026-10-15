@@ -1,0 +1,5 @@
+label	bench_tp	bench_fp	bench_fn	bench_f1	fp_ge50	fn_ge50	refine_tp	refine_fp	refine_fn	refine_f1	detour_reads	detour_loci
+trfp_mm2_chr22	1853	329	333	0.8467	49	67	1951	184	235	0.903	10	10
+trfp_on_chr22	1852	345	334	0.8433	54	68	1956	200	230	0.9008	138	49
+trfp_off_chr22	1853	329	333	0.8467	48	68	1954	184	232	0.9037	10	10
+trfp_rep30_chr22	1848	345	338	0.8422	54	69	1956	197	230	0.9014	10	10

@@ -60,6 +60,11 @@ bonefish -t 16 -a ref.fa reads.fq.gz > sample.sam     # FASTQ in, SAM out
 
 ## Speed and accuracy (16 threads)
 
+The measurements below were made with v0.1.1-v0.1.3. v0.1.4 turns off sub-anchored gap filling, which
+put misaligned reads in tandem repeats and extra SV calls there
+([details](docs/validation/2026-10-15-tandem-repeat-detours/README.md)); it costs about 6% more CPU,
+so bonefish is about 4.0x rather than 4.2x faster than minimap2 on the genome-wide sample.
+
 Whole genomes, reads to sorted and indexed BAM (minimap2 2.31 `-ax lr:hq | samtools sort`):
 
 | sample (R10.4.1 sup) | minimap2 + samtools | bonefish | SNP F1 | indel F1 | SV F1 (v5.0q) |
@@ -101,7 +106,8 @@ simulated reads with known origin: [2026-10-14-simulated-reads](docs/validation/
 HAC, R9.4.1 and phasing: [2026-10-14-hac-r9-phasing](docs/validation/2026-10-14-hac-r9-phasing/README.md);
 medically relevant genes and tandem repeats: [2026-10-14-cmrg-tandem-repeats](docs/validation/2026-10-14-cmrg-tandem-repeats/README.md);
 file conformance, determinism and large references: [2026-10-14-output-checks](docs/validation/2026-10-14-output-checks/README.md);
-threads and memory: [2026-10-14-scaling-memory](docs/validation/2026-10-14-scaling-memory/README.md)).
+threads and memory: [2026-10-14-scaling-memory](docs/validation/2026-10-14-scaling-memory/README.md);
+tandem-repeat false positives traced and fixed: [2026-10-15-tandem-repeat-detours](docs/validation/2026-10-15-tandem-repeat-detours/README.md)).
 
 Also checked: whole-genome simulated reads are placed as by minimap2 `lr:hq` (no read wrong at MAPQ
 10 or above on R10-like and ultra-long reads); phasing from bonefish BAMs is the same (7 switch errors
@@ -109,8 +115,8 @@ on chr20 for both); accuracy in GIAB's 273 challenging medically relevant genes 
 pass Picard ValidateSamFile with no errors; and the output is identical across thread counts, input
 formats, index types and SIMD code paths.
 
-**Apple Silicon.** arm64 builds produce the same output as x86: the genome-wide HG001 sample gives
-the identical MD5 (`deed7949d35f15bd8eed935be47a1d81`) on an Apple M4 Pro and on x86
+**Apple Silicon.** arm64 builds produce the same output as x86: the genome-wide HG001 sample gave
+the identical MD5 with v0.1.1 (`deed7949d35f15bd8eed935be47a1d81`) on an Apple M4 Pro and on x86
 ([report](docs/validation/2026-10-13-hg001-macos-parity/README.md)). The NEON chaining and DP
 kernels and their measurements on HG002 ultra-long data are documented in
 [the macOS report](docs/validation/2026-10-13-macos-arm64/README.md) and
@@ -121,7 +127,7 @@ kernels and their measurements on HG002 ultra-long data are documented in
 
 Same seeding and scoring as minimap2's `lr:hq`, with cheaper alignment and chaining: narrower,
 adaptive DP bands with retries where an indel needs a wider band, a probe that stops extending
-into low-identity read ends, ungapped-first and sub-anchored gap filling, a 5 kb reference-gap limit
+into low-identity read ends, ungapped-first gap filling, a 5 kb reference-gap limit
 in the main chaining pass (with a long-join rescue that skips repeat-dense reads), segment-tree
 RMQ chaining and diagonal-bucketed exact chaining, plus multithreaded I/O and a built-in sorter.
 Output is therefore not byte-identical to minimap2. `bonefish --help` lists the individual
@@ -135,8 +141,6 @@ options.
   written.
 - Tuned for accurate reads (R10.4.1 with current basecallers; R9.4.1 sup works equally well). On
   simulated reads of about 93% identity, minimap2's `map-ont` preset maps about 1% more reads.
-- In tandem repeats, structural-variant calls from bonefish BAMs have slightly more false positives
-  (GIAB tandem-repeat benchmark F1 0.9000 vs 0.9026 for minimap2).
 - A sorted BAM of a human genome with methylation tags needs about 23 GB (see `--sort-mem`).
 - The browser demo (`web/`, WebAssembly) still uses the older DP kernels, so its alignments can
   differ slightly from the native builds.

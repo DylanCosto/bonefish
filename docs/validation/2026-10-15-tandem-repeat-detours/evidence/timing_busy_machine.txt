@@ -1,0 +1,3 @@
+run1 default(off): 63.33 s wall, 742.27 CPU-s, 13.1 GB, 8fbcd8ce9df6
+run2 --gap-subanchor: 59.64 s wall, 707.32 CPU-s, 12.8 GB, deed7949d35f
+run2 default(off): 58.70 s wall, 743.81 CPU-s, 12.8 GB, 8fbcd8ce9df6
