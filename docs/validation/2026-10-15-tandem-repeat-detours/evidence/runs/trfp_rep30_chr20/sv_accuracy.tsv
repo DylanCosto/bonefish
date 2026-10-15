@@ -1,0 +1,2 @@
+label	TP-base	FP	FN	precision	recall	f1
+trfp_rep30_chr20	562	40	240	0.9336	0.7007	0.8006

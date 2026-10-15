@@ -1,0 +1,17 @@
+Gap patterns of the reads spanning two tandem repeats on chr20 (HG002 PAW70337, R10.4.1 sup; insertions
+and deletions of >= 10 bp; bench/indels.py-style count over primary alignments spanning the window).
+
+chr20:53,500,100-53,500,450 (AT-rich VNTR; the truth is a ~10 bp insertion on one haplotype)
+  minimap2 2.31:              40 spanning reads; I10 x19, none x17, I12 x3, I16 x1
+  bonefish v0.1.3:            40 spanning reads; none x17, D60+I74 x13, I10 x5, D60+I72 x2, D60+I78 x1, I12 x1
+  bonefish, sub-anchoring off: I10 x19, none x17, I12 x3, I16 x1 (as minimap2)
+  Sniffles2 on the v0.1.3 BAM: DEL 60 at 53,500,248 and INS 74 at 53,500,332 (both false positives)
+
+chr20:61,984,400-61,984,750 (truth: ~13 bp insertion)
+  minimap2 2.31:              54 spanning reads; I13 x30, none x22, ...
+  bonefish v0.1.3:            none x22, I76+D63 x19, I13 x5, I75+D63 x2, ...
+  bonefish, sub-anchoring off: I13 x30, none x22, ... (as minimap2)
+  Sniffles2 on the v0.1.3 BAM: INS 76 at 61,984,514 and DEL 63 at 61,984,614 (both false positives)
+
+Switching off each other part of the dna preset (ungapped fill, narrow gap band, gap band margin, adaptive
+extension band, end probe, extension band, 5 kb chaining limit, clean DP kernel) left the detours unchanged.

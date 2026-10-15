@@ -1,0 +1,2 @@
+label	TP-base	FP	FN	precision	recall	f1
+trfp_on_chr22	395	52	170	0.8837	0.6991	0.7806

@@ -1,0 +1,138 @@
+diff --git a/bonefish-core/src/align/env_flags.rs b/bonefish-core/src/align/env_flags.rs
+index b8b50d0..effa46e 100644
+--- a/bonefish-core/src/align/env_flags.rs
++++ b/bonefish-core/src/align/env_flags.rs
+@@ -15,6 +15,14 @@ pub static FORCE_SCALAR: LazyLock<bool> = LazyLock::new(|| flag("BONEFISH_FORCE_
+ /// Minimum gap length for the sub-anchored gap fill (BONEFISH_SUB_MIN, default 800).
+ pub static SUB_MIN: LazyLock<usize> =
+     LazyLock::new(|| std::env::var("BONEFISH_SUB_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(800));
++/// Sub-anchored gap fill: keep only matches within this many diagonals of the band between the
++/// gap's start and end diagonals (BONEFISH_EXP_SUB_ENV; unset = no limit). Experimental.
++/// Sub-anchored gap fill: repair deletion-insertion detours of at least this many bases each
++/// within 300 bp (BONEFISH_EXP_SUB_REPAIR; unset = off). Experimental.
++pub static SUB_REPAIR: LazyLock<Option<u32>> =
++    LazyLock::new(|| std::env::var("BONEFISH_EXP_SUB_REPAIR").ok().and_then(|v| v.parse().ok()));
++pub static SUB_ENV: LazyLock<Option<i64>> =
++    LazyLock::new(|| std::env::var("BONEFISH_EXP_SUB_ENV").ok().and_then(|v| v.parse().ok()));
+ #[cfg(target_arch = "x86_64")]
+ pub static FORCE_SSE: LazyLock<bool> = LazyLock::new(|| flag("BONEFISH_FORCE_SSE"));
+ #[cfg(target_arch = "x86_64")]
+diff --git a/bonefish-core/src/align/extend.rs b/bonefish-core/src/align/extend.rs
+index 0041c77..d391cb7 100644
+--- a/bonefish-core/src/align/extend.rs
++++ b/bonefish-core/src/align/extend.rs
+@@ -1296,6 +1296,13 @@ fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
+             std::cmp::Ordering::Equal => { hits.push((qu[a].1, tu[b].1)); a += 1; b += 1; }
+         }
+     }
++    // Experimental: drop matches off the diagonals the gap's net length change allows (a match on
++    // another copy of a tandem repeat forces a deletion-insertion detour through it).
++    if let Some(m) = *crate::align::env_flags::SUB_ENV {
++        let d = qs.len() as i64 - ts.len() as i64;
++        let (lo, hi) = (d.min(0) - m, d.max(0) + m);
++        hits.retain(|&(hq, ht)| (lo..=hi).contains(&(hq as i64 - ht as i64)));
++    }
+     if hits.len() < 2 { return None; }
+     hits.sort_unstable();
+     // Longest chain increasing in both coordinates (patience sorting on tpos).
+@@ -1329,10 +1336,6 @@ fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
+     segs.retain(|s| s.2 >= MIN_SEG);
+     if segs.is_empty() { return None; }
+     // Align the pieces between segments; concatenate.
+-    let mut out = DpResult::default();
+-    let mut cigar: Vec<u32> = Vec::new();
+-    let mut score = 0i32;
+-    let (mut qp, mut tp) = (0usize, 0usize);
+     let piece = |q0: usize, q1: usize, t0: usize, t1: usize, cigar: &mut Vec<u32>, score: &mut i32| -> bool {
+         let (ql, tl) = (q1 - q0, t1 - t0);
+         let gap_cost = |l: i32| (q as i32 + e as i32 * l).min(q2 as i32 + e2 as i32 * l);
+@@ -1349,14 +1352,52 @@ fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
+         *score += ez.score;
+         true
+     };
+-    for &(q0, t0, len) in &segs {
+-        if !piece(qp, q0, tp, t0, &mut cigar, &mut score) { return None; }
+-        append_cigar(&mut cigar, &[(len as u32) << 4]);
+-        score += mat[0] as i32 * len as i32;
+-        qp = q0 + len;
+-        tp = t0 + len;
+-    }
+-    if !piece(qp, qs.len(), tp, ts.len(), &mut cigar, &mut score) { return None; }
++    let assemble = |segs: &[(usize, usize, usize)]| -> Option<(Vec<u32>, i32)> {
++        let mut cigar: Vec<u32> = Vec::new();
++        let mut score = 0i32;
++        let (mut qp, mut tp) = (0usize, 0usize);
++        for &(q0, t0, len) in segs {
++            if !piece(qp, q0, tp, t0, &mut cigar, &mut score) { return None; }
++            append_cigar(&mut cigar, &[(len as u32) << 4]);
++            score += mat[0] as i32 * len as i32;
++            qp = q0 + len;
++            tp = t0 + len;
++        }
++        if !piece(qp, qs.len(), tp, ts.len(), &mut cigar, &mut score) { return None; }
++        Some((cigar, score))
++    };
++    let (mut cigar, mut score) = assemble(&segs)?;
++    // Experimental: an insertion and a deletion of >= MIN bp within 300 bp of target is the mark
++    // of a segment on another copy of a tandem repeat; drop the segments around it and re-align.
++    if let Some(min) = *crate::align::env_flags::SUB_REPAIR {
++        const WIN: usize = 300;
++        for _round in 0..3 {
++            let mut ev: Vec<(u32, usize, usize)> = Vec::new(); // (op, target start, target end)
++            let mut t = 0usize;
++            for &c in &cigar {
++                let (n, op) = ((c >> 4) as usize, c & 0xf);
++                match op {
++                    1 if n >= min as usize => ev.push((1, t, t)),
++                    2 => { if n >= min as usize { ev.push((2, t, t + n)); } t += n; }
++                    0 | 7 | 8 => t += n,
++                    _ => {}
++                }
++            }
++            let mut wins: Vec<(usize, usize)> = Vec::new();
++            for i in 0..ev.len() {
++                for j in i + 1..ev.len() {
++                    if ev[j].1 > ev[i].2 + WIN { break; }
++                    if ev[i].0 != ev[j].0 { wins.push((ev[i].1, ev[j].2.max(ev[i].2))); }
++                }
++            }
++            if wins.is_empty() { break; }
++            let before = segs.len();
++            segs.retain(|&(_, t0, len)| !wins.iter().any(|&(a, b)| t0 < b + WIN && t0 + len + WIN > a));
++            if segs.len() == before || segs.is_empty() { return None; }
++            (cigar, score) = assemble(&segs)?;
++        }
++    }
++    let mut out = DpResult::default();
+     out.cigar = cigar;
+     out.score = score;
+     Some(out)
+diff --git a/bonefish/src/main.rs b/bonefish/src/main.rs
+index c20bab8..93ecb2f 100644
+--- a/bonefish/src/main.rs
++++ b/bonefish/src/main.rs
+@@ -670,6 +670,24 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
+     if cli.no_rescue_join { opt.chaining.rescue_join = false; }
+     if let Some(d) = cli.rescue_max_density { opt.chaining.rescue_max_density = d; }
+     if cli.gap_subanchor { opt.alignment.gap_subanchor = true; }
++    // Diagnostics: switch off parts of the dna preset (comma list).
++    if let Ok(v) = std::env::var("BONEFISH_EXP_OFF") {
++        for f in v.split(',') {
++            match f.trim() {
++                "subanchor" => opt.alignment.gap_subanchor = false,
++                "ungapped" => opt.alignment.ungapped_fill = false,
++                "narrow" => opt.alignment.gap_bw_narrow = None,
++                "margin" => opt.alignment.gap_bw_margin = None,
++                "adaptive" => opt.alignment.ext_adaptive = None,
++                "probe" => opt.alignment.ext_probe = None,
++                "extbw" => opt.alignment.ext_bw = None,
++                "maxgapref" => opt.chaining.max_gap_ref = opt.chaining.max_gap,
++                "cleandp" => opt.alignment.clean_dp = false,
++                "" => {}
++                x => anyhow::bail!("BONEFISH_EXP_OFF: unknown part '{x}'"),
++            }
++        }
++    }
+     if let Some(sv) = &cli.query_subsample {
+         let v: Vec<u32> = sv.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+         match v.as_slice() {

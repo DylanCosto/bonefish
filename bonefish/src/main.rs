@@ -53,7 +53,7 @@ struct AlignArgs {
     ///   lr:hq / lr:hq-fast / map-ont / lr — accepted as aliases of dna
     /// dna = minimap2 lr:hq seeding and scoring plus --ext-bw 200 --ext-adaptive 64 --ext-rescue
     /// --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000
-    /// --seg-rmq --clean-dp --rescue-join --rescue-max-density 2 --gap-subanchor
+    /// --seg-rmq --clean-dp --rescue-join --rescue-max-density 2
     #[arg(short = 'x', long, verbatim_doc_comment)]
     pub preset: Option<String>,
 
@@ -312,7 +312,9 @@ struct AlignArgs {
     #[arg(long, value_name = "INT")]
     pub rescue_max_density: Option<u32>,
 
-    /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between) [on]
+    /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between): ~6% faster,
+    /// but in tandem repeats a segment can sit on another repeat copy and force a deletion-insertion
+    /// detour, which callers report as extra SVs [off]
     #[arg(long, hide = true)]
     pub gap_subanchor: bool,
 

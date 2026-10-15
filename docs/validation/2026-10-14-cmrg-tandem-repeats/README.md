@@ -49,6 +49,9 @@ Two GIAB benchmarks that target the regions short-read and older long-read pipel
   bonefish's BAM (F1 0.8094 vs 0.8055), so this is specific to tandem repeats. It is a known
   difference, listed in the [benchmarks](../../benchmarks.md#known-differences-and-costs).
 
+  **Follow-up (15 Oct):** traced to sub-anchored gap filling aligning reads through the wrong copy of
+  a repeat, and fixed in v0.1.4 ([details](../2026-10-15-tandem-repeat-detours/README.md)).
+
 ## Files
 
 - `evidence/summary.tsv`: the table above.

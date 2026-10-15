@@ -1,0 +1,3 @@
+label	type	truth_tp	fp	fn	precision	recall	f1
+trfp_off_chr22	snps	40956	181	121	0.9956	0.9971	0.9963
+trfp_off_chr22	indels	5642	562	900	0.9094	0.8624	0.8853

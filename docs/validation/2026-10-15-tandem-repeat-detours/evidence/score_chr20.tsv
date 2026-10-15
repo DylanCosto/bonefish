@@ -1,0 +1,5 @@
+label	bench_tp	bench_fp	bench_fn	bench_f1	fp_ge50	fn_ge50	refine_tp	refine_fp	refine_fn	refine_f1	detour_reads	detour_loci
+v012_sup20_minimap2	2796	531	479	0.8453	60	84	2945	328	330	0.8993	74	21
+v012_sup20_bonefish	2784	539	491	0.8422	66	85	2937	331	338	0.8976	405	79
+trfp_off_chr20	2793	532	482	0.8446	61	85	2941	330	334	0.8983	76	23
+trfp_rep30_chr20	2786	529	489	0.8437	56	86	2935	319	340	0.8989	77	24

@@ -1,0 +1,3 @@
+label	type	truth_tp	fp	fn	precision	recall	f1
+v012_sup20_minimap2	snps	71265	89	97	0.9988	0.9986	0.9987
+v012_sup20_minimap2	indels	9896	827	1360	0.9229	0.8792	0.9005
