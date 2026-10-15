@@ -1,0 +1,3 @@
+label	type	truth_tp	fp	fn	precision	recall	f1
+subtr150_chr20	snps	71267	88	95	0.9988	0.9987	0.9987
+subtr150_chr20	indels	9893	856	1363	0.9204	0.8789	0.8992

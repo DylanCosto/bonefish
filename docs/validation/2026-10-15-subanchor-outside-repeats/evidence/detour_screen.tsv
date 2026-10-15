@@ -1,0 +1,10 @@
+v013	608.34 CPU-s	v013	chr22	reads 102674	detour reads 138	loci 49
+off	647.90 CPU-s	off	chr22	reads 102728	detour reads 10	loci 10
+tr300	623.19 CPU-s	tr300	chr22	reads 102728	detour reads 10	loci 10
+tr150	615.71 CPU-s	tr150	chr22	reads 102722	detour reads 10	loci 10
+tr80	615.98 CPU-s	tr80	chr22	reads 102717	detour reads 14	loci 12
+tr40	607.64 CPU-s	tr40	chr22	reads 102732	detour reads 80	loci 23
+c20_v013	1081.02 CPU-s	c20_v013	chr20	reads 185065	detour reads 405	loci 79
+c20_off	1175.38 CPU-s	c20_off	chr20	reads 185061	detour reads 76	loci 23
+c20_tr150	1095.87 CPU-s	c20_tr150	chr20	reads 185076	detour reads 76	loci 24
+c20_tr200	1126.31 CPU-s	c20_tr200	chr20	reads 185083	detour reads 75	loci 23
