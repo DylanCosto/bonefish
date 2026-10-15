@@ -411,6 +411,7 @@ pub(super) unsafe fn extend_single_affine_neon_impl(
 macro_rules! extend_single_affine_impl {
     ($fn_name:ident, $max_epi8:path, $is_sse41:expr, $target_feat:tt) => {
         #[target_feature(enable = $target_feat)]
+        #[allow(clippy::too_many_arguments)]
         pub(super) unsafe fn $fn_name(
             qseq: &[u8],
             tseq: &[u8],
@@ -783,6 +784,7 @@ extend_single_affine_impl!(extend_single_affine_wasm_impl, _mm_max_epi8, true, "
 macro_rules! extend_single_affine_avx2_impl {
     ($fn_name:ident) => {
         #[target_feature(enable = "avx2")]
+        #[allow(clippy::too_many_arguments)]
         pub(super) unsafe fn $fn_name(
             qseq: &[u8],
             tseq: &[u8],
@@ -1163,6 +1165,7 @@ extend_single_affine_avx2_impl!(extend_single_affine_avx2_fn);
 macro_rules! extend_single_affine_avx512_impl {
     ($fn_name:ident) => {
         #[target_feature(enable = "avx512bw")]
+        #[allow(clippy::too_many_arguments)]
         pub(super) unsafe fn $fn_name(
             qseq: &[u8],
             tseq: &[u8],
@@ -1550,6 +1553,7 @@ extend_single_affine_avx512_impl!(extend_single_affine_avx512_fn);
 /// * `end_bonus` - Bonus for reaching sequence end
 /// * `flags` - Alignment flags
 /// * `result` - Output structure for results
+#[allow(clippy::too_many_arguments)]
 pub fn extend_single_affine(
     qseq: &[u8],
     tseq: &[u8],
@@ -1606,6 +1610,7 @@ pub fn extend_single_affine(
 /// Uses the same Suzuki-Kasahara anti-diagonal sweep and 3-state traceback
 /// as the SIMD implementations, producing identical results. This is the
 /// fallback for non-SIMD architectures and for `BONEFISH_FORCE_SCALAR=1`.
+#[allow(clippy::too_many_arguments)]
 pub fn extend_single_affine_scalar(
     qseq: &[u8],
     tseq: &[u8],

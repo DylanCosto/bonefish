@@ -57,10 +57,10 @@ pub fn encode_nt4_rc(ascii_seq: &[u8]) -> Vec<u8> {
 }
 
 /// nt4 value to lowercase ASCII base.
-const NT4_TO_LOWER: [u8; 5] = [b'a', b'c', b'g', b't', b'n'];
+const NT4_TO_LOWER: [u8; 5] = *b"acgtn";
 
 /// nt4 value to uppercase ASCII base.
-const NT4_TO_UPPER: [u8; 5] = [b'A', b'C', b'G', b'T', b'N'];
+const NT4_TO_UPPER: [u8; 5] = *b"ACGTN";
 
 // Re-export anchor flags from sketch.rs (canonical home for Minimizer bit-fields)
 pub use crate::align::sketch::{SEED_IGNORE, SEED_LONG_JOIN, SEED_TANDEM};
@@ -1228,13 +1228,13 @@ pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 
 
 
+/// Gap fill: `gap_dual`, or for long gaps with `subanchor` the sub-anchored fill.
+///
 /// Gap fill with an optional narrow first pass (band |qlen - tlen| + `margin`). A banded
 /// optimum can miss a path that leaves the band and comes back (a deletion and an insertion in
 /// one VNTR) without touching the band edge, so the band is widened to cover every sampled read
 /// 15-mer that matches the target only off it; the result is kept unless it z-drops or its path
 /// comes within `EDGE` cells of the band edge (then the regular band `bw1`).
-#[allow(clippy::too_many_arguments)]
-/// Gap fill: `gap_dual`, or for long gaps with `subanchor` the sub-anchored fill.
 #[allow(clippy::too_many_arguments)]
 fn gap_fill(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
             subanchor: bool, zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
@@ -1362,6 +1362,7 @@ fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
     Some(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn gap_dual(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
             zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
     use std::sync::atomic::Ordering::Relaxed;
@@ -1463,7 +1464,7 @@ fn offband_only_kmers(q: &[u8], t: &[u8], w: i32) -> Option<(i32, i32)> {
             if c > 3 { l = 0; h = 0; continue; }
             h = ((h << 2) | c as u64) & mask;
             l += 1;
-            if l < K || (i + 1 - K) % 4 != 0 { continue; }
+            if l < K || !(i + 1 - K).is_multiple_of(4) { continue; }
             let qp = (i + 1 - K) as i32;
             // Nearest occurrence; at equal distance the lower target position (as when the
             // occurrences were scanned in position order).
@@ -1573,6 +1574,7 @@ fn tail_indel_shift(q: &[u8], t: &[u8], qs: usize, ts: usize, min_shift: i32, ma
 /// `orig_anchor_rpos`/`orig_anchor_qpos`: raw coordinates of original chain start anchor.
 /// `seed_r_bound`/`seed_q_bound`: rs1/qs1 from nearby-seed inspection.
 /// Returns (rs0, qs0).
+#[allow(clippy::too_many_arguments)]
 fn compute_left_boundary(
     rs: i32, qs: i32,
     orig_anchor_rpos: i32, orig_anchor_qpos: i32, orig_q_span: i32,
@@ -1613,6 +1615,7 @@ fn compute_left_boundary(
 /// `orig_anchor_rpos`/`orig_anchor_qpos`: raw coordinates of original chain end anchor.
 /// `seed_r_bound`/`seed_q_bound`: re1/qe1 from nearby-seed inspection.
 /// Returns (re0, qe0).
+#[allow(clippy::too_many_arguments)]
 fn compute_right_boundary(
     re: i32, qe: i32,
     orig_anchor_rend: i32, orig_anchor_qend: i32,

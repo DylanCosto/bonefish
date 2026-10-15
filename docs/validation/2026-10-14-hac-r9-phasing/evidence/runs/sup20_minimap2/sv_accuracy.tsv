@@ -1,0 +1,2 @@
+label	TP-base	FP	FN	precision	recall	f1
+v012_sup20_minimap2	564	42	238	0.9307	0.7032	0.8011

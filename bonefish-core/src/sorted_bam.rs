@@ -261,6 +261,7 @@ fn parse_i64(s: &[u8]) -> io::Result<i64> {
 }
 
 /// htslib's hts_reg2bin(beg, end, 14, 5) for BAI.
+#[allow(clippy::eq_op)] // level offsets spelled as in htslib, incl. ((1 << 3) - 1) / 7
 pub fn reg2bin(beg: i64, end: i64) -> u32 {
     let end = end - 1;
     if beg >> 14 == end >> 14 { return (((1 << 15) - 1) / 7 + (beg >> 14)) as u32; }
@@ -269,6 +270,36 @@ pub fn reg2bin(beg: i64, end: i64) -> u32 {
     if beg >> 23 == end >> 23 { return (((1 << 6) - 1) / 7 + (beg >> 23)) as u32; }
     if beg >> 26 == end >> 26 { return (((1 << 3) - 1) / 7 + (beg >> 26)) as u32; }
     0
+}
+
+/// htslib's hts_reg2bin for any number of levels (BAI: `reg2bin`, 14 and 5 levels).
+fn reg2bin_lvls(beg: i64, end: i64, min_shift: i32, n_lvls: i32) -> u32 {
+    let end = end - 1;
+    let (mut s, mut t, mut l) = (min_shift, ((1i64 << (3 * n_lvls)) - 1) / 7, n_lvls);
+    while l > 0 {
+        if beg >> s == end >> s { return (t + (beg >> s)) as u32; }
+        l -= 1;
+        s += 3;
+        t -= 1i64 << (3 * l);
+    }
+    0
+}
+
+/// First 16 kb window covered by `bin` (htslib's hts_bin_bot).
+fn bin_bot(bin: u32, n_lvls: i32) -> usize {
+    let (mut l, mut b) = (0, bin);
+    while b != 0 { l += 1; b = (b - 1) >> 3; }
+    ((bin as i64 - ((1i64 << (3 * l)) - 1) / 7) << (3 * (n_lvls - l))) as usize
+}
+
+/// Index levels: 5 (BAI) when every reference fits in 2^29 bases, else as many as a CSI index
+/// with 16 kb windows needs for the longest one (htslib's rule).
+fn index_levels(refs: &[(String, u32)]) -> i32 {
+    let max_len = refs.iter().map(|r| r.1 as i64).max().unwrap_or(0);
+    if max_len <= 1 << 29 { return 5; }
+    let (mut n_lvls, mut s) = (0, 1i64 << 14);
+    while max_len + 256 > s { n_lvls += 1; s <<= 3; }
+    n_lvls
 }
 
 /// Sort key in samtools' coordinate order (tid as unsigned, so unmapped -1 sorts last).
@@ -358,9 +389,8 @@ fn encode_record(line: &[u8], name2tid: &HashMap<Vec<u8>, i32>, out: &mut Vec<u8
     }
     if l_seq > 0 {
         out.reserve(l_seq.div_ceil(2) + l_seq);
-        let pairs = seq.chunks_exact(2);
-        let odd = pairs.remainder();
-        out.extend(pairs.map(|p| SEQ_NT16[p[0] as usize] << 4 | SEQ_NT16[p[1] as usize]));
+        let (pairs, odd) = seq.as_chunks::<2>();
+        out.extend(pairs.iter().map(|&[a, b]| SEQ_NT16[a as usize] << 4 | SEQ_NT16[b as usize]));
         if let [b] = odd { out.push(SEQ_NT16[*b as usize] << 4); }
         if qual == b"*" {
             out.extend(std::iter::repeat_n(0xffu8, l_seq));
@@ -620,7 +650,7 @@ fn bgzf_block(raw: &[u8], deflated: &[u8]) -> Vec<u8> {
 
 const BGZF_EOF: [u8; 28] = [0x1f, 0x8b, 8, 4, 0, 0, 0, 0, 0, 0xff, 6, 0, 0x42, 0x43, 2, 0, 0x1b, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-/// Per-reference BAI state, filled as records are written.
+/// Per-reference BAI/CSI state, filled as records are written.
 #[derive(Default)]
 struct RefIndex {
     bins: HashMap<u32, Vec<(u64, u64)>>,
@@ -632,7 +662,9 @@ struct RefIndex {
     seen: bool,
 }
 
-struct Indexer { refs: Vec<RefIndex>, n_no_coor: u64 }
+/// A BAI index, or a CSI index (`n_lvls` > 5) when a reference is longer than BAI can address
+/// (2^29 bases, e.g. many plant chromosomes).
+struct Indexer { refs: Vec<RefIndex>, n_no_coor: u64, n_lvls: i32 }
 
 impl Indexer {
     fn push(&mut self, m: &RecMeta, vbeg: u64, vend: u64) {
@@ -641,7 +673,9 @@ impl Indexer {
         if !r.seen { r.seen = true; r.off_beg = vbeg; }
         r.off_end = vend;
         if m.mapped { r.n_mapped += 1; } else { r.n_unmapped += 1; }
-        let chunks = r.bins.entry(m.bin).or_default();
+        // The record's 16-bit bin field is BAI's; CSI bins come from the coordinates.
+        let bin = if self.n_lvls == 5 { m.bin } else { reg2bin_lvls(m.beg, m.end, 14, self.n_lvls) };
+        let chunks = r.bins.entry(bin).or_default();
         match chunks.last_mut() {
             Some(c) if c.1 == vbeg => c.1 = vend,
             _ => chunks.push((vbeg, vend)),
@@ -656,7 +690,13 @@ impl Indexer {
         }
     }
 
-    fn write(&mut self, path: &str) -> io::Result<()> {
+    /// Writes `bam_path`.bai, or `bam_path`.csi for a CSI index (removing a stale index of the
+    /// other kind, which readers could otherwise pick up).
+    fn write(&mut self, bam_path: &str) -> io::Result<()> {
+        let (ext, stale) = if self.n_lvls == 5 { ("bai", "csi") } else { ("csi", "bai") };
+        let _ = std::fs::remove_file(format!("{bam_path}.{stale}"));
+        if self.n_lvls > 5 { return self.write_csi(&format!("{bam_path}.{ext}")); }
+        let path = format!("{bam_path}.{ext}");
         let mut w = BufWriter::new(File::create(path)?);
         w.write_all(b"BAI\x01")?;
         w.write_all(&(self.refs.len() as i32).to_le_bytes())?;
@@ -685,6 +725,50 @@ impl Indexer {
             for v in &r.linear { w.write_all(&v.to_le_bytes())?; }
         }
         w.write_all(&self.n_no_coor.to_le_bytes())?;
+        w.flush()
+    }
+
+    /// CSI (htslib's layout for BAM: 16 kb windows, no aux data, BGZF-compressed). Each bin
+    /// carries the offset of its first window in place of BAI's separate linear index.
+    fn write_csi(&mut self, path: &str) -> io::Result<()> {
+        let n_lvls = self.n_lvls;
+        let meta_bin = (((1u64 << (3 * n_lvls + 3)) - 1) / 7 + 1) as u32;
+        let mut raw: Vec<u8> = Vec::new();
+        raw.extend_from_slice(b"CSI\x01");
+        for v in [14i32, n_lvls, 0, self.refs.len() as i32] { raw.extend_from_slice(&v.to_le_bytes()); }
+        for r in &mut self.refs {
+            if !r.seen {
+                raw.extend_from_slice(&0i32.to_le_bytes());
+                continue;
+            }
+            let mut prev = r.off_beg;
+            for v in r.linear.iter_mut() { if *v == u64::MAX { *v = prev; } else { prev = *v; } }
+            let mut bins: Vec<(&u32, &Vec<(u64, u64)>)> = r.bins.iter().collect();
+            bins.sort_by_key(|b| *b.0);
+            raw.extend_from_slice(&((bins.len() + 1) as i32).to_le_bytes());
+            for (&bin, chunks) in bins {
+                let bot = bin_bot(bin, n_lvls);
+                let loff = if bot < r.linear.len() { r.linear[bot] } else { 0 };
+                raw.extend_from_slice(&bin.to_le_bytes());
+                raw.extend_from_slice(&loff.to_le_bytes());
+                raw.extend_from_slice(&(chunks.len() as i32).to_le_bytes());
+                for &(a, b) in chunks { raw.extend_from_slice(&a.to_le_bytes()); raw.extend_from_slice(&b.to_le_bytes()); }
+            }
+            raw.extend_from_slice(&meta_bin.to_le_bytes());
+            raw.extend_from_slice(&0u64.to_le_bytes());
+            raw.extend_from_slice(&2i32.to_le_bytes());
+            for v in [r.off_beg, r.off_end, r.n_mapped, r.n_unmapped] { raw.extend_from_slice(&v.to_le_bytes()); }
+        }
+        raw.extend_from_slice(&self.n_no_coor.to_le_bytes());
+        let mut w = BufWriter::new(File::create(path)?);
+        let mut c = libdeflater::Compressor::new(libdeflater::CompressionLvl::default());
+        let mut tmp = Vec::new();
+        for chunk in raw.chunks(0xff00) {
+            tmp.resize(c.deflate_compress_bound(chunk.len()), 0);
+            let n = c.deflate_compress(chunk, &mut tmp).map_err(|_| bad("deflate failed"))?;
+            w.write_all(&bgzf_block(chunk, &tmp[..n]))?;
+        }
+        w.write_all(&BGZF_EOF)?;
         w.flush()
     }
 }
@@ -723,9 +807,10 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
     // Writer: blocks in order, block file offsets → virtual offsets → index.
     let out_path_w = out_path.to_string();
     let n_refs = refs.len();
+    let n_lvls = index_levels(refs);
     let writer = std::thread::spawn(move || -> io::Result<()> {
         let mut w = BufWriter::with_capacity(4 << 20, File::create(&out_path_w)?);
-        let mut idx = Indexer { refs: (0..n_refs).map(|_| RefIndex::default()).collect(), n_no_coor: 0 };
+        let mut idx = Indexer { refs: (0..n_refs).map(|_| RefIndex::default()).collect(), n_no_coor: 0, n_lvls };
         let mut pending: BTreeMap<u64, (Vec<Vec<u8>>, Vec<RecMeta>)> = BTreeMap::new();
         let mut next_seq = 0u64;
         let mut addr: Vec<u64> = Vec::new(); // file offset of each block written so far
@@ -759,7 +844,7 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
         }
         w.write_all(&BGZF_EOF)?;
         w.flush()?;
-        idx.write(&format!("{}.bai", out_path_w))
+        idx.write(&out_path_w)
     });
 
     // Merge (this thread): header block(s), then records in order.
@@ -869,6 +954,23 @@ mod tests {
         assert_eq!(reg2bin(0, 1), 4681);
         assert_eq!(reg2bin(0, 16385), 585);
         assert_eq!(reg2bin(0, 1 << 29), 0);
+        let mut x = 12345u64;
+        for _ in 0..100_000 {
+            x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+            let beg = (x % (1 << 29)) as i64;
+            let end = (beg + 1 + (x >> 40) as i64 % 200_000).min(1 << 29);
+            assert_eq!(reg2bin_lvls(beg, end, 14, 5), reg2bin(beg, end));
+        }
+        // CSI with 6 levels (htslib values)
+        assert_eq!(reg2bin_lvls(0, 1, 14, 6), 37449);
+        assert_eq!(reg2bin_lvls(600_000_000, 600_000_100, 14, 6), 37449 + (600_000_000 >> 14));
+        assert_eq!(reg2bin_lvls(0, 1 << 32, 14, 6), 0);
+        assert_eq!(bin_bot(4681, 5), 0);
+        assert_eq!(bin_bot(4681 + 7, 5), 7);
+        assert_eq!(bin_bot(1, 5), 0);
+        assert_eq!(bin_bot(2, 5), 1 << 12);
+        assert_eq!(index_levels(&[("a".into(), 248_956_422)]), 5);
+        assert_eq!(index_levels(&[("a".into(), 689_000_000)]), 6);
     }
 
     #[test]

@@ -516,6 +516,7 @@ pub(super) fn traceback_start_position(
 /// p_ptr, band_offset_ptr, band_offset_end_ptr must point to valid memory
 /// from the DP traceback allocation.
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn traceback_dual_affine(
     result: &mut DpResult,
     query_len: usize,
@@ -613,6 +614,7 @@ pub(super) unsafe fn traceback_dual_affine(
 /// p_ptr, band_offset_ptr, band_offset_end_ptr must point to valid memory
 /// from the DP traceback allocation.
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn traceback_single_affine(
     result: &mut DpResult,
     query_len: usize,
@@ -687,6 +689,7 @@ pub(super) unsafe fn traceback_single_affine(
 /// Equivalent to [`traceback_single_affine`] but uses bounds-checked slice access
 /// instead of raw pointer arithmetic. Used by the scalar extz2 implementation
 /// to provide a fully-safe code path on non-SIMD targets.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn traceback_single_affine_safe(
     result: &mut DpResult,
     query_len: usize,

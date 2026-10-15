@@ -40,6 +40,7 @@ use super::single::extend_single_affine;
 /// For map-ont preset: gap_open=4, gap_extend=2, gap_open2=24, gap_extend2=1
 /// - 10bp gap: min(4+20, 24+10) = min(24, 34) = 24 (first penalty)
 /// - 30bp gap: min(4+60, 24+30) = min(64, 54) = 54 (second penalty)
+#[allow(clippy::too_many_arguments)]
 pub fn extend_dual_affine(
     qseq: &[u8],
     tseq: &[u8],
@@ -766,6 +767,7 @@ pub(super) unsafe fn extend_dual_affine_neon_impl(
 macro_rules! extend_dual_affine_impl {
     ($fn_name:ident, $max_epi8:path, $min_epi8:path, $is_sse41:expr, $target_feat:tt) => {
         #[target_feature(enable = $target_feat)]
+        #[allow(clippy::too_many_arguments)]
         pub(super) unsafe fn $fn_name(
             qseq: &[u8],
             tseq: &[u8],
@@ -1390,6 +1392,7 @@ extend_dual_affine_impl!(extend_dual_affine_wasm_impl, _mm_max_epi8, _mm_min_epi
 macro_rules! extend_dual_affine_avx2_impl {
     ($fn_name:ident) => {
         #[target_feature(enable = "avx2")]
+        #[allow(clippy::too_many_arguments)]
         pub(super) unsafe fn $fn_name(
             qseq: &[u8],
             tseq: &[u8],
@@ -2050,6 +2053,7 @@ extend_dual_affine_avx2_impl!(extend_dual_affine_avx2_fn);
 macro_rules! extend_dual_affine_avx512_impl {
     ($fn_name:ident) => {
         #[target_feature(enable = "avx512bw")]
+        #[allow(clippy::too_many_arguments)]
         pub(super) unsafe fn $fn_name(
             qseq: &[u8],
             tseq: &[u8],
@@ -2694,6 +2698,7 @@ pub fn extend_dual_affine_adaptive(
 /// whose ends differ by D needs [min(0, D), max(0, D)] plus a margin, about half the cells of
 /// the symmetric band around D. Clean kernel (AVX2, SSE4.1 or NEON) when available; otherwise the
 /// symmetric band that contains the range.
+#[allow(clippy::too_many_arguments)]
 pub fn extend_dual_affine_diag_range(
     qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
     gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8,
@@ -2720,6 +2725,7 @@ pub fn extend_dual_affine_diag_range(
     super::extend_dual_affine_dispatch(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bw, z_drop, end_bonus, flags, result);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn extend_dual_affine_scalar(
     qseq: &[u8],
     tseq: &[u8],

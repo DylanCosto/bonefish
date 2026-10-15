@@ -8,6 +8,7 @@ fn available() -> bool {
     { true }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check(qi: i32, ri: i32, r: &[i32], q: &[i32], rid: &[u32], start: usize, end: usize, bw: i32) {
     let spans: Vec<_> = (0..r.len()).map(|j| [1, 15, 19, 255][j % 4]).collect();
     let diagonals: Vec<_> = r.iter().zip(q).map(|(&r, &q)| r.wrapping_sub(q)).collect();

@@ -9,14 +9,14 @@ use std::io::{self, BufWriter, BufReader, Read, Write, Seek, SeekFrom};
 fn read_u32_vec<R: Read>(reader: &mut R, n: usize) -> io::Result<Vec<u32>> {
     let mut buf = vec![0u8; n * 4];
     reader.read_exact(&mut buf)?;
-    Ok(buf.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect())
+    Ok(buf.as_chunks::<4>().0.iter().map(|&c| u32::from_le_bytes(c)).collect())
 }
 
 /// Read a Vec<u64> from a binary stream (little-endian, safe).
 fn read_u64_vec<R: Read>(reader: &mut R, n: usize) -> io::Result<Vec<u64>> {
     let mut buf = vec![0u8; n * 8];
     reader.read_exact(&mut buf)?;
-    Ok(buf.chunks_exact(8).map(|c| u64::from_le_bytes(c.try_into().unwrap())).collect())
+    Ok(buf.as_chunks::<8>().0.iter().map(|&c| u64::from_le_bytes(c)).collect())
 }
 use std::fs::File;
 
@@ -333,7 +333,7 @@ impl Index {
     }
 
     /// nt4 value to uppercase ASCII base.
-    pub const NT4_TO_ASCII: [u8; 5] = [b'A', b'C', b'G', b'T', b'N'];
+    pub const NT4_TO_ASCII: [u8; 5] = *b"ACGTN";
 
     /// Get a single base at position `pos` in sequence `rid` as nt4 (0=A,1=C,2=G,3=T,4=N).
     #[inline]
@@ -659,7 +659,7 @@ impl Index {
         // Read per-bucket hash tables directly into BucketHashLookup.
         // .mmi format stores per-bucket: n positions (p[]), then hash entries.
         let n_buckets = 1usize << b;
-        let mut bucket_data: Vec<(Vec<u64>, Vec<(u64, u64)>)> = Vec::with_capacity(n_buckets);
+        let mut bucket_data: Vec<super::index_bucket::MmiBucket> = Vec::with_capacity(n_buckets);
 
         for _ in 0..n_buckets {
             // Read n (i32) — size of positions array

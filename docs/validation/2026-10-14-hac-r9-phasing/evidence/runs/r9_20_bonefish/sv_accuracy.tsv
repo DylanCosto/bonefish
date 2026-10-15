@@ -1,0 +1,2 @@
+label	TP-base	FP	FN	precision	recall	f1
+v012_r9_20_bonefish	529	37	273	0.9346	0.6596	0.7734

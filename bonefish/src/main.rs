@@ -236,7 +236,7 @@ struct AlignArgs {
     #[arg(short = 'e')]
     pub occ_dist: Option<i32>,
 
-    /// Minibatch size for mapping (query bases per batch; suffix K/M/G OK) [500M]
+    /// Minibatch size for mapping (query bases per batch; suffix K/M/G OK) [100M]
     #[arg(short = 'K', long = "mb-size")]
     pub mini_batch_size: Option<String>,
 
@@ -750,7 +750,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
         None => 8_000_000_000, // 8G default
     };
 
-    // -K: overrides opt.mini_batch_size (default 500M)
+    // -K: overrides opt.mini_batch_size (default 100M)
     if let Some(s) = cli.mini_batch_size.as_ref() {
         opt.mini_batch_size = parse_num("-K", s)?;
     }
@@ -815,8 +815,8 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
     let mid_occ_frac = cli.mid_occ_frac.unwrap_or(2e-4);
     let mut input_rg: Vec<String> = Vec::new();
     if cli.sam_rg.is_none() {
-        for qf in query_files.iter().filter(|q| *q != "-") {
-            for l in bonefish::fasta::bam::header_lines(std::path::Path::new(qf)).unwrap_or_default() {
+        for qf in query_files.iter() {
+            for l in bonefish::fasta::input_read_groups(qf).unwrap_or_default() {
                 if !input_rg.contains(&l) { input_rg.push(l); }
             }
         }
@@ -1519,6 +1519,7 @@ fn map_one_part(
                         .collect();
                     for o in open.iter_mut() { o.pending.clear(); }
                     let t_cpu = std::time::Instant::now();
+                    #[allow(clippy::type_complexity)]
                     let attempted: Vec<(usize, usize, Option<(String, AlignmentStats)>)> = work.par_iter().map_init(
                         || (bonefish::align::extend::AlignmentContext::new(), bonefish::align::map::MapContext::new()),
                         |(ctx, map_ctx), &(ci, ri)| {
@@ -1569,6 +1570,7 @@ fn map_one_part(
         #[cfg(not(feature = "parallel"))]
         {
             loop {
+                #[allow(clippy::type_complexity)]
                 let mut chunk_data: Vec<(String, Vec<u8>, Option<String>, Option<String>)> = Vec::new();
                 let mut chunk_bases: u64 = 0;
                 loop {

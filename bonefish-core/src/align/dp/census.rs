@@ -101,6 +101,7 @@ pub fn start() -> Option<Instant> {
 }
 
 /// Record a finished DP call started with `start()`.
+#[allow(clippy::manual_is_multiple_of)] // dp/ left as written (census is a diagnostic build)
 pub fn finish(t0: Option<Instant>, kind: Kind, qseq: &[u8], tseq: &[u8], p: &Params, ez: &DpResult) {
     let (Some(t0), Some(cfg)) = (t0, config()) else { return };
     let ns = t0.elapsed().as_nanos().min(u32::MAX as u128) as u32;

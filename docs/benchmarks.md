@@ -72,6 +72,45 @@ Same genome-wide HG001 sample, bonefish vs minimap2: on T2T-CHM13 41 s vs 166 s 
 with the same number of primaries on ALT contigs (155 vs 154) and the same MHC mapping quality.
 Details: [validation/2026-10-14-other-references](validation/2026-10-14-other-references/README.md).
 
+## Simulated reads with known origin
+
+Badread reads from every GRCh38 chromosome; a primary alignment is wrong if it misses the read's true
+interval. bonefish against minimap2 `lr:hq` (wrong placements among reads mapped at MAPQ >= 10):
+R10-like reads (65,327 scored) 0 vs 0; ultra-long (7,475) 0 vs 0; 0.5 kb reads (190,294) 19 vs 19;
+93%-identity reads (31,940) 3 vs 2, where minimap2 `map-ont` has 0 and maps 257 more reads.
+Details: [validation/2026-10-14-simulated-reads](validation/2026-10-14-simulated-reads/README.md).
+
+## HAC, R9.4.1 and phasing
+
+HG002 chr20 reads, Clair3 and Sniffles2 (minimap2 / bonefish F1): R10.4.1 sup SNP 0.9987 / 0.9987,
+indel 0.9005 / 0.9013, SV 0.8011 / 0.8017; HAC SNP 0.9985 / 0.9984, indel 0.8294 / 0.8310, SV
+0.7887 / 0.7917; R9.4.1 SNP 0.9980 / 0.9980, indel 0.8173 / 0.8172, SV 0.7704 / 0.7734. Phasing with
+longphase against the Q100 truth: 7 switch errors on chr20 from either aligner's BAM, block N50 2.17 /
+2.20 Mb. Details: [validation/2026-10-14-hac-r9-phasing](validation/2026-10-14-hac-r9-phasing/README.md).
+
+## Medically relevant genes and tandem repeats
+
+HG002 whole-genome calls (minimap2 / bonefish F1). GIAB CMRG v1.00: SNPs 0.9650 / 0.9649, indels
+0.7514 / 0.7518, SVs 0.9082 / 0.9032. GIAB tandem-repeat benchmark v1.0.1, Tier 1, after
+`truvari refine`: 0.9026 / 0.9000. Details:
+[validation/2026-10-14-cmrg-tandem-repeats](validation/2026-10-14-cmrg-tandem-repeats/README.md).
+
+## Output checks and limits
+
+Sorted BAMs from FASTQ and from dorado BAMs with methylation tags pass Picard ValidateSamFile (no
+errors with the reference), with NM/MD equal to samtools' recomputation and valid SA, RG and MM/ML
+tags. Output is identical across thread counts, batch sizes, input forms (including stdin and pipes),
+index types and SIMD paths. A 4.6 Gbp reference with positions past 2^32 and a 1.75 Gbp contig gives
+the same alignments, and the sorted BAM gets a CSI index. Details:
+[validation/2026-10-14-output-checks](validation/2026-10-14-output-checks/README.md).
+
+## Threads and memory
+
+Genome-wide HG001 sample: 360 s on 1 thread, 103 s on 4, 51 s on 16 (minimap2: 385 s on 4, 191 s on
+16), identical output at every count. Peak memory at 16 threads is 12.3 GB with the default batch
+(`-K 100M`), and 8.6 GB with `-t 4 -K 10M`. Details:
+[validation/2026-10-14-scaling-memory](validation/2026-10-14-scaling-memory/README.md).
+
 ## Aligner speed alone (SAM output)
 
 | dataset | minimap2 | bonefish | speedup |
@@ -90,8 +129,14 @@ Details: [validation/2026-10-14-other-references](validation/2026-10-14-other-re
 - About 0.4% fewer read bases are aligned: low-identity read ends are left soft-clipped (primary
   alignment identity is higher, 0.979 vs 0.977).
 - Clair3 takes 9–12% longer on bonefish BAMs.
-- Peak memory for a human genome is about 20 GB with 16 threads (the GRCh38 index is 7.3 GB, or
-  8.5 GB in the raw format that loads in under a second).
+- Peak memory for a human genome to sorted BAM is about 20 GB with 16 threads (measured with the
+  old 500 Mbp batch; the 100 Mbp default lowers it by about 1.5 GB). The GRCh38 index is 7.3 GB, or
+  8.5 GB in the raw format that loads in under a second.
+- In tandem repeats, SV calls from bonefish BAMs have more false positives (+463 of 50 bp or more in
+  GIAB's Tier 1 repeats; refined F1 0.9000 vs 0.9026), though genome-wide SV accuracy is higher.
+- For low-accuracy reads (simulated, ~93% identity), minimap2 `map-ont` maps about 1% more reads.
+- Alignment heuristics depend slightly on absolute reference positions, as minimap2's do: shifting a
+  chromosome by 1 kb changes about 3% of the reads on it (minimap2: the same).
 
 ## Other ONT aligners (14 Oct 2026)
 

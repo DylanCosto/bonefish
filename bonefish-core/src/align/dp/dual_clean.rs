@@ -117,6 +117,7 @@ pub(super) unsafe fn extend_dual_affine_avx2_clean(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::manual_is_multiple_of)] // kernel left as written; `% 32` matches the vector width
 unsafe fn clean_impl<const APPROX: bool, const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
     qseq: &[u8],
     tseq: &[u8],
@@ -595,6 +596,7 @@ unsafe fn shr1_next(v: __m256i, fill: __m256i) -> __m256i {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::manual_is_multiple_of)] // kernel left as written; `% 32` matches the vector width
 unsafe fn reg1_impl<const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
     qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
     gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8,

@@ -292,12 +292,10 @@ impl<R: BufRead> Reader<R> {
             return Err(FastxError::MalformedFastq { line: self.line_number, msg: "expected a header line starting with '@'".into() });
         }
         // Fast path: name only, comment skipped in place.
-        if !self.keep_description {
-            if let Some(name) = self.read_fastq_name_only()? {
-                let Some(name) = name else { return Ok(None); };
-                self.line_number += 1;
-                return self.read_fastq_body(name, None);
-            }
+        if !self.keep_description && let Some(name) = self.read_fastq_name_only()? {
+            let Some(name) = name else { return Ok(None); };
+            self.line_number += 1;
+            return self.read_fastq_body(name, None);
         }
         self.buf.clear();
         self.reader.read_until(b'\n', &mut self.buf)?;
@@ -417,6 +415,7 @@ impl<R: BufRead> Reader<R> {
     /// Returns (seqs, is_eof). Caller can call again for the next batch.
     /// Check before the next read,
     /// meaning the last sequence that pushes past the limit IS included.
+    #[allow(clippy::type_complexity)]
     pub fn read_batch(&mut self, batch_size: u64) -> Result<(Vec<(String, Vec<u8>)>, bool), FastxError> {
         let mut seqs = Vec::new();
         let mut sum_len: u64 = 0;
@@ -435,12 +434,56 @@ impl<R: BufRead> Reader<R> {
     }
 }
 
-pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Reader<Box<dyn BufRead + Send>>> {
-    let file: Box<dyn io::Read + Send> = if path.as_ref().as_os_str() == "-" {
+/// Inputs whose first bytes were already consumed by [`input_read_groups`] (stdin, pipes):
+/// the bytes read, replayed ahead of the rest of the stream by the next [`open`] of that path.
+#[allow(clippy::type_complexity)]
+static PREREAD: std::sync::Mutex<Vec<(std::path::PathBuf, Box<dyn io::Read + Send>)>> = std::sync::Mutex::new(Vec::new());
+
+fn open_raw(path: &Path) -> io::Result<Box<dyn io::Read + Send>> {
+    {
+        let mut pre = PREREAD.lock().unwrap();
+        if let Some(i) = pre.iter().position(|(p, _)| p == path) {
+            return Ok(pre.swap_remove(i).1);
+        }
+    }
+    Ok(if path.as_os_str() == "-" {
         Box::new(io::stdin())
     } else {
-        Box::new(File::open(path.as_ref()).map_err(|e| io::Error::new(e.kind(), format!("cannot open '{}': {}", path.as_ref().display(), e)))?)
-    };
+        Box::new(File::open(path).map_err(|e| io::Error::new(e.kind(), format!("cannot open '{}': {}", path.display(), e)))?)
+    })
+}
+
+/// Copies everything read from `inner` into `seen`.
+#[cfg(not(target_arch = "wasm32"))]
+struct Recording<'a, R> { inner: &'a mut R, seen: Vec<u8> }
+#[cfg(not(target_arch = "wasm32"))]
+impl<R: io::Read> io::Read for Recording<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.seen.extend_from_slice(&buf[..n]);
+        Ok(n)
+    }
+}
+
+/// The `@RG` header lines of a BAM input (empty for FASTA/FASTQ). A regular file is read
+/// again by [`open`]; stdin or a pipe can be read only once, so the bytes consumed here are
+/// kept and handed back to [`open`].
+#[cfg(not(target_arch = "wasm32"))]
+pub fn input_read_groups<P: AsRef<Path>>(path: P) -> io::Result<Vec<String>> {
+    let path = path.as_ref();
+    if path.as_os_str() != "-" && std::fs::metadata(path)?.is_file() {
+        return super::bam::header_lines(File::open(path)?);
+    }
+    let mut raw = open_raw(path)?;
+    let mut rec = Recording { inner: &mut raw, seen: Vec::new() };
+    let lines = super::bam::header_lines(&mut rec);
+    let seen = std::mem::take(&mut rec.seen);
+    PREREAD.lock().unwrap().push((path.to_path_buf(), Box::new(io::Read::chain(io::Cursor::new(seen), raw))));
+    lines
+}
+
+pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Reader<Box<dyn BufRead + Send>>> {
+    let file = open_raw(path.as_ref())?;
 
     // Detect by content (gzip magic 0x1f 0x8b) rather than trusting the extension.
     // `fill_buf` peeks without consuming, so the magic bytes remain available to
@@ -536,7 +579,9 @@ impl BufRead for ThreadedRead {
                     self.pos = 0;
                 }
                 Ok(Err(e)) => { self.eof = true; return Err(e); }
-                Err(_) => { self.eof = true; }
+                // The worker ends with an empty block; a closed channel without it means the
+                // thread died, which must not look like the end of the input.
+                Err(_) => { self.eof = true; return Err(io::Error::other("decompression thread stopped before the end of the input")); }
             }
         }
         Ok(&self.cur[self.pos.min(self.cur.len())..])

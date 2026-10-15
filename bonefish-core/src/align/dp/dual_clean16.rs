@@ -165,6 +165,7 @@ pub(super) unsafe fn extend_dual_affine_neon_clean(
 /// stride are the AVX2 kernel's (multiples of 32), so the traceback is shared unchanged.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::manual_is_multiple_of)] // kernel left as written; `% W` matches the vector width
 unsafe fn clean16_impl<V: V16, const APPROX: bool, const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
     qseq: &[u8],
     tseq: &[u8],

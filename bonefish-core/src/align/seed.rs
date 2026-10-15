@@ -308,6 +308,7 @@ fn collect_anchor_matches(
 }
 
 /// Seed collection with explicit max_occ parameter (for re-chaining path).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_seed_hits_with_occ(
     opt: &MapOptions,
     mi: &Index,
@@ -458,6 +459,7 @@ pub(crate) fn collect_seed_hits_with_occ(
     rep_len
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn collect_seed_hits(
     opt: &MapOptions,
     mi: &Index,

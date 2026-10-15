@@ -1,0 +1,10 @@
+[15:57:29] align: ${HOME}/micromamba/envs/ontaln/bin/minimap2 -ax lr:hq 
+[16:04:15] align done: 369.08 s wall, 4864.47+171.10 cpu, 18506140 KB
+[16:04:15] clair3
+[16:09:48] clair3 done: 333.03 s wall
+[16:09:53] accuracy:
+label                type    truth_tp  fp   fn    precision  recall  f1
+v012_sup20_minimap2  snps    71265     89   97    0.9988     0.9986  0.9987
+v012_sup20_minimap2  indels  9896      827  1360  0.9229     0.8792  0.9005
+label	TP-base	FP	FN	precision	recall	f1
+v012_sup20_minimap2	564	42	238	0.9307	0.7032	0.8011

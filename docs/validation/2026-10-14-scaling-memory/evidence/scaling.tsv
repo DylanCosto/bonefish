@@ -1,0 +1,15 @@
+aligner	setting	threads	wall_s	cpu_s	peak_rss_gb	md5
+bonefish	raw_index	16	51.1	667	14.96	deed7949d35f
+bonefish	raw_index	12	54.5	627	14.69	deed7949d35f
+bonefish	raw_index	8	68.1	542	14.29	deed7949d35f
+bonefish	raw_index	4	103.4	424	13.83	deed7949d35f
+bonefish	raw_index	2	193.4	398	13.62	deed7949d35f
+bonefish	raw_index	1	359.9	372	13.47	deed7949d35f
+bonefish	idx_index	4	110.3	412	15.07	deed7949d35f
+bonefish	raw_index_K10M	4	107.0	401	8.63	deed7949d35f
+bonefish	idx_index_K10M	4	107.0	403	9.14	deed7949d35f
+bonefish	split_index_I2G	4	892.6	935	7.53	a65e434a3a2d
+bonefish	split_index_I1G	4	2114.0	2146	4.29	c74bc7ae8f05
+minimap2	lrhq	16	190.8	2569	18.65	d191a4f91957
+minimap2	lrhq	8	233.6	1746	15.82	d191a4f91957
+minimap2	lrhq	4	385.3	1503	14.29	d191a4f91957

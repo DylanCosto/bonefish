@@ -44,13 +44,17 @@ bonefish -t 16 -a ref.fa reads.fq.gz > sample.sam     # FASTQ in, SAM out
   header lines (which carry the basecalling model); from FASTQ, the SAM-style tags of the comment.
   `-R` sets the read group instead.
 - `-o FILE.bam` writes a coordinate-sorted BAM and `FILE.bam.bai` directly (same records and order
-  as `bonefish -a | samtools sort --write-index`); `--sort-mem` (default 4G) sets the sorter's
-  in-memory batches, with spills to `--sort-tmp`. A human genome needs about 15-20 GB with 16
-  threads, and about 23 GB when `-y` carries methylation tags into a sorted BAM; `--sort-mem 1G`
-  brings that to about 19 GB on smaller machines.
+  as `bonefish -a | samtools sort --write-index`; a `.csi` index instead when a reference is longer
+  than 512 Mbp, as many plant chromosomes are); `--sort-mem` (default 4G) sets the sorter's
+  in-memory batches, with spills to `--sort-tmp`.
+- Memory: with 16 threads, mapping a human genome peaks at about 13 GB for SAM output and 15-20 GB
+  for a sorted BAM (about 23 GB when `-y` carries methylation tags; `--sort-mem 1G` brings that to
+  about 19 GB). On a 16 GB machine, `-t 4 -K 10M` maps with a peak under 9 GB and the same output
+  ([measurements](docs/validation/2026-10-14-scaling-memory/README.md)).
+- Reads can come from files, stdin (`-`) or a pipe (`<(zcat reads.fq.gz)`); the output is the same.
 - Malformed input (truncated records, quality/sequence length mismatches, read names over the
-  SAM limit, non-sequence files) stops the run with an error naming the file and line, and a
-  non-zero exit status.
+  SAM limit, corrupt gzip/BGZF/BAM data, non-sequence files) stops the run with an error naming the
+  file, and a non-zero exit status.
 - Most minimap2 command-line options (`-t`, `-a`, `-c`, `--cs`, `--MD`, `--eqx`, `-N`, `-p`, ...)
   work as in minimap2.
 
@@ -92,7 +96,18 @@ the full comparison and the known differences from minimap2 are in
 [2026-10-14-aligner-comparison](docs/validation/2026-10-14-aligner-comparison/README.md);
 methylation: [2026-10-14-modkit-methylation](docs/validation/2026-10-14-modkit-methylation/README.md);
 ONT's wf-human-variation pipeline: [2026-10-14-wf-human-variation](docs/validation/2026-10-14-wf-human-variation/README.md);
-T2T-CHM13 and ALT contigs: [2026-10-14-other-references](docs/validation/2026-10-14-other-references/README.md)).
+T2T-CHM13 and ALT contigs: [2026-10-14-other-references](docs/validation/2026-10-14-other-references/README.md);
+simulated reads with known origin: [2026-10-14-simulated-reads](docs/validation/2026-10-14-simulated-reads/README.md);
+HAC, R9.4.1 and phasing: [2026-10-14-hac-r9-phasing](docs/validation/2026-10-14-hac-r9-phasing/README.md);
+medically relevant genes and tandem repeats: [2026-10-14-cmrg-tandem-repeats](docs/validation/2026-10-14-cmrg-tandem-repeats/README.md);
+file conformance, determinism and large references: [2026-10-14-output-checks](docs/validation/2026-10-14-output-checks/README.md);
+threads and memory: [2026-10-14-scaling-memory](docs/validation/2026-10-14-scaling-memory/README.md)).
+
+Also checked: whole-genome simulated reads are placed as by minimap2 `lr:hq` (no read wrong at MAPQ
+10 or above on R10-like and ultra-long reads); phasing from bonefish BAMs is the same (7 switch errors
+on chr20 for both); accuracy in GIAB's 273 challenging medically relevant genes is the same; the BAMs
+pass Picard ValidateSamFile with no errors; and the output is identical across thread counts, input
+formats, index types and SIMD code paths.
 
 **Apple Silicon.** arm64 builds produce the same output as x86: the genome-wide HG001 sample gives
 the identical MD5 (`deed7949d35f15bd8eed935be47a1d81`) on an Apple M4 Pro and on x86
@@ -118,8 +133,11 @@ options.
 - Output is SAM, PAF or sorted BAM (no CRAM).
 - Indexes written with `-d` are bonefish's own format; minimap2 `.mmi` files can be read but not
   written.
-- A human genome needs about 20 GB of memory with 16 threads (about 23 GB for a sorted BAM with
-  methylation tags; see `--sort-mem`).
+- Tuned for accurate reads (R10.4.1 with current basecallers; R9.4.1 sup works equally well). On
+  simulated reads of about 93% identity, minimap2's `map-ont` preset maps about 1% more reads.
+- In tandem repeats, structural-variant calls from bonefish BAMs have slightly more false positives
+  (GIAB tandem-repeat benchmark F1 0.9000 vs 0.9026 for minimap2).
+- A sorted BAM of a human genome with methylation tags needs about 23 GB (see `--sort-mem`).
 - The browser demo (`web/`, WebAssembly) still uses the older DP kernels, so its alignments can
   differ slightly from the native builds.
 

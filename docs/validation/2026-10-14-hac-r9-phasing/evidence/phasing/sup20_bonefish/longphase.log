@@ -1,0 +1,35 @@
+LongPhase Ver 2.0.2
+
+--- File Parameter --- 
+SNP File           : results/phasing/v012_sup20_bonefish/calls.vcf.gz
+SV  File           : 
+MOD File           : 
+REF File           : ${REPO}/data/ref/GRCh38_no_alt.fa
+Output Prefix      : results/phasing/v012_sup20_bonefish/phased
+Number of Threads  : 16
+Generate Dot       : False
+BAM File           : ${REPO}/results/accuracy/v012_sup20_bonefish/aln.bam 
+
+--- Phasing Parameter --- 
+Seq Platform       : ONT
+Phase Indel        : True
+Indel Quality      : 0
+Distance Threshold : 300000
+Connect Adjacent   : 35
+Edge Threshold     : 0.7
+Overlap Threshold  : 0.2
+Mapping Quality    : 1
+Mismatch Rate      : 3
+Variant Confidence : 0.75
+ReadTag Confidence : 0.65
+
+parsing VCF ... 0s
+parsing SV VCF ... 0s
+parsing Meth VCF ... 0s
+reading reference ... 1s
+(chr20,18s)
+parsing total:  18s
+merge results ... 0s
+writeResult SNP ... 1s
+
+total process: 20s
