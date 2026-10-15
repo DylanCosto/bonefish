@@ -555,9 +555,10 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, pres
         // extension band that follows the alignment, adaptive gap-fill band with a narrow first
         // pass (widened where read k-mers match only off it), ungapped-first gap fill, 5 kb
         // reference gap limit in the main chaining pass (the long-join rescue keeps -g, and skips
-        // repeat-dense reads), segment-tree RMQ and the clean DP kernel. Long gaps are not
-        // sub-anchored (`gap_subanchor`, off since v0.1.4): in tandem repeats its segments can land
-        // on another repeat copy. Validated against GIAB truth sets on R10.4.1 (sup, HAC) and R9.4.1:
+        // repeat-dense reads), segment-tree RMQ, the clean DP kernel, and long gaps sub-anchored
+        // on unique 15-mers outside tandem repeats of period up to 150 bp (inside them a segment can
+        // land on another repeat copy; v0.1.3 sub-anchored there too, v0.1.4 not at all).
+        // Validated against GIAB truth sets on R10.4.1 (sup, HAC) and R9.4.1:
         // SNP/indel accuracy at minimap2 level, SV recall at or above it. The minimap2 names
         // people habitually pass are accepted for the same preset.
         "dna" | "lr:hq" | "lr:hq-fast" | "map-ont" | "lr" => {
@@ -576,6 +577,8 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, pres
             opt.alignment.ext_adaptive = Some(64);
             opt.alignment.clean_dp = true;
             opt.alignment.ungapped_fill = true;
+            opt.alignment.gap_subanchor = true;
+            opt.alignment.gap_subanchor_tr = 150;
         },
         _ => {
             return Err(format!("unrecognized preset '{}' (ONT genomic DNA only: dna, the default)", preset));
@@ -1039,8 +1042,8 @@ mod tests {
         };
         let dna = apply("dna").unwrap();
         assert_eq!((dna.1, dna.2), (19, 19));
-        // Sub-anchored gap filling stays off: it misaligns reads in tandem repeats (v0.1.4).
-        assert!(dna.0.contains("gap_subanchor: false"), "dna preset must not sub-anchor gaps");
+        // Sub-anchoring must skip tandem repeats: inside them it misaligns reads (fixed in v0.1.4).
+        assert!(dna.0.contains("gap_subanchor: true, gap_subanchor_tr: 150"), "dna preset: sub-anchor outside tandem repeats");
         for alias in ["lr:hq", "lr:hq-fast", "map-ont", "lr"] {
             assert_eq!(apply(alias).unwrap(), dna, "{alias} should be the dna preset");
         }
