@@ -235,8 +235,46 @@ fn sorted_bam_output() {
         assert_eq!(got, expect, "sorted BAM records differ from the sorted SAM output");
         let bai = std::fs::read(dir.join("out.bam.bai")).unwrap();
         assert_eq!(&bai[..4], b"BAI\x01");
+        check_bai_chunk_ends(&std::fs::read(&bam).unwrap(), &bai);
     }
     std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A chunk that ends where its block's data ends must say so as the next block's start, as
+/// readers report it and `samtools index` writes it; otherwise the same bin's next chunk never
+/// merges with it and region queries re-inflate blocks once per chunk (v0.1.5 and earlier).
+fn check_bai_chunk_ends(bam: &[u8], bai: &[u8]) {
+    let mut isize = std::collections::HashMap::new(); // block file offset -> uncompressed size
+    let mut o = 0usize;
+    while o < bam.len() {
+        let bsize = u16::from_le_bytes(bam[o + 16..o + 18].try_into().unwrap()) as usize + 1;
+        isize.insert(o as u64, u32::from_le_bytes(bam[o + bsize - 4..o + bsize].try_into().unwrap()));
+        o += bsize;
+    }
+    assert!(isize.len() >= 4, "test BAM should span several BGZF blocks");
+    let rd = |p: &mut usize, n: usize| { let v = &bai[*p..*p + n]; *p += n; v };
+    let mut p = 4;
+    let n_ref = i32::from_le_bytes(rd(&mut p, 4).try_into().unwrap());
+    let mut ends = 0;
+    for _ in 0..n_ref {
+        let n_bin = i32::from_le_bytes(rd(&mut p, 4).try_into().unwrap());
+        for _ in 0..n_bin {
+            let bin = u32::from_le_bytes(rd(&mut p, 4).try_into().unwrap());
+            let n_chunk = i32::from_le_bytes(rd(&mut p, 4).try_into().unwrap());
+            for _ in 0..n_chunk {
+                let _beg = u64::from_le_bytes(rd(&mut p, 8).try_into().unwrap());
+                let end = u64::from_le_bytes(rd(&mut p, 8).try_into().unwrap());
+                if bin == 37450 { continue; }
+                let (c, u) = (end >> 16, (end & 0xffff) as u32);
+                let size = *isize.get(&c).expect("chunk end outside any BGZF block");
+                assert!(u == 0 || u < size, "chunk end {c}:{u} at the end of its block (size {size})");
+                ends += 1;
+            }
+        }
+        let n_intv = i32::from_le_bytes(rd(&mut p, 4).try_into().unwrap()) as usize;
+        p += 8 * n_intv;
+    }
+    assert!(ends > 0);
 }
 
 /// Run bonefish expecting failure; returns stderr.

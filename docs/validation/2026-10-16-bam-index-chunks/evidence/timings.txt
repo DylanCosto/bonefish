@@ -1,0 +1,15 @@
+# chr20 (HG002 PAW70337, 55x): A = v0.1.5 sorted BAM + its BAI; B = same records via samtools sort --write-index;
+# C = A re-indexed by samtools index; H = fixed writer; M = minimap2 2.31 lr:hq | samtools sort
+## longphase phase (-t 4 --ont, GIAB v4.2.1 chr20 het SNPs; Clair3's intermediate-phasing step)
+A (v0.1.5 index): 46.11 s wall, 138.15+4.04 cpu
+B (samtools sort + index): 10.36 s wall, 26.52+0.79 cpu
+C (v0.1.5 BAM, samtools index): 10.49 s wall, 26.77+0.85 cpu
+H (fixed writer): 10.56 s wall, 26.82+0.82 cpu
+M (minimap2): 10.70 s wall, 26.80+1.03 cpu
+## run_clair3.sh --ctg_name chr20 (16 threads); calls of A, B, H byte-identical (145,198 records)
+clair3 chr20 A_builtin: 216.46 s wall, 1175.23+77.14 cpu
+clair3 chr20 B_samtools: 176.61 s wall, 1084.20+57.78 cpu
+clair3 chr20 H: 181.03 s wall, 1100.46+79.07 cpu
+rerun clair3 chr20 H: 182.44 s wall, 1069.89+94.99 cpu
+clair3 chr20 M_minimap2: 178.83 s wall, 1119.04+90.67 cpu
+rerun clair3 chr20 M_minimap2: 173.63 s wall, 1067.80+79.90 cpu

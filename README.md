@@ -109,6 +109,7 @@ HAC, R9.4.1 and phasing: [2026-10-14-hac-r9-phasing](docs/validation/2026-10-14-
 medically relevant genes and tandem repeats: [2026-10-14-cmrg-tandem-repeats](docs/validation/2026-10-14-cmrg-tandem-repeats/README.md);
 file conformance, determinism and large references: [2026-10-14-output-checks](docs/validation/2026-10-14-output-checks/README.md);
 threads and memory: [2026-10-14-scaling-memory](docs/validation/2026-10-14-scaling-memory/README.md);
+Clair3 speed on bonefish BAMs (index fix): [2026-10-16-bam-index-chunks](docs/validation/2026-10-16-bam-index-chunks/README.md);
 tandem-repeat false positives traced and fixed: [2026-10-15-tandem-repeat-detours](docs/validation/2026-10-15-tandem-repeat-detours/README.md),
 [2026-10-15-subanchor-outside-repeats](docs/validation/2026-10-15-subanchor-outside-repeats/README.md);
 whole genomes with v0.1.5: [2026-10-15-giab-wgs-v2](docs/validation/2026-10-15-giab-wgs-v2/README.md)).

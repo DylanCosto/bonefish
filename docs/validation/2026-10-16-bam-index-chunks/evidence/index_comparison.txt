@@ -1,0 +1,12 @@
+## chr20 BAI: v0.1.5 writer vs samtools index of the same BAM
+BAI results/clair3slow/A_builtin.bam.bai: 168634 chunks; BAI results/clair3slow/C_reindexed.bam.bai: 66877 chunks
+identical content: False
+## chr20 BAI: fixed writer vs samtools index of the same BAM
+BAI results/clair3slow/H.bam.bai: 66877 chunks; BAI results/clair3slow/I_ref.bam.bai: 66877 chunks
+identical content: True
+## CSI (664 Mbp contig: 600 Mbp of N + chr20; 50,000 reads): fixed writer vs samtools index -c
+CSI results/clair3slow/csi/long2.bam.csi: 17507 chunks; CSI results/clair3slow/csi/ref2.bam.csi: 17507 chunks
+identical content: True
+## CSI: v0.1.5 writer vs samtools index -c
+CSI results/clair3slow/csi/long.bam.csi: 40516 chunks; CSI results/clair3slow/csi/ref.bam.csi: 17507 chunks
+identical content: False
