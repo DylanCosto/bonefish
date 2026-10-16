@@ -1,0 +1,13 @@
+compared	6928131
+identical	6278002	90.616%
+same_locus	75282	1.087%
+moved	77790	1.123%
+both_unmapped	497051	7.174%
+newly_unmapped	3	0.000%
+newly_mapped	3	0.000%
+mapq_lower	23482	0.339%
+mapq_higher	45115	0.651%
+mapq_lost_20	6306	0.091%
+mapq_gained_20	14597	0.211%
+only_in_test	0
+only_in_ref	0

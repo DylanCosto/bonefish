@@ -1,0 +1,18 @@
+## lost (truth SVs, new run vs old)	total 717	in Tier 1 tandem repeats 597
+    160 INS	100-299
+    155 DEL	50-99
+    130 DEL	100-299
+    125 INS	50-99
+     91 INS	300-999
+     29 DEL	300-999
+     21 INS	>=1000
+      6 DEL	>=1000
+## gained (truth SVs, new run vs old)	total 424	in Tier 1 tandem repeats 320
+     91 INS	300-999
+     88 INS	100-299
+     71 INS	50-99
+     61 DEL	50-99
+     57 DEL	100-299
+     26 INS	>=1000
+     21 DEL	300-999
+      9 DEL	>=1000

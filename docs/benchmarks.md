@@ -10,39 +10,48 @@ both aligners. Apple Silicon results are in [validation/](validation/).
 
 **Version.** The x86 runs below were made with builds whose output is byte-identical to v0.1.1
 (checked on the genome-wide HG001 sample, MD5 `deed7949d35f15bd8eed935be47a1d81`). Since v0.1.1
-arm64 builds produce the same output as x86 (same MD5 on an Apple M4 Pro). v0.1.4 turns off
-sub-anchored gap filling (MD5 `8fbcd8ce9df67b78a978ef6497873caa`; about 6% more CPU): it fixes the
-tandem-repeat false positives below with SNP/indel accuracy unchanged and SV calls within 1-3 per
-chromosome on chr20/chr22 ([details](validation/2026-10-15-tandem-repeat-detours/README.md)); the
-whole-genome comparisons were not re-run.
+arm64 builds produce the same output as x86 (same MD5 on an Apple M4 Pro). v0.1.4 turned off
+sub-anchored gap filling (about 6% more CPU) to fix the tandem-repeat false positives below
+([details](validation/2026-10-15-tandem-repeat-detours/README.md)); v0.1.5 sub-anchors again outside
+tandem repeats (1% more CPU than v0.1.3, MD5 `9bc7ff3e9f49…` on the genome-wide sample;
+[details](validation/2026-10-15-subanchor-outside-repeats/README.md)). The whole-genome section was
+re-run with v0.1.5; the other sections are v0.1.1.
 
 ## Whole genomes, reads to sorted and indexed BAM
 
 ONT's GIAB 2025.01 data, R10.4.1, dorado sup v5.0.0. HG005: all reads of flow cell PAW87816
 (27.9x); HG002: 60% of PAW71238 (27.2x). minimap2 `-ax lr:hq | samtools sort -@16 --write-index`
 against `bonefish -o sample.bam` (built-in sort and index). Clair3 2.0.3 (sup v5.0.0 model) and
-rtg vcfeval against GIAB v4.2.1; Sniffles2 and Truvari against GIAB v5.0q (HG002). Per-sample
-reports and raw results: [validation/2026-10-12-giab-wgs](validation/2026-10-12-giab-wgs/README.md).
+rtg vcfeval against GIAB v4.2.1; Sniffles2 and Truvari against GIAB v5.0q (HG002). bonefish v0.1.5
+(15 Oct; minimap2 results from 12 Oct). Per-sample reports and raw results:
+[validation/2026-10-15-giab-wgs-v2](validation/2026-10-15-giab-wgs-v2/README.md) (v0.1.1:
+[validation/2026-10-12-giab-wgs](validation/2026-10-12-giab-wgs/README.md)).
 
 | | HG005 minimap2 | HG005 bonefish | HG002 minimap2 | HG002 bonefish |
 |---|---:|---:|---:|---:|
-| reads to sorted, indexed BAM | 114.7 min | **34.8 min (3.3x)** | 114.8 min | **37.5 min (3.1x)** |
-| CPU time | 25.3 h | 7.2 h | 25.3 h | 7.2 h |
-| peak memory (process) | 16.7 GB + sort 7.3 GB | 19.6 GB | 16.9 GB + sort 7.2 GB | 19.7 GB |
-| SNP F1 | 0.9975 | 0.9974 | 0.9971 | 0.9971 |
-| indel F1 | 0.9395 | 0.9396 | 0.8737 | 0.8737 |
-| SV F1 vs v5.0q, strict / multi-match | – | – | 0.8055 / 0.8706 | **0.8094 / 0.8741** |
-| primary alignments identical / moved | | 90.6% / 1.1% | | 94.9% / 1.4% |
+| reads to sorted, indexed BAM | 114.7 min | **34.8 min (3.3x)*** | 114.8 min | **38.4 min (3.0x)** |
+| CPU time | 25.3 h | 6.9 h | 25.3 h | 6.8 h |
+| peak memory (process) | 16.7 GB + sort 7.3 GB | 19.9 GB | 16.9 GB + sort 7.2 GB | 19.9 GB |
+| SNP F1 | 0.9975 | 0.9975 | 0.9971 | 0.9971 |
+| indel F1 | 0.9395 | 0.9395 | 0.8737 | 0.8737 |
+| SV F1 vs v5.0q, strict / multi-match | – | – | 0.8055 / 0.8706 | 0.8053 / 0.8706 |
+| primary alignments identical / moved | | 90.6% / 1.1% | | 95.0% / 1.4% |
 | reads newly unmapped | | 3 | | 2 |
+
+\*v0.1.1 timing: the v0.1.5 run of HG005 shared its NTFS drive with a download, which stalled the
+sort's final write (56 min; its CPU time, 6.9 h, is unaffected). v0.1.1 had a higher SV F1 (0.8094 /
+0.8741), from alignments through the wrong repeat copy in tandem repeats that Truvari's position-and-size
+matching counts as true positives; the tandem-repeat benchmark, which realigns haplotypes, scores
+v0.1.5 higher ([details](validation/2026-10-15-giab-wgs-v2/README.md#structural-variants-and-tandem-repeats)).
 
 HG002 small variants re-scored against GIAB v5.0q (the T2T-Q100-based truth, 2.74 Gbp including
 chrX/Y and difficult regions):
 
 | region | SNP F1 minimap2 (FP) | SNP F1 bonefish (FP) | indel F1 minimap2 | indel F1 bonefish |
 |---|---:|---:|---:|---:|
-| all | 0.9862 (46,658) | 0.9863 (45,136) | 0.7075 | 0.7076 |
-| new vs v4.2.1 | 0.8774 (42,180) | 0.8787 (40,782) | 0.4475 | 0.4475 |
-| segmental duplications | 0.9333 (8,857) | 0.9337 (8,751) | 0.6506 | 0.6512 |
+| all | 0.9862 (46,658) | 0.9863 (45,748) | 0.7075 | 0.7075 |
+| new vs v4.2.1 | 0.8774 (42,180) | 0.8783 (41,392) | 0.4475 | 0.4475 |
+| segmental duplications | 0.9333 (8,857) | 0.9335 (8,833) | 0.6506 | 0.6509 |
 | not in difficult regions | 0.9971 | 0.9972 | 0.9584 | 0.9586 |
 
 ## Methylation calls
@@ -94,10 +103,11 @@ longphase against the Q100 truth: 7 switch errors on chr20 from either aligner's
 
 ## Medically relevant genes and tandem repeats
 
-HG002 whole-genome calls (minimap2 / bonefish F1). GIAB CMRG v1.00: SNPs 0.9650 / 0.9649, indels
-0.7514 / 0.7518, SVs 0.9082 / 0.9032. GIAB tandem-repeat benchmark v1.0.1, Tier 1, after
-`truvari refine`: 0.9026 / 0.9000 (v0.1.3; traced to misaligned reads in VNTRs and fixed in v0.1.4,
-see [validation/2026-10-15-tandem-repeat-detours](validation/2026-10-15-tandem-repeat-detours/README.md)). Details:
+HG002 whole-genome calls (minimap2 / bonefish v0.1.5 F1). GIAB CMRG v1.00: SNPs 0.9650 / 0.9650,
+indels 0.7514 / 0.7518, SVs 0.9082 / 0.9070. GIAB tandem-repeat benchmark v1.0.1, Tier 1, after
+`truvari refine`: 0.9026 / 0.9023 (v0.1.1-v0.1.3: 0.9000, from misaligned reads in VNTRs; see
+[validation/2026-10-15-tandem-repeat-detours](validation/2026-10-15-tandem-repeat-detours/README.md)).
+Details: [validation/2026-10-15-giab-wgs-v2](validation/2026-10-15-giab-wgs-v2/README.md) and
 [validation/2026-10-14-cmrg-tandem-repeats](validation/2026-10-14-cmrg-tandem-repeats/README.md).
 
 ## Output checks and limits
@@ -129,17 +139,16 @@ Genome-wide HG001 sample: 360 s on 1 thread, 103 s on 4, 51 s on 16 (minimap2: 3
 ## Known differences and costs
 
 - Output is not byte-identical to minimap2: 1–2% of primary alignments are placed differently.
-- Segmental duplications against GIAB v4.2.1: about 160 more SNP false positives per genome
-  (F1 −0.0007); against v5.0q bonefish has fewer false positives there.
+- Segmental duplications against GIAB v4.2.1: about 100-130 more SNP false positives per genome
+  (v0.1.5; F1 −0.0005); against v5.0q bonefish has fewer false positives there.
 - About 0.4% fewer read bases are aligned: low-identity read ends are left soft-clipped (primary
   alignment identity is higher, 0.979 vs 0.977).
-- Clair3 takes 9–12% longer on bonefish BAMs.
+- Clair3 takes 9–15% longer on bonefish BAMs.
 - Peak memory for a human genome to sorted BAM is about 20 GB with 16 threads (measured with the
   old 500 Mbp batch; the 100 Mbp default lowers it by about 1.5 GB). The GRCh38 index is 7.3 GB, or
   8.5 GB in the raw format that loads in under a second.
 - Up to v0.1.3, SV calls in tandem repeats had more false positives (+463 of 50 bp or more in GIAB's
-  Tier 1 repeats; refined F1 0.9000 vs 0.9026). Fixed in v0.1.4: on chr20 and chr22 the tandem-repeat
-  F1 is 0.8983 / 0.9037 against minimap2's 0.8993 / 0.9030.
+  Tier 1 repeats; refined F1 0.9000 vs 0.9026). Fixed from v0.1.4: genome-wide F1 0.9023 (v0.1.5).
 - For low-accuracy reads (simulated, ~93% identity), minimap2 `map-ont` maps about 1% more reads.
 - Alignment heuristics depend slightly on absolute reference positions, as minimap2's do: shifting a
   chromosome by 1 kb changes about 3% of the reads on it (minimap2: the same).

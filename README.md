@@ -60,19 +60,21 @@ bonefish -t 16 -a ref.fa reads.fq.gz > sample.sam     # FASTQ in, SAM out
 
 ## Speed and accuracy (16 threads)
 
-The measurements below were made with v0.1.1-v0.1.3. v0.1.4 turns off sub-anchored gap filling, which
-put misaligned reads in tandem repeats and extra SV calls there
-([details](docs/validation/2026-10-15-tandem-repeat-detours/README.md)); it costs about 6% more CPU,
-so bonefish is about 4.0x rather than 4.2x faster than minimap2 on the genome-wide sample.
+The whole-genome rows are v0.1.5; the other measurements were made with v0.1.1-v0.1.3. v0.1.4 turned
+off sub-anchored gap filling, which put misaligned reads in tandem repeats and extra SV calls there
+([details](docs/validation/2026-10-15-tandem-repeat-detours/README.md)); v0.1.5 sub-anchors again
+outside tandem repeats, at 1% more CPU than v0.1.3
+([details](docs/validation/2026-10-15-subanchor-outside-repeats/README.md)).
 
 Whole genomes, reads to sorted and indexed BAM (minimap2 2.31 `-ax lr:hq | samtools sort`):
 
 | sample (R10.4.1 sup) | minimap2 + samtools | bonefish | SNP F1 | indel F1 | SV F1 (v5.0q) |
 |---|---:|---:|---|---|---|
-| HG005, 27.9x | 114.7 min | **34.8 min** | 0.9975 / 0.9974 | 0.9395 / 0.9396 | – |
-| HG002, 27.2x | 114.8 min | **37.5 min** | 0.9971 / 0.9971 | 0.8737 / 0.8737 | 0.8055 / **0.8094** |
+| HG005, 27.9x | 114.7 min | **34.8 min*** | 0.9975 / 0.9975 | 0.9395 / 0.9395 | – |
+| HG002, 27.2x | 114.8 min | **38.4 min** | 0.9971 / 0.9971 | 0.8737 / 0.8737 | 0.8055 / 0.8053 |
 
-(F1 pairs are minimap2 / bonefish; Clair3 vs GIAB v4.2.1, Sniffles2 vs GIAB v5.0q.) Aligner alone:
+(F1 pairs are minimap2 / bonefish; Clair3 vs GIAB v4.2.1, Sniffles2 vs GIAB v5.0q. *v0.1.1; the v0.1.5
+run of HG005 shared its disk with a download.) Aligner alone:
 
 | dataset | minimap2 `lr:hq` | bonefish | speedup |
 |---|---:|---:|---:|
@@ -107,11 +109,14 @@ HAC, R9.4.1 and phasing: [2026-10-14-hac-r9-phasing](docs/validation/2026-10-14-
 medically relevant genes and tandem repeats: [2026-10-14-cmrg-tandem-repeats](docs/validation/2026-10-14-cmrg-tandem-repeats/README.md);
 file conformance, determinism and large references: [2026-10-14-output-checks](docs/validation/2026-10-14-output-checks/README.md);
 threads and memory: [2026-10-14-scaling-memory](docs/validation/2026-10-14-scaling-memory/README.md);
-tandem-repeat false positives traced and fixed: [2026-10-15-tandem-repeat-detours](docs/validation/2026-10-15-tandem-repeat-detours/README.md)).
+tandem-repeat false positives traced and fixed: [2026-10-15-tandem-repeat-detours](docs/validation/2026-10-15-tandem-repeat-detours/README.md),
+[2026-10-15-subanchor-outside-repeats](docs/validation/2026-10-15-subanchor-outside-repeats/README.md);
+whole genomes with v0.1.5: [2026-10-15-giab-wgs-v2](docs/validation/2026-10-15-giab-wgs-v2/README.md)).
 
 Also checked: whole-genome simulated reads are placed as by minimap2 `lr:hq` (no read wrong at MAPQ
 10 or above on R10-like and ultra-long reads); phasing from bonefish BAMs is the same (7 switch errors
-on chr20 for both); accuracy in GIAB's 273 challenging medically relevant genes is the same; the BAMs
+on chr20 for both); accuracy in GIAB's 273 challenging medically relevant genes and in its
+tandem-repeat benchmark is the same (v0.1.5); the BAMs
 pass Picard ValidateSamFile with no errors; and the output is identical across thread counts, input
 formats, index types and SIMD code paths.
 
@@ -127,7 +132,8 @@ kernels and their measurements on HG002 ultra-long data are documented in
 
 Same seeding and scoring as minimap2's `lr:hq`, with cheaper alignment and chaining: narrower,
 adaptive DP bands with retries where an indel needs a wider band, a probe that stops extending
-into low-identity read ends, ungapped-first gap filling, a 5 kb reference-gap limit
+into low-identity read ends, ungapped-first gap filling with long gaps split at unique 15-mers
+outside tandem repeats, a 5 kb reference-gap limit
 in the main chaining pass (with a long-join rescue that skips repeat-dense reads), segment-tree
 RMQ chaining and diagonal-bucketed exact chaining, plus multithreaded I/O and a built-in sorter.
 Output is therefore not byte-identical to minimap2. `bonefish --help` lists the individual

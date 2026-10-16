@@ -1,0 +1,6 @@
+aligner	benchmark	type	tp	fp	fn	precision	recall	f1
+bonefish	CMRG small	snps	17332	959	297	0.9476	0.9832	0.9650
+bonefish	CMRG small	indels	2722	893	906	0.7532	0.7503	0.7518
+bonefish	CMRG SV	SV	195	19	21	0.9112	0.9028	0.907
+bonefish	GIAB TR Tier1 (bench)	>=5 bp	114078	21604	19359	0.8388	0.8549	0.8468
+bonefish	GIAB TR Tier1 (refine)	>=5 bp	120028	12714	13409	0.9051	0.8995	0.9023
