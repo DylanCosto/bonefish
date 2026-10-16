@@ -3,9 +3,9 @@
 A fast aligner for Oxford Nanopore DNA reads, written in Rust. bonefish takes ONT reads (FASTQ,
 FASTA, or the BAM that dorado writes) and produces SAM, PAF, or a coordinate-sorted, indexed BAM
 in one step. It is tuned and validated for variant calling: on whole human genomes (GIAB HG002 and
-HG005, R10.4.1), its SNP and indel accuracy match minimap2's, its structural-variant F1 is
-slightly higher and its CpG methylation calls (modkit) agree with minimap2's at r = 0.999, while it goes from reads to a sorted, indexed BAM about 3x faster than
-`minimap2 | samtools sort` (aligner alone: 2.6-8x).
+HG005, R10.4.1), its SNP, indel and structural-variant accuracy match minimap2's and its CpG
+methylation calls (modkit) agree with minimap2's at r = 0.999, while it goes from reads to a sorted,
+indexed BAM about 3x faster than `minimap2 | samtools sort` (aligner alone: 2.6-8x).
 
 ## Install
 
