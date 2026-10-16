@@ -17,6 +17,13 @@ newer: RHEL/Rocky 8+, Ubuntu 20.04+, Debian 10+) and macOS on Apple silicon. Unp
 cargo build --release --features jemalloc    # jemalloc is ~10% faster than the system allocator
 ```
 
+A container image builds from the repository's `Dockerfile` (the binary on Debian slim, with
+`procps` for Nextflow):
+
+```bash
+docker build -t bonefish https://github.com/DylanCosto/bonefish.git
+```
+
 The SIMD kernels are chosen at run time (AVX-512/AVX2 on x86_64, NEON on arm64), so one binary
 runs on any CPU of its architecture. The speed and accuracy figures below were measured on x86_64
 with AVX2. The release workflow builds each platform's binary only after that platform passes
