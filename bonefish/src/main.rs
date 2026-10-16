@@ -53,7 +53,7 @@ struct AlignArgs {
     ///   lr:hq / lr:hq-fast / map-ont / lr — accepted as aliases of dna
     /// dna = minimap2 lr:hq seeding and scoring plus --ext-bw 200 --ext-adaptive 64 --ext-rescue
     /// --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000
-    /// --seg-rmq --clean-dp --rescue-join --rescue-max-density 2
+    /// --seg-rmq --clean-dp --rescue-join --rescue-max-density 2 --gap-subanchor-tr 150
     #[arg(short = 'x', long, verbatim_doc_comment)]
     pub preset: Option<String>,
 
@@ -312,11 +312,16 @@ struct AlignArgs {
     #[arg(long, value_name = "INT")]
     pub rescue_max_density: Option<u32>,
 
-    /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between): ~6% faster,
-    /// but in tandem repeats a segment can sit on another repeat copy and force a deletion-insertion
-    /// detour, which callers report as extra SVs [off]
+    /// Sub-anchored fill of long gaps (exact unique 15-mer segments, narrow DP between) [on]
     #[arg(long, hide = true)]
     pub gap_subanchor: bool,
+    /// No sub-anchored gap fill (v0.1.4 behaviour; ~4% slower)
+    #[arg(long, hide = true, conflicts_with = "gap_subanchor")]
+    pub no_gap_subanchor: bool,
+    /// Sub-anchoring skips tandem repeats of period up to INT bp; 0 = sub-anchor in them too (v0.1.3
+    /// behaviour, where a segment on another repeat copy forces a deletion-insertion detour) [150]
+    #[arg(long, hide = true, value_name = "INT")]
+    pub gap_subanchor_tr: Option<u32>,
 
     /// Keep 1/F of the query minimizers (by hash) for reads of at least MIN_LEN bp [default 8000]:
     /// fewer anchors, much faster, loses some SV support (e.g. --query-subsample 2)
@@ -672,6 +677,8 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
     if cli.no_rescue_join { opt.chaining.rescue_join = false; }
     if let Some(d) = cli.rescue_max_density { opt.chaining.rescue_max_density = d; }
     if cli.gap_subanchor { opt.alignment.gap_subanchor = true; }
+    if cli.no_gap_subanchor { opt.alignment.gap_subanchor = false; }
+    if let Some(d) = cli.gap_subanchor_tr { opt.alignment.gap_subanchor_tr = d; }
     if let Some(sv) = &cli.query_subsample {
         let v: Vec<u32> = sv.split(',').filter_map(|x| x.trim().parse().ok()).collect();
         match v.as_slice() {

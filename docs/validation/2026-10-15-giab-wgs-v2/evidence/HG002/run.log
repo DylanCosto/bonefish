@@ -1,0 +1,19 @@
+[2026-10-15 16:24:51] HG002: start (bonefish 0.1.4, minimap2 2.31-r1302)
+[2026-10-15 16:24:51] HG002: stage: truth
+[2026-10-15 16:24:51] HG002: stage: align_bonefish
+[2026-10-15 17:03:17] HG002: bonefish: reads -> sorted BAM in 2306 s (aligner: 2300.50 24015.95 334.81 20848124)
+[2026-10-15 17:03:17] HG002: stage: bamstats_bonefish
+[2026-10-15 17:08:05] HG002: bonefish: records	6608133 primary_mapped	4647264 unmapped	104212 secondary	1250799 supplementary	605858 reads	4751476 pct_reads_mapped	97.807 primary_query_bases	84258019641 primary_aligned_bases	80301518101 pct_primary_bases_aligned	95.304 supplementary_aligned_bases	3581840762 primary_identity	0.97742 mapq_0-0	16057 mapq_1-9	205348 mapq_10-19	31522 mapq_20-29	24163 mapq_30-59	67346 mapq_60-60	4302828 pct_
+[2026-10-15 17:08:05] HG002: stage: clair3_bonefish
+[2026-10-15 18:40:52] HG002: bonefish: clair3 5567.08 54838.29 4684.57 4576744
+[2026-10-15 18:40:52] HG002: stage: vcfeval_bonefish
+[2026-10-15 18:41:55] HG002: bonefish accuracy: snps F1 0.9971 (FP 11785 FN 7832); indels F1 0.8737 (FP 63860 FN 68292); 
+[2026-10-15 18:44:58] HG002: stage: sniffles_bonefish
+[2026-10-15 18:46:35] HG002: bonefish: sniffles 96.01 929.66 65.09 1931748, 26344 PASS SVs
+[2026-10-15 18:46:35] HG002: stage: truvari_bonefish
+[2026-10-15 18:50:35] HG002: bonefish SV: strict F1 0.8053 (TP 20096 FP 1693); multi F1 0.8706 (TP 23055 FP 1569); 
+[2026-10-15 18:50:37] HG002: stage: compare
+[2026-10-15 18:50:54] HG002: stage: report
+[2026-10-15 18:50:54] HG002: report: ${REPO}/data/wgs/HG002_v2/report.md
+[2026-10-15 18:50:54] HG002: stage: done
+[2026-10-15 18:50:54] HG002: done

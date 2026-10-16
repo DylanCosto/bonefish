@@ -1,0 +1,8 @@
+run1 off: 49.90 s, 700.50 CPU-s, 8fbcd8ce9df6
+run1 v013: 46.60 s, 664.85 CPU-s, deed7949d35f
+run1 tr150: 46.80 s, 671.29 CPU-s, 9bc7ff3e9f49
+run1 tr200: 47.63 s, 675.29 CPU-s, d8f1a52b8467
+run2 off: 49.54 s, 698.74 CPU-s, 8fbcd8ce9df6
+run2 v013: 46.58 s, 663.59 CPU-s, deed7949d35f
+run2 tr150: 46.92 s, 671.19 CPU-s, 9bc7ff3e9f49
+run2 tr200: 46.95 s, 674.32 CPU-s, d8f1a52b8467

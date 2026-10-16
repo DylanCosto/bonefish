@@ -1,0 +1,2 @@
+label	TP-base	FP	FN	precision	recall	f1
+subtr150_chr22	394	44	171	0.8995	0.6973	0.7856

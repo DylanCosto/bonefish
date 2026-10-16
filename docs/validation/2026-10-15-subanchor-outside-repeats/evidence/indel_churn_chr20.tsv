@@ -1,0 +1,4 @@
+set	sites	with_alignment_change_300bp
+new FPs (B false positive, not called by A)	72	11
+lost calls (B false negative, called by A)	154	22
+random truth indels	300	48

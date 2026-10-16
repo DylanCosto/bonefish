@@ -1228,7 +1228,8 @@ pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 
 
 
-/// Gap fill: `gap_dual`, or for long gaps with `subanchor` the sub-anchored fill.
+/// Gap fill: `gap_dual`, or for long gaps with `subanchor` (Some(tandem-repeat period skipped)) the
+/// sub-anchored fill.
 ///
 /// Gap fill with an optional narrow first pass (band |qlen - tlen| + `margin`). A banded
 /// optimum can miss a path that leaves the band and comes back (a deletion and an insertion in
@@ -1237,10 +1238,10 @@ pub static PROBE_STOPS: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomic
 /// comes within `EDGE` cells of the band edge (then the regular band `bw1`).
 #[allow(clippy::too_many_arguments)]
 fn gap_fill(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
-            subanchor: bool, zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
+            subanchor: Option<usize>, zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
     let sub_min_len = *crate::align::env_flags::SUB_MIN;
-    if subanchor && qs.len().max(ts.len()) >= sub_min_len
-        && let Some(r) = gap_subanchored(qs, ts, mat, q, e, q2, e2, bw1, narrow.unwrap_or(32), zdrop, end_bonus, flag) {
+    if let Some(tr_dist) = subanchor && qs.len().max(ts.len()) >= sub_min_len
+        && let Some(r) = gap_subanchored(qs, ts, mat, q, e, q2, e2, bw1, narrow.unwrap_or(32), tr_dist, zdrop, end_bonus, flag) {
         GAP_SUB_USED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         *ez = r;
         return;
@@ -1253,10 +1254,12 @@ pub static GAP_SUB_USED: std::sync::atomic::AtomicU64 = std::sync::atomic::Atomi
 /// Sub-anchored fill of a long gap: exact 15-mer matches unique in both sides
 /// are chained collinearly (longest increasing subsequence), merged into exact segments, and
 /// only the pieces between segments are aligned (narrow bands). Turns one wide-band DP over
-/// kilobases into a few small ones; None if there is too little to anchor on.
+/// kilobases into a few small ones; None if there is too little to anchor on. Segments inside
+/// tandem repeats of period up to `tr_dist` (0 = none) are dropped: there a unique 15-mer can still
+/// pair the read with another copy of the repeat unit and force a deletion-insertion detour.
 #[allow(clippy::too_many_arguments)]
 fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, m: i32,
-                   zdrop: i32, end_bonus: i32, flag: i32) -> Option<DpResult> {
+                   tr_dist: usize, zdrop: i32, end_bonus: i32, flag: i32) -> Option<DpResult> {
     const K: usize = 15;
     const MIN_SEG: usize = 20;
     if qs.len() < K || ts.len() < K { return None; }
@@ -1272,9 +1275,8 @@ fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
         }
         v
     };
-    // k-mers occurring exactly once on each side
-    let unique = |mut v: Vec<(u32, u32)>| -> Vec<(u32, u32)> {
-        v.sort_unstable();
+    // k-mers occurring exactly once on each side (input sorted)
+    let unique = |v: &[(u32, u32)]| -> Vec<(u32, u32)> {
         let mut out = Vec::with_capacity(v.len());
         let mut i = 0;
         while i < v.len() {
@@ -1285,7 +1287,30 @@ fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
         }
         out
     };
-    let (tu, qu) = (unique(kmers(ts)), unique(kmers(qs)));
+    let (mut tk, mut qk) = (kmers(ts), kmers(qs));
+    tk.sort_unstable();
+    qk.sort_unstable();
+    let (tu, qu) = (unique(&tk), unique(&qk));
+    // Tandem-repeat mask (prefix counts): a k-mer recurring within `tr_dist` marks the span between
+    // its copies.
+    let repeat_mask = |v: &[(u32, u32)], n: usize| -> Option<Vec<u32>> {
+        if tr_dist == 0 { return None; }
+        let mut diff = vec![0i32; n + 1];
+        for w in v.windows(2) {
+            if w[0].0 == w[1].0 && (w[1].1 - w[0].1) as usize <= tr_dist {
+                diff[w[0].1 as usize] += 1;
+                diff[(w[1].1 as usize + K).min(n)] -= 1;
+            }
+        }
+        let (mut cum, mut run) = (Vec::with_capacity(n + 1), 0i32);
+        let mut acc = 0u32;
+        cum.push(0);
+        for d in &diff[..n] { run += d; acc += (run > 0) as u32; cum.push(acc); }
+        Some(cum)
+    };
+    let (tmask, qmask) = (repeat_mask(&tk, ts.len()), repeat_mask(&qk, qs.len()));
+    drop((tk, qk));
+    let masked = |m: &Option<Vec<u32>>, a: usize, b: usize| m.as_ref().is_some_and(|c| c[b] > c[a]);
     // matches (qpos, tpos), by merge of the two sorted lists
     let mut hits: Vec<(u32, u32)> = Vec::new();
     let (mut a, mut b) = (0, 0);
@@ -1326,7 +1351,7 @@ fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
         }
         segs.push((q0, t0, len));
     }
-    segs.retain(|s| s.2 >= MIN_SEG);
+    segs.retain(|s| s.2 >= MIN_SEG && !masked(&qmask, s.0, s.0 + s.2) && !masked(&tmask, s.1, s.1 + s.2));
     if segs.is_empty() { return None; }
     // Align the pieces between segments; concatenate.
     let mut out = DpResult::default();
@@ -1967,7 +1992,7 @@ pub fn align_anchors(
                         if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_subanchor, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_subanchor.then_some(opt.alignment.gap_subanchor_tr as usize), zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                     }
                     // Z-drop test applies to both paths
@@ -1991,7 +2016,7 @@ pub fn align_anchors(
                         if q == q2 && e == e2 {
                             dp::extend_single_affine(q_sub, t_sub, 5, &mat, q as i8, e as i8, bw1, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         } else {
-                            gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_subanchor, zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
+                            gap_fill(q_sub, t_sub, &mat, q as i8, e as i8, q2 as i8, e2 as i8, bw1, gap_narrow, opt.alignment.gap_subanchor.then_some(opt.alignment.gap_subanchor_tr as usize), zdrop, gap_end_bonus, APPROX_MAX | generic_sc_flag, &mut ez);
                         }
                         #[cfg(feature = "census")]
                         dp::census::finish(census_t0, dp::census::Kind::Gap, q_sub, t_sub,
@@ -2354,5 +2379,43 @@ fn write_indel_ds(out: &mut String, len: usize, seq: &[u8], ll: usize, lr: usize
             }
             out.push(']');
         }
+    }
+}
+
+#[cfg(test)]
+mod subanchor_tests {
+    use super::*;
+
+    fn random_seq(n: usize, seed: &mut u64) -> Vec<u8> {
+        (0..n).map(|_| { *seed ^= *seed << 13; *seed ^= *seed >> 7; *seed ^= *seed << 17; (*seed % 4) as u8 }).collect()
+    }
+
+    /// 40 copies of a 50 bp unit, each with its own point change, so every copy has unique 15-mers.
+    fn vntr(seed: &mut u64) -> Vec<u8> {
+        let unit = random_seq(50, seed);
+        let mut s = Vec::new();
+        for c in 0..40 { let mut u = unit.clone(); u[c % 50] = (u[c % 50] + 1) % 4; s.extend(u); }
+        s
+    }
+
+    #[test]
+    fn test_subanchor_skips_tandem_repeats() {
+        let mat = build_scoring_matrix(2, 4);
+        let fill = |s: &[u8], tr: usize| gap_subanchored(s, s, &mat, 4, 2, 24, 1, 500, 32, tr, 400, -1, 0);
+        let mut seed = 0x9e3779b97f4a7c15u64;
+        // Inside a tandem repeat no segment survives the mask: the gap falls back to the full fill.
+        let rep = vntr(&mut seed);
+        assert!(fill(&rep, 0).is_some(), "unique 15-mers in the repeat anchor without the mask");
+        assert!(fill(&rep, 150).is_none(), "segments in a 50 bp-period repeat must be dropped");
+        // Unique flanks still anchor, and the repeat between them is aligned as one piece. The read
+        // differs at both edges of the repeat, as sequencing errors split real segments.
+        let mut t = random_seq(1000, &mut seed);
+        t.extend(&rep);
+        t.extend(random_seq(1000, &mut seed));
+        let mut q = t.clone();
+        for p in [1000, 1000 + rep.len() - 1] { q[p] = (q[p] + 1) % 4; }
+        let r = gap_subanchored(&q, &t, &mat, 4, 2, 24, 1, 500, 32, 150, 400, -1, 0).expect("flanks anchor");
+        assert_eq!(r.cigar, vec![(t.len() as u32) << 4], "one run of matches and mismatches");
+        assert_eq!(r.score, 2 * (t.len() as i32 - 2) - 2 * 4);
     }
 }

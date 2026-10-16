@@ -155,6 +155,8 @@ pub struct AlignmentParams {
     pub min_dp_len: i32,
     /// Sub-anchored fill of long gaps (see `extend::gap_subanchored`).
     pub gap_subanchor: bool,
+    /// Sub-anchoring skips tandem repeats with a period up to this many bases (0 = none).
+    pub gap_subanchor_tr: u32,
     pub anchor_ext_len: i32,
     pub anchor_ext_shift: i32,
     pub max_clip_ratio: f32,
@@ -259,6 +261,7 @@ impl Default for MapOptions {
                 min_dp_max: 80, // min_chain_score * a = 40 * 2
                 min_dp_len: 200,
                 gap_subanchor: false,
+                gap_subanchor_tr: 0,
                 anchor_ext_len: 20,
                 anchor_ext_shift: 6,
                 max_clip_ratio: 1.0,

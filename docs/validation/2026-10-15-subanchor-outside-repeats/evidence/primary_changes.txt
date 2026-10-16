@@ -1,0 +1,20 @@
+## chr20: v0.1.4 (sub-anchoring off) -> outside-repeats mode
+primary records compared: 188,140
+  identical:                         186,628 (99.196%)
+  same locus (overlapping interval): 1,362 (0.724%)
+  moved (contig/strand/no overlap):  150 (0.080%)
+  newly unmapped / newly mapped:     0 / 0
+  MAPQ lower / higher:               342 / 196
+aligned bases, primary:        3.264 Gb -> 3.264 Gb
+aligned bases, supplementary:  0.163 Gb -> 0.163 Gb (22,992 -> 22,998 records)
+aligned bases, total:          3.427 Gb -> 3.426 Gb
+## chr22
+primary records compared: 106,748
+  identical:                         106,360 (99.637%)
+  same locus (overlapping interval): 343 (0.321%)
+  moved (contig/strand/no overlap):  45 (0.042%)
+  newly unmapped / newly mapped:     0 / 0
+  MAPQ lower / higher:               81 / 99
+aligned bases, primary:        1.706 Gb -> 1.706 Gb
+aligned bases, supplementary:  0.199 Gb -> 0.199 Gb (70,084 -> 70,093 records)
+aligned bases, total:          1.905 Gb -> 1.905 Gb
