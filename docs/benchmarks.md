@@ -143,7 +143,10 @@ Genome-wide HG001 sample: 360 s on 1 thread, 103 s on 4, 51 s on 16 (minimap2: 3
   (v0.1.5; F1 −0.0005); against v5.0q bonefish has fewer false positives there.
 - About 0.4% fewer read bases are aligned: low-identity read ends are left soft-clipped (primary
   alignment identity is higher, 0.979 vs 0.977).
-- Clair3 takes 9–15% longer on bonefish BAMs.
+- Up to v0.1.5, Clair3 took 9–15% longer on bonefish BAMs: the BAI written with `-o x.bam` split
+  bins into ~2.5x too many chunks, so region reads re-inflated blocks. From v0.1.6 the index is
+  identical in content to `samtools index` and Clair3 runs as fast as on minimap2's BAM (chr20;
+  [details](validation/2026-10-16-bam-index-chunks/README.md)). Older BAMs: re-run `samtools index`.
 - Peak memory for a human genome to sorted BAM is about 20 GB with 16 threads (measured with the
   old 500 Mbp batch; the 100 Mbp default lowers it by about 1.5 GB). The GRCh38 index is 7.3 GB, or
   8.5 GB in the raw format that loads in under a second.

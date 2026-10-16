@@ -690,9 +690,48 @@ impl Indexer {
         }
     }
 
+    /// htslib's `compress_binning` (hts_idx_finish): a bin whose chunks span less than 64 KB of
+    /// compressed file moves into its parent bin (when that exists), deepest level first; then
+    /// each bin's chunks that start in the BGZF block where the previous chunk ends are merged.
+    /// Without it, a region query seeks to and inflates the same block once per tiny chunk
+    /// (longphase phased 4.5x slower on such an index).
+    fn compress_binning(bins: &mut HashMap<u32, Vec<(u64, u64)>>, n_lvls: i32) {
+        const MIN_MARKER_DIST: u64 = 0x10000;
+        let n_bins = (((1u64 << (3 * n_lvls + 3)) - 1) / 7) as u32;
+        for l in (1..=n_lvls).rev() {
+            let start = (((1u64 << (3 * l)) - 1) / 7) as u32;
+            let keys: Vec<u32> = bins.keys().copied().filter(|&b| b >= start && b < n_bins).collect();
+            for b in keys {
+                let Some(p) = bins.get_mut(&b) else { continue };
+                if l < n_lvls && p.len() > 1 { p.sort_unstable_by_key(|c| c.0); }
+                let span = (p[p.len() - 1].1 >> 16).wrapping_sub(p[0].0 >> 16);
+                let parent = (b - 1) >> 3;
+                if span < MIN_MARKER_DIST && bins.contains_key(&parent) {
+                    let moved = bins.remove(&b).unwrap();
+                    bins.get_mut(&parent).unwrap().extend(moved);
+                }
+            }
+        }
+        if let Some(p) = bins.get_mut(&0) { p.sort_unstable_by_key(|c| c.0); }
+        for (&b, p) in bins.iter_mut() {
+            if b >= n_bins || p.is_empty() { continue; }
+            let mut m = 0;
+            for l in 1..p.len() {
+                if p[m].1 >> 16 >= p[l].0 >> 16 {
+                    if p[m].1 < p[l].1 { p[m].1 = p[l].1; }
+                } else {
+                    m += 1;
+                    p[m] = p[l];
+                }
+            }
+            p.truncate(m + 1);
+        }
+    }
+
     /// Writes `bam_path`.bai, or `bam_path`.csi for a CSI index (removing a stale index of the
     /// other kind, which readers could otherwise pick up).
     fn write(&mut self, bam_path: &str) -> io::Result<()> {
+        for r in &mut self.refs { Self::compress_binning(&mut r.bins, self.n_lvls); }
         let (ext, stale) = if self.n_lvls == 5 { ("bai", "csi") } else { ("csi", "bai") };
         let _ = std::fs::remove_file(format!("{bam_path}.{stale}"));
         if self.n_lvls > 5 { return self.write_csi(&format!("{bam_path}.{ext}")); }
@@ -718,9 +757,7 @@ impl Indexer {
             w.write_all(&37450u32.to_le_bytes())?;
             w.write_all(&2i32.to_le_bytes())?;
             for v in [r.off_beg, r.off_end, r.n_mapped, r.n_unmapped] { w.write_all(&v.to_le_bytes())?; }
-            // Empty windows get the previous window's offset (the first: the reference's first record).
-            let mut prev = r.off_beg;
-            for v in r.linear.iter_mut() { if *v == u64::MAX { *v = prev; } else { prev = *v; } }
+            fill_linear(&mut r.linear, r.off_beg);
             w.write_all(&(r.linear.len() as i32).to_le_bytes())?;
             for v in &r.linear { w.write_all(&v.to_le_bytes())?; }
         }
@@ -741,8 +778,7 @@ impl Indexer {
                 raw.extend_from_slice(&0i32.to_le_bytes());
                 continue;
             }
-            let mut prev = r.off_beg;
-            for v in r.linear.iter_mut() { if *v == u64::MAX { *v = prev; } else { prev = *v; } }
+            fill_linear(&mut r.linear, r.off_beg);
             let mut bins: Vec<(&u32, &Vec<(u64, u64)>)> = r.bins.iter().collect();
             bins.sort_by_key(|b| *b.0);
             raw.extend_from_slice(&((bins.len() + 1) as i32).to_le_bytes());
@@ -771,6 +807,15 @@ impl Indexer {
         w.write_all(&BGZF_EOF)?;
         w.flush()
     }
+}
+
+/// Linear index windows no record overlaps get the offset of the next window's first record, as
+/// `samtools index` writes them (nothing before it can overlap them); any trailing ones the last.
+fn fill_linear(linear: &mut [u64], off_beg: u64) {
+    let mut next = u64::MAX;
+    for v in linear.iter_mut().rev() { if *v == u64::MAX { *v = next; } else { next = *v; } }
+    let mut prev = off_beg;
+    for v in linear.iter_mut() { if *v == u64::MAX { *v = prev; } else { prev = *v; } }
 }
 
 /// A compression job: raw BGZF blocks (numbered from `first_block`) and the records they hold.
@@ -814,6 +859,7 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
         let mut pending: BTreeMap<u64, (Vec<Vec<u8>>, Vec<RecMeta>)> = BTreeMap::new();
         let mut next_seq = 0u64;
         let mut addr: Vec<u64> = Vec::new(); // file offset of each block written so far
+        let mut raw_len: Vec<u32> = Vec::new(); // its uncompressed size (the BGZF ISIZE field)
         let mut file_off = 0u64;
         // Metas can point one block past the job's last (a record ending exactly at a block end).
         let mut held: Vec<RecMeta> = Vec::new();
@@ -821,16 +867,28 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
             let a = if (b as usize) < addr.len() { addr[b as usize] } else { file_off };
             a << 16 | o as u64
         };
+        // A record that ends where its block's data ends ends at the start of the next block, as
+        // readers report it (htslib's hts_idx_amend_last): otherwise the next record of the same
+        // bin never looks contiguous and the index gets a chunk per block boundary.
+        let vend = |addr: &Vec<u64>, raw_len: &Vec<u32>, file_off: u64, b: u64, o: u32| -> u64 {
+            if (b as usize) < raw_len.len() && o == raw_len[b as usize] { voff(addr, file_off, b + 1, 0) }
+            else { voff(addr, file_off, b, o) }
+        };
         while let Ok((seq, blocks, metas)) = done_rx.recv() {
             pending.insert(seq, (blocks, metas));
             while let Some((blocks, metas)) = pending.remove(&next_seq) {
-                for b in &blocks { addr.push(file_off); w.write_all(b)?; file_off += b.len() as u64; }
+                for b in &blocks {
+                    addr.push(file_off);
+                    raw_len.push(u32::from_le_bytes(b[b.len() - 4..].try_into().unwrap()));
+                    w.write_all(b)?;
+                    file_off += b.len() as u64;
+                }
                 held.extend(metas);
                 let known = addr.len() as u64;
                 let mut keep = Vec::new();
                 for m in held.drain(..) {
                     if m.eb < known || (m.eb == known && m.eo == 0) {
-                        let (vb, ve) = (voff(&addr, file_off, m.sb, m.so), voff(&addr, file_off, m.eb, m.eo));
+                        let (vb, ve) = (voff(&addr, file_off, m.sb, m.so), vend(&addr, &raw_len, file_off, m.eb, m.eo));
                         idx.push(&m, vb, ve);
                     } else { keep.push(m); }
                 }
@@ -839,7 +897,7 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
             }
         }
         for m in held.drain(..) {
-            let (vb, ve) = (voff(&addr, file_off, m.sb, m.so), voff(&addr, file_off, m.eb, m.eo));
+            let (vb, ve) = (voff(&addr, file_off, m.sb, m.so), vend(&addr, &raw_len, file_off, m.eb, m.eo));
             idx.push(&m, vb, ve);
         }
         w.write_all(&BGZF_EOF)?;
@@ -981,5 +1039,31 @@ mod tests {
             push_int(x, &mut v);
             assert_eq!(v[0], t, "{x}");
         }
+    }
+    #[test]
+    fn test_compress_binning_as_htslib() {
+        let v = |block: u64, off: u64| block << 16 | off;
+        let mut bins: HashMap<u32, Vec<(u64, u64)>> = HashMap::new();
+        // Level-5 bin 4681 spans under 64 KB of file: moves into its parent 585, which exists.
+        bins.insert(4681, vec![(v(1000, 10), v(1000, 500)), (v(1000, 900), v(2000, 0))]);
+        bins.insert(585, vec![(v(500, 0), v(500, 100))]);
+        // Level-5 bin 4690 spans more: stays, but its chunks starting in the block where the
+        // previous one ends merge.
+        bins.insert(4690, vec![(v(10, 0), v(20, 5)), (v(20, 7), v(30, 0)), (v(200_000, 0), v(200_001, 0))]);
+        // Its parent does not exist: a small bin without a parent stays put.
+        bins.insert(4700, vec![(v(300, 0), v(300, 9))]);
+        Indexer::compress_binning(&mut bins, 5);
+        assert!(!bins.contains_key(&4681));
+        assert_eq!(bins[&585], vec![(v(500, 0), v(500, 100)), (v(1000, 10), v(2000, 0))]);
+        assert_eq!(bins[&4690], vec![(v(10, 0), v(30, 0)), (v(200_000, 0), v(200_001, 0))]);
+        assert_eq!(bins[&4700], vec![(v(300, 0), v(300, 9))]);
+    }
+
+    #[test]
+    fn test_fill_linear_uses_next_record() {
+        let m = u64::MAX;
+        let mut lin = vec![m, 5, m, m, 9, 12];
+        fill_linear(&mut lin, 5);
+        assert_eq!(lin, vec![5, 5, 9, 9, 9, 12]);
     }
 }
