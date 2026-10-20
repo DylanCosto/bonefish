@@ -3,7 +3,7 @@ use super::*;
 
 fn available() -> bool {
     #[cfg(target_arch = "x86_64")]
-    { is_x86_feature_detected!("avx2") }
+    { crate::align::dp::simd_test_available("avx2", is_x86_feature_detected!("avx2")) }
     #[cfg(target_arch = "aarch64")]
     { true }
 }
@@ -44,7 +44,9 @@ fn check(qi: i32, ri: i32, r: &[i32], q: &[i32], rid: &[u32], start: usize, end:
         assert_eq!(masked[j], 1234567, "wrote outside the score chunk");
     }
     #[cfg(target_arch = "x86_64")]
-    if is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw") {
+    if crate::align::dp::simd_test_available("avx512bw",
+        is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw"))
+    {
         let mut wide_full = vec![1234567; r.len()];
         let mut wide_masked = wide_full.clone();
         let wide_mask = unsafe {

@@ -256,8 +256,7 @@ pub struct DiagBuckets {
     nbr: Vec<[u32; 3]>,
     /// Per bucket: indices of the anchors processed so far, ascending.
     lists: Vec<Vec<u32>>,
-    map: std::collections::HashMap<i64, u32>,
-    map_fast:std::collections::HashMap<i64,u32,std::hash::BuildHasherDefault<DiagIntegerHasher>>,
+    map: std::collections::HashMap<i64, u32, std::hash::BuildHasherDefault<DiagIntegerHasher>>,
     keys: Vec<i64>,
     g_idx: Vec<u32>,
     g_ref: Vec<i32>,
@@ -265,6 +264,34 @@ pub struct DiagBuckets {
     g_span: Vec<i32>,
     g_rid: Vec<u32>,
     g_sc: Vec<i32>,
+}
+
+/// Hasher for the bucket map's diagonal keys: a splitmix64 finalizer, much cheaper than the
+/// default SipHash. Bucket ids follow insertion order and the map is never iterated, so the
+/// hasher cannot change any result.
+#[derive(Default)]
+struct DiagIntegerHasher(u64);
+
+impl std::hash::Hasher for DiagIntegerHasher {
+    fn finish(&self) -> u64 {
+        let mut x = self.0;
+        x ^= x >> 30;
+        x = x.wrapping_mul(0xbf58476d1ce4e5b9);
+        x ^= x >> 27;
+        x = x.wrapping_mul(0x94d049bb133111eb);
+        x ^ (x >> 31)
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 ^ b as u64).wrapping_mul(0x100000001b3);
+        }
+    }
+    fn write_i64(&mut self, value: i64) {
+        self.0 = value as u64;
+    }
+    fn write_u64(&mut self, value: u64) {
+        self.0 = value;
+    }
 }
 
 /// Build the buckets for reads with at least this many anchors and at least
@@ -276,10 +303,7 @@ const DIAG_BUCKET_MIN_DENSITY: usize = 2;
 const DIAG_BUCKET_MIN_WINDOW: usize = 128;
 
 impl DiagBuckets {
-    fn build(&mut self,ref_pos:&[i32],query_pos:&[i32],bw:i32){
-        if *BUCKET_HASH_OFF {self.build_original(ref_pos,query_pos,bw)}else{self.build_fast(ref_pos,query_pos,bw)}
-    }
-    fn build_original(&mut self, ref_pos: &[i32], query_pos: &[i32], bw: i32) {
+    fn build(&mut self, ref_pos: &[i32], query_pos: &[i32], bw: i32) {
         let n = ref_pos.len();
         let shift = if bw > 1 { 32 - ((bw - 1) as u32).leading_zeros() } else { 0 };
         self.map.clear();
@@ -301,31 +325,6 @@ impl DiagBuckets {
         self.nbr.clear();
         for &key in &self.keys {
             let get = |k: i64| self.map.get(&k).copied().unwrap_or(u32::MAX);
-            self.nbr.push([get(key - 1), get(key), get(key + 1)]);
-        }
-    }
-    fn build_fast(&mut self, ref_pos: &[i32], query_pos: &[i32], bw: i32) {
-        let n = ref_pos.len();
-        let shift = if bw > 1 { 32 - ((bw - 1) as u32).leading_zeros() } else { 0 };
-        self.map_fast.clear();
-        self.keys.clear();
-        self.id.clear();
-        self.diag.clear();
-        for j in 0..n {
-            let d = ref_pos[j] as i64 - query_pos[j] as i64;
-            self.diag.push(d);
-            let key = d >> shift;
-            let next = self.keys.len() as u32;
-            let id = *self.map_fast.entry(key).or_insert(next);
-            if id == next { self.keys.push(key); }
-            self.id.push(id);
-        }
-        let nb = self.keys.len();
-        if self.lists.len() < nb { self.lists.resize_with(nb, Vec::new); }
-        for l in &mut self.lists[..nb] { l.clear(); }
-        self.nbr.clear();
-        for &key in &self.keys {
-            let get = |k: i64| self.map_fast.get(&k).copied().unwrap_or(u32::MAX);
             self.nbr.push([get(key - 1), get(key), get(key + 1)]);
         }
     }
@@ -1263,215 +1262,252 @@ unsafe fn compute_chain_scores_batch_avx512(
         j += 16;
     }
 
-    // Use the same eight-lane/scalar tail boundaries as AVX2.
+    // Tails go through the AVX2 kernel, so its eight-lane/scalar boundaries are reproduced.
     if j < end {
         compute_chain_scores_batch_avx2(qi, ri, rid_strand_i,
             soa_ref_pos, soa_query_pos, soa_query_span, soa_rid_strand,
             max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip, sc_buf, j, end);
     }
-
 }}
 
-/// Score bucket candidates directly from the source arrays. The anchor window
-/// guarantees a common reference/strand. `diag[k]` is ref[k]-query[k] modulo 2^32,
-/// so qdiff+(diag_i-diag_j) is exactly the original wrapping reference difference.
-/// No field-copy arrays are needed. The eight-lane and scalar tail boundaries are
-/// kept unchanged, including their float-to-int conversion behaviour.
+/// `compute_chain_scores_batch_avx512` for the bucket candidates `idx`, gathered straight from
+/// the source arrays instead of copied into per-chunk field arrays. All candidates share anchor
+/// i's reference and strand (the anchor window guarantees it), and `diag[k]` is
+/// ref[k] - query[k] modulo 2^32, so qdiff + (diag_i - diag_k) is exactly the wrapping reference
+/// difference. With `UNIFORM`, every span equals `uniform_span` and its gather is skipped.
+/// Tails go through the AVX2 kernel, as in the contiguous kernels.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512bw,avx2")]
 #[allow(clippy::too_many_arguments)]
-unsafe fn chain_scores_bucket_direct_avx512<const UNIFORM:bool>(
-    qi:i32,ri:i32,rid:u32,qry:&[i32],span:&[i32],diag:&[i32],idx:&[u32],
-    max_dist_x:i32,max_dist_y:i32,bw:i32,chn_pen_gap:f32,chn_pen_skip:f32,
-    sc_buf:&mut[i32],uniform_span:i32,
+unsafe fn chain_scores_bucket_direct_avx512<const UNIFORM: bool>(
+    qi: i32, ri: i32, rid: u32, qry: &[i32], span: &[i32], diag: &[i32], idx: &[u32],
+    max_dist_x: i32, max_dist_y: i32, bw: i32, chn_pen_gap: f32, chn_pen_skip: f32,
+    sc_buf: &mut [i32], uniform_span: i32,
 ) { unsafe {
-    debug_assert_eq!(qry.len(),span.len());debug_assert_eq!(qry.len(),diag.len());
-    debug_assert!(sc_buf.len()>=idx.len());
-    debug_assert!(idx.iter().all(|&k|(k as usize)<qry.len() && k<=i32::MAX as u32));
-    let qi_v=_mm512_set1_epi32(qi);
-    let diag_i=ri.wrapping_sub(qi);let di=_mm512_set1_epi32(diag_i);
-    let max_dx_v=_mm512_set1_epi32(max_dist_x);let max_dy_v=_mm512_set1_epi32(max_dist_y);
-    let bw_v=_mm512_set1_epi32(bw);let zero_v=_mm512_setzero_si512();
-    let one_v=_mm512_set1_epi32(1);let min_val_v=_mm512_set1_epi32(i32::MIN);
-    let pen_gap_v=_mm512_set1_ps(chn_pen_gap);let pen_skip_v=_mm512_set1_ps(chn_pen_skip);
-    let half_v=_mm512_set1_ps(0.5f32);
-    let aligned_end=idx.len()/16*16;let mut j=0;
-    while j<aligned_end {
-        let ix=_mm512_loadu_si512(idx.as_ptr().add(j).cast());
-        let qj=_mm512_i32gather_epi32::<4>(ix,qry.as_ptr());
-        let dj=_mm512_i32gather_epi32::<4>(ix,diag.as_ptr());
-        let span_v=if UNIFORM {_mm512_set1_epi32(uniform_span)}
-            else {_mm512_i32gather_epi32::<4>(ix,span.as_ptr())};
-        let qdiff=_mm512_sub_epi32(qi_v,qj);
-        let delta=_mm512_sub_epi32(di,dj);
-        let rdiff=_mm512_add_epi32(qdiff,delta);
-        let gap_w=_mm512_abs_epi32(delta);
-        let mut valid=_mm512_cmpgt_epi32_mask(qdiff,zero_v);
-        valid&=!_mm512_cmpgt_epi32_mask(qdiff,max_dx_v);
-        valid&=!_mm512_cmpgt_epi32_mask(qdiff,max_dy_v);
-        valid&=!_mm512_cmpeq_epi32_mask(rdiff,zero_v);
-        valid&=!_mm512_cmpgt_epi32_mask(gap_w,bw_v);
-        if valid==0 {
-            _mm512_storeu_si512(sc_buf.as_mut_ptr().add(j).cast(),min_val_v);
-            j+=16;continue;
+    debug_assert_eq!(qry.len(), span.len());
+    debug_assert_eq!(qry.len(), diag.len());
+    debug_assert!(sc_buf.len() >= idx.len());
+    debug_assert!(idx.iter().all(|&k| (k as usize) < qry.len() && k <= i32::MAX as u32));
+    let diag_i = ri.wrapping_sub(qi);
+    let qi_v = _mm512_set1_epi32(qi);
+    let diag_i_v = _mm512_set1_epi32(diag_i);
+    let max_dx_v = _mm512_set1_epi32(max_dist_x);
+    let max_dy_v = _mm512_set1_epi32(max_dist_y);
+    let bw_v = _mm512_set1_epi32(bw);
+    let zero_v = _mm512_setzero_si512();
+    let one_v = _mm512_set1_epi32(1);
+    let min_val_v = _mm512_set1_epi32(i32::MIN);
+    let pen_gap_v = _mm512_set1_ps(chn_pen_gap);
+    let pen_skip_v = _mm512_set1_ps(chn_pen_skip);
+    let half_v = _mm512_set1_ps(0.5f32);
+    let aligned_end = idx.len() / 16 * 16;
+    let mut j = 0;
+    while j < aligned_end {
+        let ix = _mm512_loadu_si512(idx.as_ptr().add(j).cast());
+        let qj = _mm512_i32gather_epi32::<4>(ix, qry.as_ptr());
+        let dj = _mm512_i32gather_epi32::<4>(ix, diag.as_ptr());
+        let span_v = if UNIFORM {
+            _mm512_set1_epi32(uniform_span)
+        } else {
+            _mm512_i32gather_epi32::<4>(ix, span.as_ptr())
+        };
+        let qdiff = _mm512_sub_epi32(qi_v, qj);
+        let delta = _mm512_sub_epi32(diag_i_v, dj);
+        let rdiff = _mm512_add_epi32(qdiff, delta);
+        let gap_w = _mm512_abs_epi32(delta);
+        let mut valid = _mm512_cmpgt_epi32_mask(qdiff, zero_v);
+        valid &= !_mm512_cmpgt_epi32_mask(qdiff, max_dx_v);
+        valid &= !_mm512_cmpgt_epi32_mask(qdiff, max_dy_v);
+        valid &= !_mm512_cmpeq_epi32_mask(rdiff, zero_v);
+        valid &= !_mm512_cmpgt_epi32_mask(gap_w, bw_v);
+        if valid == 0 {
+            _mm512_storeu_si512(sc_buf.as_mut_ptr().add(j).cast(), min_val_v);
+            j += 16;
+            continue;
         }
         let min_diff = _mm512_min_epi32(rdiff, qdiff);
         let mut score = _mm512_min_epi32(span_v, min_diff);
-
-        // Penalty computation
-        let needs_pen: __mmask16 = _mm512_cmpgt_epi32_mask(gap_w, zero_v)
-            | _mm512_cmpgt_epi32_mask(min_diff, span_v);
-
-        let gap_w_f = _mm512_cvtepi32_ps(gap_w);
-        let min_diff_f = _mm512_cvtepi32_ps(min_diff);
-        let lin_pen = _mm512_add_ps(
-            _mm512_mul_ps(pen_gap_v, gap_w_f),
-            _mm512_mul_ps(pen_skip_v, min_diff_f),
-        );
-
-        let gw_plus1_f = _mm512_cvtepi32_ps(_mm512_add_epi32(gap_w, one_v));
-        let log2_val = simd_fast_log2_avx512(gw_plus1_f);
-        // Zero out log_pen where gap_width == 0
         let gw_gt_zero = _mm512_cmpgt_epi32_mask(gap_w, zero_v);
+        let needs_pen = gw_gt_zero | _mm512_cmpgt_epi32_mask(min_diff, span_v);
+        let lin_pen = _mm512_add_ps(_mm512_mul_ps(pen_gap_v, _mm512_cvtepi32_ps(gap_w)),
+                                    _mm512_mul_ps(pen_skip_v, _mm512_cvtepi32_ps(min_diff)));
+        let log2_val = simd_fast_log2_avx512(_mm512_cvtepi32_ps(_mm512_add_epi32(gap_w, one_v)));
         let log_pen = _mm512_maskz_mov_ps(gw_gt_zero, log2_val);
-
         let total_pen = _mm512_add_ps(lin_pen, _mm512_mul_ps(half_v, log_pen));
         let pen_i32 = _mm512_cvttps_epi32(total_pen);
-
-        // Apply penalty only where needs_pen
-        let pen_masked = _mm512_maskz_mov_epi32(needs_pen, pen_i32);
-        score = _mm512_sub_epi32(score, pen_masked);
-
-        // Mask invalid scores to i32::MIN
+        score = _mm512_sub_epi32(score, _mm512_maskz_mov_epi32(needs_pen, pen_i32));
         score = _mm512_mask_blend_epi32(valid, min_val_v, score);
-
-        _mm512_storeu_si512(sc_buf.as_mut_ptr().add(j) as *mut __m512i, score);
-        j+=16;
+        _mm512_storeu_si512(sc_buf.as_mut_ptr().add(j).cast(), score);
+        j += 16;
     }
-    if j<idx.len() {
-        let m=idx.len()-j;
-        let (mut tq,mut tr,mut ts,tid)=([0i32;16],[0i32;16],[0i32;16],[rid;16]);
+    if j < idx.len() {
+        // Rebuild the tail's fields (reference positions from the diagonals) for the AVX2 kernel.
+        let m = idx.len() - j;
+        let mut tail_ref = [0i32; 16];
+        let mut tail_qry = [0i32; 16];
+        let mut tail_span = [0i32; 16];
+        let tail_rid = [rid; 16];
         for t in 0..m {
-            let k=*idx.get_unchecked(j+t) as usize;
-            tq[t]=*qry.get_unchecked(k);ts[t]=if UNIFORM {uniform_span} else {*span.get_unchecked(k)};
-            let delta=diag_i.wrapping_sub(*diag.get_unchecked(k));
-            tr[t]=ri.wrapping_sub(qi.wrapping_sub(tq[t]).wrapping_add(delta));
+            let k = *idx.get_unchecked(j + t) as usize;
+            let qk = *qry.get_unchecked(k);
+            let delta = diag_i.wrapping_sub(*diag.get_unchecked(k));
+            tail_qry[t] = qk;
+            tail_ref[t] = ri.wrapping_sub(qi.wrapping_sub(qk).wrapping_add(delta));
+            tail_span[t] = if UNIFORM { uniform_span } else { *span.get_unchecked(k) };
         }
-        compute_chain_scores_batch_avx2(qi,ri,rid,&tr[..m],&tq[..m],&ts[..m],&tid[..m],
-            max_dist_x,max_dist_y,bw,chn_pen_gap,chn_pen_skip,&mut sc_buf[j..],0,m);
+        compute_chain_scores_batch_avx2(qi, ri, rid,
+            &tail_ref[..m], &tail_qry[..m], &tail_span[..m], &tail_rid[..m],
+            max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip, &mut sc_buf[j..], 0, m);
     }
 }}
 
+/// The span shared by all anchors, or -1 if they differ (anchor spans are 8-bit, never negative).
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f")]
-unsafe fn bucket_uniform_span(span:&[i32])->i32 { unsafe {
-    let Some(&first)=span.first() else {return -1};
-    let v=_mm512_set1_epi32(first);let mut at=0;
-    while at+16<=span.len() {
-        if _mm512_cmpeq_epi32_mask(v,_mm512_loadu_si512(span.as_ptr().add(at).cast()))!=u16::MAX {return -1}
-        at+=16;
+unsafe fn bucket_uniform_span(span: &[i32]) -> i32 { unsafe {
+    let Some(&first) = span.first() else { return -1 };
+    let first_v = _mm512_set1_epi32(first);
+    let mut at = 0;
+    while at + 16 <= span.len() {
+        let lanes = _mm512_loadu_si512(span.as_ptr().add(at).cast());
+        if _mm512_cmpeq_epi32_mask(first_v, lanes) != u16::MAX {
+            return -1;
+        }
+        at += 16;
     }
-    if span[at..].iter().all(|&s|s==first) {first} else {-1}
+    if span[at..].iter().all(|&s| s == first) { first } else { -1 }
 }}
 
-/// Consume a whole reverse run only when all sixteen heads precede every
-/// other active bucket head and are inside the anchor window. Compress-store
-/// preserves lane order, so both the selected indices and remaining cursors
-/// match the scalar three-way merge exactly. Diagonals stay i64 throughout.
+/// Bulk step of the three-way bucket merge. If the last sixteen entries before `cur` in `list`
+/// all exceed `floor` (the larger of the other lists' heads and window_start - 1), the merge
+/// would take them consecutively, so they are band-filtered in one step and the cursor moves past
+/// them. The compress-store keeps lane order, so both the output and the cursor match the scalar
+/// merge. Returns false, doing nothing, if the step does not apply.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx2,popcnt")]
 #[inline]
 unsafe fn bucket_filter_run16(
-    list:*const u32,cur:&mut usize,floor:i64,diags:&[i64],di:i64,bw:i32,out:&mut Vec<u32>,
-)->bool { unsafe {
-    if *cur<16 || out.len()>48 {return false}
-    if *list.add(*cur-16) as i64<=floor {return false}
-    debug_assert!(out.capacity()>=64);
-    let reverse=_mm512_setr_epi32(15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
-    let ix=_mm512_permutexvar_epi32(reverse,_mm512_loadu_si512(list.add(*cur-16).cast()));
-    let low=_mm512_i32gather_epi64::<8>(_mm512_castsi512_si256(ix),diags.as_ptr());
-    let high=_mm512_i32gather_epi64::<8>(_mm512_extracti64x4_epi64::<1>(ix),diags.as_ptr());
-    let dv=_mm512_set1_epi64(di);let bv=_mm512_set1_epi64(bw as i64);
-    let m0=!_mm512_cmpgt_epi64_mask(_mm512_abs_epi64(_mm512_sub_epi64(low,dv)),bv);
-    let m1=!_mm512_cmpgt_epi64_mask(_mm512_abs_epi64(_mm512_sub_epi64(high,dv)),bv);
-    let mask=m0 as u16|((m1 as u16)<<8);let n=out.len();
-    _mm512_mask_compressstoreu_epi32(out.as_mut_ptr().add(n).cast(),mask,ix);
-    out.set_len(n+mask.count_ones() as usize);*cur-=16;
+    list: *const u32, cur: &mut usize, floor: i64, diags: &[i64], di: i64, bw: i32, out: &mut Vec<u32>,
+) -> bool { unsafe {
+    if *cur < 16 || out.len() > 48 {
+        return false;
+    }
+    if *list.add(*cur - 16) as i64 <= floor {
+        return false;
+    }
+    debug_assert!(out.capacity() >= 64);
+    let reverse = _mm512_setr_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+    let ix = _mm512_permutexvar_epi32(reverse, _mm512_loadu_si512(list.add(*cur - 16).cast()));
+    let low = _mm512_i32gather_epi64::<8>(_mm512_castsi512_si256(ix), diags.as_ptr());
+    let high = _mm512_i32gather_epi64::<8>(_mm512_extracti64x4_epi64::<1>(ix), diags.as_ptr());
+    let di_v = _mm512_set1_epi64(di);
+    let bw_v = _mm512_set1_epi64(bw as i64);
+    let m0 = !_mm512_cmpgt_epi64_mask(_mm512_abs_epi64(_mm512_sub_epi64(low, di_v)), bw_v);
+    let m1 = !_mm512_cmpgt_epi64_mask(_mm512_abs_epi64(_mm512_sub_epi64(high, di_v)), bw_v);
+    let mask = m0 as u16 | ((m1 as u16) << 8);
+    let n = out.len();
+    _mm512_mask_compressstoreu_epi32(out.as_mut_ptr().add(n).cast(), mask, ix);
+    out.set_len(n + mask.count_ones() as usize);
+    *cur -= 16;
     true
 }}
 
-/// Neighboring diagonal buckets bound the real difference to 2*width-1.
-/// With bw<=2^30 the bucket width is <=2^30, so that difference fits i32,
-/// even if each full diagonal does not. Wrapping diagonal subtraction is
-/// then exact, allowing one 16-lane gather instead of two 8-lane i64 gathers.
-#[cfg(target_arch="x86_64")]
-#[target_feature(enable="avx512f,avx2,popcnt")]
+/// `bucket_filter_run16` on the i32 (wrapping) diagonals: one 16-lane gather instead of two
+/// 8-lane i64 gathers. Exact for 0 <= bw <= 2^30: list entries lie in the buckets next to
+/// anchor i's, each at most 2^30 wide, so their true diagonal difference from anchor i fits in
+/// i32 (even when the diagonals themselves do not) and the wrapping difference equals it.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx2,popcnt")]
 #[inline]
 unsafe fn bucket_filter_run16_diag32(
-    list:*const u32,cur:&mut usize,floor:i64,diags:&[i32],di:i32,bw:i32,out:&mut Vec<u32>,
-)->bool { unsafe {
-    // Every list element belongs to key_i-1, key_i or key_i+1; 0<=bw<=2^30.
-    if *cur<16 || out.len()>48 {return false}
-    if *list.add(*cur-16) as i64<=floor {return false}
-    debug_assert!(out.capacity()>=64);
-    let reverse=_mm512_setr_epi32(15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
-    let ix=_mm512_permutexvar_epi32(reverse,_mm512_loadu_si512(list.add(*cur-16).cast()));
-    let dj=_mm512_i32gather_epi32::<4>(ix,diags.as_ptr());
-    let distance=_mm512_abs_epi32(_mm512_sub_epi32(dj,_mm512_set1_epi32(di)));
-    let mask=!_mm512_cmpgt_epi32_mask(distance,_mm512_set1_epi32(bw));
-    let n=out.len();
-    _mm512_mask_compressstoreu_epi32(out.as_mut_ptr().add(n).cast(),mask,ix);
-    out.set_len(n+mask.count_ones() as usize);*cur-=16;
+    list: *const u32, cur: &mut usize, floor: i64, diags: &[i32], di: i32, bw: i32, out: &mut Vec<u32>,
+) -> bool { unsafe {
+    if *cur < 16 || out.len() > 48 {
+        return false;
+    }
+    if *list.add(*cur - 16) as i64 <= floor {
+        return false;
+    }
+    debug_assert!(out.capacity() >= 64);
+    let reverse = _mm512_setr_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+    let ix = _mm512_permutexvar_epi32(reverse, _mm512_loadu_si512(list.add(*cur - 16).cast()));
+    let dj = _mm512_i32gather_epi32::<4>(ix, diags.as_ptr());
+    let distance = _mm512_abs_epi32(_mm512_sub_epi32(dj, _mm512_set1_epi32(di)));
+    let mask = !_mm512_cmpgt_epi32_mask(distance, _mm512_set1_epi32(bw));
+    let n = out.len();
+    _mm512_mask_compressstoreu_epi32(out.as_mut_ptr().add(n).cast(), mask, ix);
+    out.set_len(n + mask.count_ones() as usize);
+    *cur -= 16;
     true
 }}
 
-// Merge sixteen heads from interleaved diagonal lists in exact reverse-index order.
-#[cfg(target_arch="x86_64")]
-#[target_feature(enable="avx512f")]
+/// The (up to) sixteen largest of the first `n` entries of an ascending list, in descending
+/// order; missing lanes are -1, below every index.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
 #[inline]
-unsafe fn bucket_head16(list:*const u32, n:usize)->__m512i { unsafe {
-    if n==0 {return _mm512_set1_epi32(-1)}
-    let count=n.min(16);let mask=if count==16 {u16::MAX} else {(1u16<<count)-1};
-    let raw=_mm512_mask_loadu_epi32(_mm512_set1_epi32(-1),mask,list.add(n-count).cast());
-    let order=_mm512_sub_epi32(_mm512_set1_epi32(count as i32-1),_mm512_setr_epi32(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15));
-    _mm512_mask_permutexvar_epi32(_mm512_set1_epi32(-1),mask,order,raw)
+unsafe fn bucket_head16(list: *const u32, n: usize) -> __m512i { unsafe {
+    if n == 0 {
+        return _mm512_set1_epi32(-1);
+    }
+    let count = n.min(16);
+    let mask = if count == 16 { u16::MAX } else { (1u16 << count) - 1 };
+    let raw = _mm512_mask_loadu_epi32(_mm512_set1_epi32(-1), mask, list.add(n - count).cast());
+    let lanes = _mm512_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    let order = _mm512_sub_epi32(_mm512_set1_epi32(count as i32 - 1), lanes);
+    _mm512_mask_permutexvar_epi32(_mm512_set1_epi32(-1), mask, order, raw)
 }}
-#[cfg(target_arch="x86_64")]
-#[target_feature(enable="avx512f")]
+
+/// The sixteen largest lanes of two descending vectors, descending (bitonic merge).
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
 #[inline]
-unsafe fn merge_desc16(a:__m512i,b:__m512i)->__m512i {
-    let rev=_mm512_setr_epi32(15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
-    let mut v=_mm512_max_epi32(a,_mm512_permutexvar_epi32(rev,b));
-    macro_rules! step {($ix:expr,$mask:expr)=>{{let t=_mm512_permutexvar_epi32($ix,v);v=_mm512_mask_max_epi32(_mm512_min_epi32(v,t),$mask,v,t);}}}
-    step!(_mm512_setr_epi32(8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7),0x00ff);
-    step!(_mm512_setr_epi32(4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11),0x0f0f);
-    step!(_mm512_setr_epi32(2,3,0,1,6,7,4,5,10,11,8,9,14,15,12,13),0x3333);
-    step!(_mm512_setr_epi32(1,0,3,2,5,4,7,6,9,8,11,10,13,12,15,14),0x5555);
+unsafe fn merge_desc16(a: __m512i, b: __m512i) -> __m512i {
+    let reverse = _mm512_setr_epi32(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
+    let mut v = _mm512_max_epi32(a, _mm512_permutexvar_epi32(reverse, b));
+    // Compare-exchange each lane with its partner `ix`: lanes in `mask` keep the maximum.
+    macro_rules! step {
+        ($ix:expr, $mask:expr) => {{
+            let t = _mm512_permutexvar_epi32($ix, v);
+            v = _mm512_mask_max_epi32(_mm512_min_epi32(v, t), $mask, v, t);
+        }};
+    }
+    step!(_mm512_setr_epi32(8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7), 0x00ff);
+    step!(_mm512_setr_epi32(4, 5, 6, 7, 0, 1, 2, 3, 12, 13, 14, 15, 8, 9, 10, 11), 0x0f0f);
+    step!(_mm512_setr_epi32(2, 3, 0, 1, 6, 7, 4, 5, 10, 11, 8, 9, 14, 15, 12, 13), 0x3333);
+    step!(_mm512_setr_epi32(1, 0, 3, 2, 5, 4, 7, 6, 9, 8, 11, 10, 13, 12, 15, 14), 0x5555);
     v
 }
-#[cfg(target_arch="x86_64")]
-#[target_feature(enable="avx512f,popcnt")]
+
+/// Sixteen steps of the three-way bucket merge at once: takes the sixteen largest remaining
+/// entries across the (disjoint, ascending) lists, moves the cursors past them, and appends
+/// those at or after `window_start` and in band to `out`, in descending order. Requires at least
+/// sixteen remaining entries in total, entries addressable as i32, and 0 <= bw <= 2^30 (see
+/// `bucket_filter_run16_diag32`).
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,popcnt")]
 #[inline]
 unsafe fn bucket_merge_filter16_diag32(
-    lists:[*const u32;3],cur:&mut[usize;3],window_start:usize,
-    diags:&[i32],di:i32,bw:i32,out:&mut Vec<u32>,
+    lists: [*const u32; 3], cur: &mut [usize; 3], window_start: usize,
+    diags: &[i32], di: i32, bw: i32, out: &mut Vec<u32>,
 ) { unsafe {
-    // Lists are disjoint, sorted ascending, and contain signed-i32-addressable
-    // source indices. At least sixteen elements remain across the three lists.
-    // Neighbor buckets give the same exact wrapping-diagonal proof as run16.
-    debug_assert!(cur.iter().sum::<usize>()>=16 && out.capacity()>=out.len()+16);
-    let a=bucket_head16(lists[0],cur[0]);let b=bucket_head16(lists[1],cur[1]);let c=bucket_head16(lists[2],cur[2]);
-    let ix=merge_desc16(merge_desc16(a,b),c);
-    let cutoff=_mm512_set1_epi32(_mm_extract_epi32::<3>(_mm512_extracti32x4_epi32::<3>(ix)));
-    cur[0]-=_mm512_cmpge_epi32_mask(a,cutoff).count_ones() as usize;
-    cur[1]-=_mm512_cmpge_epi32_mask(b,cutoff).count_ones() as usize;
-    cur[2]-=_mm512_cmpge_epi32_mask(c,cutoff).count_ones() as usize;
-    let dj=_mm512_i32gather_epi32::<4>(ix,diags.as_ptr());
-    let delta=_mm512_abs_epi32(_mm512_sub_epi32(dj,_mm512_set1_epi32(di)));
-    let mask=_mm512_cmple_epi32_mask(delta,_mm512_set1_epi32(bw))
-        & _mm512_cmpge_epi32_mask(ix,_mm512_set1_epi32(window_start as i32));
-    let n=out.len();_mm512_mask_compressstoreu_epi32(out.as_mut_ptr().add(n).cast(),mask,ix);
-    out.set_len(n+mask.count_ones() as usize);
+    debug_assert!(cur.iter().sum::<usize>() >= 16 && out.capacity() >= out.len() + 16);
+    let a = bucket_head16(lists[0], cur[0]);
+    let b = bucket_head16(lists[1], cur[1]);
+    let c = bucket_head16(lists[2], cur[2]);
+    let ix = merge_desc16(merge_desc16(a, b), c);
+    // Lane 15 is the smallest entry taken.
+    let cutoff = _mm512_set1_epi32(_mm_extract_epi32::<3>(_mm512_extracti32x4_epi32::<3>(ix)));
+    cur[0] -= _mm512_cmpge_epi32_mask(a, cutoff).count_ones() as usize;
+    cur[1] -= _mm512_cmpge_epi32_mask(b, cutoff).count_ones() as usize;
+    cur[2] -= _mm512_cmpge_epi32_mask(c, cutoff).count_ones() as usize;
+    let dj = _mm512_i32gather_epi32::<4>(ix, diags.as_ptr());
+    let delta = _mm512_abs_epi32(_mm512_sub_epi32(dj, _mm512_set1_epi32(di)));
+    let mask = _mm512_cmple_epi32_mask(delta, _mm512_set1_epi32(bw))
+        & _mm512_cmpge_epi32_mask(ix, _mm512_set1_epi32(window_start as i32));
+    let n = out.len();
+    _mm512_mask_compressstoreu_epi32(out.as_mut_ptr().add(n).cast(), mask, ix);
+    out.set_len(n + mask.count_ones() as usize);
 }}
 
 /// Masked reverse-scan chunk, with the same lane validity and score arithmetic as AVX2.
@@ -1544,7 +1580,7 @@ unsafe fn chain_scores_masked_avx512(
         mask |= (valid as u64) << (j - start);
         j += 16;
     }
-    // Preserve the AVX2 oracle's eight-lane and scalar tail boundaries.
+    // Tails go through the AVX2 kernel, so its eight-lane/scalar boundaries are reproduced.
     if j < end {
         mask |= chain_scores_masked_avx2(qi, ri, rid_strand_i, diag_i,
             soa_ref_pos, soa_query_pos, soa_query_span, soa_rid_strand, soa_diag,
@@ -1554,27 +1590,39 @@ unsafe fn chain_scores_masked_avx512(
     mask
 }}
 
-/// A no-improvement block can batch its skip/visited effects. A predecessor always
-/// precedes its anchor, so an in-block stamp can only affect a later visit in the
-/// reverse scan. Computing the local stamp mask in advance is therefore exact,
-/// even when an early stop discards the suffix. Only the actually visited prefix
-/// is committed to the global array; the stop-triggering candidate is excluded.
+/// Outcome of `advance_nonimproving_block16`.
 #[cfg(target_arch = "x86_64")]
 #[derive(Debug, PartialEq, Eq)]
-enum BlockWalk { Improving, Advanced, Stopped(usize) }
+enum BlockWalk {
+    /// Some candidate improves the best score: walk the block one candidate at a time.
+    Improving,
+    /// The whole block was walked.
+    Advanced,
+    /// The skip limit fired at this candidate.
+    Stopped(usize),
+}
 
+/// Walks a block of sixteen candidates `start..start + 16` (those set in `mask`) of the reverse
+/// scan at once when none of them improves on `best`; then only the skip count and the
+/// `visited` stamps change. A predecessor always precedes its anchor, so a stamp set within the
+/// block can only affect candidates visited later in the reverse scan: computing the block's own
+/// stamps up front is exact, even if the skip limit stops the walk partway. Only the visited
+/// candidates' stamps are committed (excluding the one that fires the stop).
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2,avx512f,avx512bw,bmi2,popcnt")]
 #[inline]
+#[allow(clippy::too_many_arguments)]
 unsafe fn advance_nonimproving_block16(
     scb: *const i32, scores: *const i32, pre: *const i32, visited: *mut i32,
     start: usize, mask: u16, best: i32, skip: &mut i32, limit: i32, stamp: i32,
 ) -> BlockWalk { unsafe {
-    // Caller guarantees full16 readable lanes; every nonnegative predecessor is
-    // less than its own anchor index. skip is0..limit and limit<=i32::MAX-16.
+    // The caller guarantees sixteen readable lanes, every nonnegative predecessor below its own
+    // anchor index, 0 <= skip <= limit and limit <= i32::MAX - 16.
     let sc = _mm512_loadu_si512(scb.add(start).cast());
     let good = mask & _mm512_cmpneq_epi32_mask(sc, _mm512_set1_epi32(i32::MIN));
-    if good == 0 { return BlockWalk::Advanced; }
+    if good == 0 {
+        return BlockWalk::Advanced;
+    }
     let total = _mm512_add_epi32(sc, _mm512_loadu_si512(scores.add(start).cast()));
     if _mm512_mask_reduce_max_epi32(good, total) > best {
         return BlockWalk::Improving;
@@ -1593,7 +1641,7 @@ unsafe fn advance_nonimproving_block16(
     let count = (marked as u32).count_ones();
     let budget = (limit - *skip) as u32;
     let (processed, outcome) = if count > budget {
-        // The (budget+1)th marked candidate from the high end fires the stop.
+        // The (budget + 1)th marked candidate from the high end fires the stop.
         let rank = count - budget - 1;
         let bit = _pdep_u32(1u32 << rank, marked as u32).trailing_zeros() as usize;
         let processed = good & !(((1u32 << (bit + 1)) - 1) as u16);
@@ -1603,79 +1651,16 @@ unsafe fn advance_nonimproving_block16(
         *skip += count as i32;
         (good, BlockWalk::Advanced)
     };
-    // Duplicate scatter destinations all receive the same stamp; order is immaterial.
+    // Duplicate scatter destinations all receive the same stamp, so their order is immaterial.
     _mm512_mask_i32scatter_epi32::<4>(visited.cast(), processed & nonnegative,
         preds, _mm512_set1_epi32(stamp));
     outcome
 }}
 
+/// AVX-512 chaining. Its kernels also use BMI2 and POPCNT, which every AVX-512BW CPU has; a CPU
+/// without them, or an input too large for i32 gather indices, uses the AVX2 chainer instead.
 #[cfg(target_arch = "x86_64")]
-static BLOCK_WALK_OFF: std::sync::LazyLock<bool> = std::sync::LazyLock::new(||
-    std::env::var("BONEFISH_CHAIN_BLOCK_WALK_OFF").is_ok_and(|v| v != "0"));
-
-#[cfg(target_arch = "x86_64")]
-static BUCKET_DIRECT_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||
-    std::env::var("BONEFISH_BUCKET_DIRECT_OFF").is_ok_and(|v|v!="0"));
-#[cfg(target_arch = "x86_64")]
-static BUCKET_UNIFORM_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||
-    std::env::var("BONEFISH_BUCKET_UNIFORM_OFF").is_ok_and(|v|v!="0"));
-
-#[cfg(target_arch = "x86_64")]
-static BUCKET_MERGE_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||
-    std::env::var("BONEFISH_BUCKET_MERGE_OFF").is_ok_and(|v|v!="0"));
-
-#[cfg(target_arch="x86_64")]
-static BUCKET_CHUNK_SIZE:std::sync::LazyLock<u8>=std::sync::LazyLock::new(||
-    std::env::var("BONEFISH_BUCKET_CHUNK_SIZE").ok().and_then(|v|v.parse().ok()).unwrap_or(32));
-
-#[cfg(target_arch="x86_64")]
-static BUCKET_WIDE_DIAG:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||
-    std::env::var("BONEFISH_BUCKET_WIDE_DIAG").is_ok_and(|v|v!="0"));
-
-/// AVX-512 SIMD-optimized chaining — 16-wide with AVX2's scan optimizations.
-#[cfg(target_arch = "x86_64")]
-static BUCKET_GATHER_OFF: std::sync::LazyLock<bool> = std::sync::LazyLock::new(||
-    std::env::var("BONEFISH_BUCKET_GATHER_OFF").is_ok_and(|v| v != "0"));
-
-/// Copy the selected predecessors in their original visit order. All indices come from
-/// this anchor's bucket lists and are less than every source length. Reserve once per
-/// field, then gather 16 entries at a time without per-entry Vec growth checks.
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f")]
-#[inline]
-unsafe fn gather_bucket_fields_avx512(
-    bk: &mut DiagBuckets, refs: &[i32], qry: &[i32], span: &[i32], rid: &[u32],
-) { unsafe {
-    let n = bk.g_idx.len();
-    bk.g_ref.reserve(n.saturating_sub(bk.g_ref.len()));
-    bk.g_qry.reserve(n.saturating_sub(bk.g_qry.len()));
-    bk.g_span.reserve(n.saturating_sub(bk.g_span.len()));
-    bk.g_rid.reserve(n.saturating_sub(bk.g_rid.len()));
-    let mut at = 0;
-    // Gather indices are signed i32. Retain scalar addressing for larger arrays.
-    if refs.len() <= i32::MAX as usize {
-        while at + 16 <= n {
-            let ix = _mm512_loadu_si512(bk.g_idx.as_ptr().add(at).cast());
-            _mm512_storeu_si512(bk.g_ref.as_mut_ptr().add(at).cast(), _mm512_i32gather_epi32::<4>(ix, refs.as_ptr()));
-            _mm512_storeu_si512(bk.g_qry.as_mut_ptr().add(at).cast(), _mm512_i32gather_epi32::<4>(ix, qry.as_ptr()));
-            _mm512_storeu_si512(bk.g_span.as_mut_ptr().add(at).cast(), _mm512_i32gather_epi32::<4>(ix, span.as_ptr()));
-            _mm512_storeu_si512(bk.g_rid.as_mut_ptr().add(at).cast(), _mm512_i32gather_epi32::<4>(ix, rid.as_ptr().cast()));
-            at += 16;
-        }
-    }
-    while at < n {
-        let j = *bk.g_idx.get_unchecked(at) as usize;
-        bk.g_ref.as_mut_ptr().add(at).write(*refs.get_unchecked(j));
-        bk.g_qry.as_mut_ptr().add(at).write(*qry.get_unchecked(j));
-        bk.g_span.as_mut_ptr().add(at).write(*span.get_unchecked(j));
-        bk.g_rid.as_mut_ptr().add(at).write(*rid.get_unchecked(j));
-        at += 1;
-    }
-    bk.g_ref.set_len(n); bk.g_qry.set_len(n); bk.g_span.set_len(n); bk.g_rid.set_len(n);
-}}
-
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx2")]
+#[target_feature(enable = "avx512f,avx512bw,avx2")]
 pub(crate) unsafe fn chain_anchors_avx512(
     opt: &ChainingParams,
     max_dist_x: i32,
@@ -1684,34 +1669,23 @@ pub(crate) unsafe fn chain_anchors_avx512(
     ctx: &mut ChainingBuffers,
 ) -> (Vec<u64>, Vec<Minimizer>) {
     unsafe {
-        if is_x86_feature_detected!("bmi2") && is_x86_feature_detected!("popcnt") {
-            if *BLOCK_WALK_OFF {
-                chain_anchors_avx512_feature_control::<true, true>(opt, max_dist_x, max_dist_y, a, ctx)
-            } else if *BUCKET_DIRECT_OFF || *BUCKET_GATHER_OFF {
-                chain_anchors_avx512_block_walk::<true, true>(opt, max_dist_x, max_dist_y, a, ctx)
-            } else if *BUCKET_MERGE_OFF {
-                chain_anchors_avx512_bucket_direct::<true,true>(opt,max_dist_x,max_dist_y,a,ctx)
-            } else if *BUCKET_WIDE_DIAG {
-                chain_anchors_avx512_bucket_bulk::<true,true>(opt,max_dist_x,max_dist_y,a,ctx)
-            } else {
-                match *BUCKET_CHUNK_SIZE {
-                    16=>chain_anchors_avx512_bucket_chunk16::<true,true>(opt,max_dist_x,max_dist_y,a,ctx),
-                    32=>chain_anchors_avx512_bucket_chunk32::<true,true>(opt,max_dist_x,max_dist_y,a,ctx),
-                    _=>chain_anchors_avx512_bucket_diag32::<true,true>(opt,max_dist_x,max_dist_y,a,ctx),
-                }
-            }
+        if is_x86_feature_detected!("bmi2")
+            && is_x86_feature_detected!("popcnt")
+            && a.len() <= i32::MAX as usize
+        {
+            chain_anchors_avx512_impl(opt, max_dist_x, max_dist_y, a, ctx)
         } else {
-            chain_anchors_avx512_impl::<true, true>(opt, max_dist_x, max_dist_y, a, ctx)
+            chain_anchors_avx2(opt, max_dist_x, max_dist_y, a, ctx)
         }
     }
 }
 
-// All variants share score arithmetic, predecessor ordering, and backtracking.
+/// AVX-512 chaining with AVX2's scan structure (diagonal buckets for dense reads, masked
+/// contiguous scan otherwise), 16 lanes wide, plus whole-block walks of non-improving
+/// candidates. Requires `a.len() <= i32::MAX`.
 #[cfg(target_arch = "x86_64")]
-macro_rules! define_chain_avx512 {
-    ($name:ident, $features:literal, $fast:literal, $direct:literal, $bulk:literal, $narrow:literal, $chunk:literal) => {
-#[target_feature(enable = $features)]
-unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
+#[target_feature(enable = "avx512f,avx512bw,avx2,bmi2,popcnt")]
+unsafe fn chain_anchors_avx512_impl(
     opt: &ChainingParams,
     max_dist_x: i32,
     max_dist_y: i32,
@@ -1722,6 +1696,7 @@ unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
     if n == 0 {
         return (Vec::new(), Vec::new());
     }
+    debug_assert!(n <= i32::MAX as usize);
 
     let bw = opt.bandwidth;
     let mut max_dist_x = max_dist_x;
@@ -1749,20 +1724,23 @@ unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
     soa_query_span.resize(n, 0);
     soa_rid_strand.resize(n, 0);
     soa_sc_buf.resize(n, 0);
-    if USE_MASKED_SCAN && !no_chain_skip { soa_diag.resize(n, 0); }
+    if !no_chain_skip {
+        soa_diag.resize(n, 0);
+    }
 
     for j in 0..n {
         soa_ref_pos[j] = a[j].ref_pos();
         soa_query_pos[j] = a[j].query_pos();
         soa_query_span[j] = a[j].query_span();
         soa_rid_strand[j] = (a[j].x >> 32) as u32;
-        if USE_MASKED_SCAN && !no_chain_skip {
+        if !no_chain_skip {
             soa_diag[j] = soa_ref_pos[j].wrapping_sub(soa_query_pos[j]);
         }
     }
 
     // --- DP buffers ---
-    let mut predecessors = std::mem::take(&mut ctx.predecessors); let mut bt_candidates = std::mem::take(&mut ctx.bt_candidates);
+    let mut predecessors = std::mem::take(&mut ctx.predecessors);
+    let mut bt_candidates = std::mem::take(&mut ctx.bt_candidates);
     let mut scores = std::mem::take(&mut ctx.scores);
     let mut peak_scores = std::mem::take(&mut ctx.peak_scores);
     let mut visited = std::mem::take(&mut ctx.visited);
@@ -1777,25 +1755,26 @@ unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
     let mut best_anchor_idx: i64 = -1;
 
     let mut bk = std::mem::take(&mut ctx.diag_buckets);
-    let use_buckets = USE_DIAG_BUCKETS && !no_chain_skip && n >= DIAG_BUCKET_MIN_N && {
+    let use_buckets = !no_chain_skip && n >= DIAG_BUCKET_MIN_N && {
         let (lo, hi) = soa_query_pos.iter().fold((i32::MAX, i32::MIN), |(l, h), &q| (l.min(q), h.max(q)));
-        // The score kernel uses wrapping i32 position differences. The i64 bucket
-        // diagonals are equivalent only without a signed-coordinate wrap; retain the
-        // contiguous scan for larger positions and widen the density arithmetic too.
+        // The score kernels use wrapping i32 position differences, which the i64 bucket
+        // diagonals match only without a signed-coordinate wrap; otherwise use the contiguous
+        // scan. The density arithmetic is widened for the same reason.
         lo >= 0
             && n >= DIAG_BUCKET_MIN_DENSITY * (hi as i64 - lo as i64 + 1) as usize
             && soa_ref_pos.iter().all(|&r| r >= 0)
     };
-    if use_buckets { bk.build(&soa_ref_pos, &soa_query_pos, bw); }
-    let direct_buckets=$direct && USE_MASKED_SCAN && n<=i32::MAX as usize;
-    let narrow_buckets=$narrow && bw>=0 && bw<=(1<<30);
-    if $bulk && direct_buckets && use_buckets {
+    // The i32-diagonal bucket filters need 0 <= bw <= 2^30 (see bucket_filter_run16_diag32).
+    let narrow_buckets = (0..=(1 << 30)).contains(&bw);
+    let mut uniform_span = -1;
+    if use_buckets {
+        bk.build(&soa_ref_pos, &soa_query_pos, bw);
+        // The bulk merge steps append up to 16 entries without growing the Vec.
         bk.g_idx.reserve(64usize.saturating_sub(bk.g_idx.len()));
+        uniform_span = bucket_uniform_span(&soa_query_span);
     }
-    let vector_merge=$bulk && !*BUCKET_VECTOR_MERGE_OFF;
-    let uniform_span=if direct_buckets && use_buckets && !*BUCKET_UNIFORM_OFF {
-        bucket_uniform_span(&soa_query_span)
-    } else {-1};
+    // advance_nonimproving_block16 needs the skip count to stay 16 below i32::MAX.
+    let block_walk = opt.max_chain_skip <= i32::MAX - 16;
 
     for i in 0..n {
         let mut best_predecessor: i64 = -1;
@@ -1836,8 +1815,9 @@ unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
                 if total_sc > best_score { best_score = total_sc; best_predecessor = j as i64; }
             }
         } else if use_buckets && i - window_start > DIAG_BUCKET_MIN_WINDOW {
-            // Merge only the in-band predecessors, in the original descending visit order.
-            const CHUNK_SIZE: usize = $chunk;
+            // Merge only the in-band predecessors, in the original descending visit order, and
+            // score them in chunks (a skip stop discards the rest of a chunk).
+            const CHUNK_SIZE: usize = 32;
             let nb = bk.nbr[bk.id[i] as usize];
             let mut lp: [*const u32; 3] = [std::ptr::null(); 3];
             let mut cur = [0usize; 3];
@@ -1864,21 +1844,31 @@ unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
                     let t = if v0 >= v1 && v0 >= v2 { 0 } else if v1 >= v2 { 1 } else { 2 };
                     let j = [v0, v1, v2][t];
                     if j < ws { exhausted = true; break; }
-                    if $bulk && direct_buckets && bk.g_idx.len()+16<=CHUNK_SIZE && cur[t]>=16 {
-                        let other=match t {0=>v1.max(v2),1=>v0.max(v2),_=>v0.max(v1)};
-                        let floor=other.max(ws-1);
-                        // A full run needs sixteen distinct indices above floor.
-                        if j-floor>=16 && if narrow_buckets {
-                            bucket_filter_run16_diag32(lp[t],&mut cur[t],floor,&soa_diag,di as i32,bw,&mut bk.g_idx)
-                        } else {bucket_filter_run16(lp[t],&mut cur[t],floor,&bk.diag,di,bw,&mut bk.g_idx)} {
-                            match t {0=>v0=tail(0,cur[0]),1=>v1=tail(1,cur[1]),_=>v2=tail(2,cur[2])}
+                    if bk.g_idx.len() + 16 <= CHUNK_SIZE && cur[t] >= 16 {
+                        let other = match t { 0 => v1.max(v2), 1 => v0.max(v2), _ => v0.max(v1) };
+                        let floor = other.max(ws - 1);
+                        // A run of sixteen needs sixteen distinct indices above floor.
+                        let took_run = j - floor >= 16 && if narrow_buckets {
+                            bucket_filter_run16_diag32(
+                                lp[t], &mut cur[t], floor, &soa_diag, di as i32, bw, &mut bk.g_idx)
+                        } else {
+                            bucket_filter_run16(lp[t], &mut cur[t], floor, &bk.diag, di, bw, &mut bk.g_idx)
+                        };
+                        if took_run {
+                            match t {
+                                0 => v0 = tail(0, cur[0]),
+                                1 => v1 = tail(1, cur[1]),
+                                _ => v2 = tail(2, cur[2]),
+                            }
                             continue;
                         }
                     }
-                    if vector_merge && direct_buckets && narrow_buckets && bk.g_idx.len()+16<=CHUNK_SIZE
-                        && cur.iter().sum::<usize>()>=16 {
-                        bucket_merge_filter16_diag32(lp,&mut cur,window_start,&soa_diag,di as i32,bw,&mut bk.g_idx);
-                        v0=tail(0,cur[0]);v1=tail(1,cur[1]);v2=tail(2,cur[2]);
+                    if narrow_buckets && bk.g_idx.len() + 16 <= CHUNK_SIZE && cur.iter().sum::<usize>() >= 16 {
+                        bucket_merge_filter16_diag32(
+                            lp, &mut cur, window_start, &soa_diag, di as i32, bw, &mut bk.g_idx);
+                        v0 = tail(0, cur[0]);
+                        v1 = tail(1, cur[1]);
+                        v2 = tail(2, cur[2]);
                         continue;
                     }
                     cur[t] -= 1;
@@ -1893,38 +1883,21 @@ unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
                 }
                 let m = bk.g_idx.len();
                 if m == 0 { break; }
-                if direct_buckets {
-                    bk.g_sc.resize(m,0);
-                    if uniform_span>=0 {
-                        chain_scores_bucket_direct_avx512::<true>(
-                        soa_query_pos[i],soa_ref_pos[i],soa_rid_strand[i],
-                        &soa_query_pos,&soa_query_span,&soa_diag,&bk.g_idx,
-                        max_dist_x,max_dist_y,bw,opt.chn_pen_gap,opt.chn_pen_skip,&mut bk.g_sc,uniform_span);
-                    } else {
-                        chain_scores_bucket_direct_avx512::<false>(
-                        soa_query_pos[i],soa_ref_pos[i],soa_rid_strand[i],
-                        &soa_query_pos,&soa_query_span,&soa_diag,&bk.g_idx,
-                        max_dist_x,max_dist_y,bw,opt.chn_pen_gap,opt.chn_pen_skip,&mut bk.g_sc,uniform_span);
-                    }
-                } else {
-                if !*BUCKET_GATHER_OFF {
-                    gather_bucket_fields_avx512(&mut bk, &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand);
-                } else {
-                    bk.g_ref.clear(); bk.g_qry.clear(); bk.g_span.clear(); bk.g_rid.clear();
-                    for &j in &bk.g_idx {
-                        let j = j as usize;
-                        bk.g_ref.push(soa_ref_pos[j]); bk.g_qry.push(soa_query_pos[j]);
-                        bk.g_span.push(soa_query_span[j]); bk.g_rid.push(soa_rid_strand[j]);
-                    }
-                }
                 bk.g_sc.resize(m, 0);
-                compute_chain_scores_batch_avx512(
-                    soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
-                    &bk.g_ref, &bk.g_qry, &bk.g_span, &bk.g_rid,
-                    max_dist_x, max_dist_y, bw,
-                    opt.chn_pen_gap, opt.chn_pen_skip,
-                    &mut bk.g_sc, 0, m,
-                );
+                if uniform_span >= 0 {
+                    chain_scores_bucket_direct_avx512::<true>(
+                        soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
+                        &soa_query_pos, &soa_query_span, &soa_diag, &bk.g_idx,
+                        max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
+                        &mut bk.g_sc, uniform_span,
+                    );
+                } else {
+                    chain_scores_bucket_direct_avx512::<false>(
+                        soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
+                        &soa_query_pos, &soa_query_span, &soa_diag, &bk.g_idx,
+                        max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
+                        &mut bk.g_sc, uniform_span,
+                    );
                 }
                 for t in 0..m {
                     let sc = bk.g_sc[t];
@@ -1947,87 +1920,55 @@ unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
             const FIRST_CHUNK: usize = 32;
             let mut chunk_end = i;
             let mut skip_fired = false;
-            let mut csize = if USE_MASKED_SCAN { FIRST_CHUNK } else { CHUNK_SIZE };
+            let mut csize = FIRST_CHUNK;
             while chunk_end > window_start {
                 let chunk_start = if chunk_end >= window_start + csize { chunk_end - csize } else { window_start };
                 csize = CHUNK_SIZE;
 
-                let mut valid = if USE_MASKED_SCAN {
-                    chain_scores_masked_avx512(
-                        soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i], soa_diag[i],
-                        &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand, &soa_diag,
-                        max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
-                        &mut soa_sc_buf, chunk_start, chunk_end,
-                    )
-                } else {
-                    compute_chain_scores_batch_avx512(
-                        soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
-                        &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
-                        max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
-                        &mut soa_sc_buf, chunk_start, chunk_end,
-                    );
-                    (chunk_start..chunk_end).fold(0u64, |m, j| {
-                        m | (((soa_sc_buf[j] != i32::MIN) as u64) << (j - chunk_start))
-                    })
-                };
+                let mut valid = chain_scores_masked_avx512(
+                    soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i], soa_diag[i],
+                    &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand, &soa_diag,
+                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
+                    &mut soa_sc_buf, chunk_start, chunk_end,
+                );
 
                 // SAFETY: every mask bit indexes chunk_start..chunk_end <= i < n;
                 // predecessors were assigned only to earlier anchors. All four buffers have
                 // length n and do not alias. Match AVX2's candidate walk without bounds checks.
-                let (scb, scr, vis, pre) = (soa_sc_buf.as_ptr(), scores.as_ptr(), visited.as_mut_ptr(), predecessors.as_ptr());
-                if $fast && i <= i32::MAX as usize && opt.max_chain_skip <= i32::MAX - 16 {
-                    while valid != 0 {
-                        let group = (63 - valid.leading_zeros() as usize) & !15;
-                        let mut bits = (valid >> group) as u16;
-                        valid &= !(0xffffu64 << group);
-                        let start = chunk_start + group;
-                        if best_predecessor >= 0 && start + 16 <= chunk_end && bits.count_ones() >= 4 {
-                            match advance_nonimproving_block16(scb, scr, pre, vis, start,
-                                bits, best_score, &mut skip_count, opt.max_chain_skip, i as i32) {
-                                BlockWalk::Advanced => continue,
-                                BlockWalk::Stopped(j) => { end_j = j as i64; skip_fired = true; break; }
-                                BlockWalk::Improving => {}
-                            }
-                        }
-                        while bits != 0 {
-                            let bit = 15 - bits.leading_zeros() as usize;
-                            bits &= !(1u16 << bit);
-                            let j = start + bit;
-                            let sc = *scb.add(j);
-                            if sc == i32::MIN { continue; }
-                            let total_sc = sc + *scr.add(j);
-                            if total_sc > best_score {
-                                best_score = total_sc; best_predecessor = j as i64;
-                                if skip_count > 0 { skip_count -= 1; }
-                            } else if *vis.add(j) == i as i32 {
-                                skip_count += 1;
-                                if skip_count > opt.max_chain_skip { end_j = j as i64; skip_fired = true; break; }
-                            }
-                            let p = *pre.add(j);
-                            if p >= 0 { *vis.add(p as usize) = i as i32; }
-                        }
-
-                        if skip_fired { break; }
-                    }
-                } else {
+                let (scb, scr, vis, pre) =
+                    (soa_sc_buf.as_ptr(), scores.as_ptr(), visited.as_mut_ptr(), predecessors.as_ptr());
+                // Walk the candidates in descending order, sixteen-lane group by group.
                 while valid != 0 {
-                    let bit = 63 - valid.leading_zeros() as usize;
-                    valid &= !(1u64 << bit);
-                    let j = chunk_start + bit;
-                    let sc = *scb.add(j);
-                    if sc == i32::MIN { continue; }
-                    let total_sc = sc + *scr.add(j);
-                    if total_sc > best_score {
-                        best_score = total_sc; best_predecessor = j as i64;
-                        if skip_count > 0 { skip_count -= 1; }
-                    } else if *vis.add(j) == i as i32 {
-                        skip_count += 1;
-                        if skip_count > opt.max_chain_skip { end_j = j as i64; skip_fired = true; break; }
+                    let group = (63 - valid.leading_zeros() as usize) & !15;
+                    let mut bits = (valid >> group) as u16;
+                    valid &= !(0xffffu64 << group);
+                    let start = chunk_start + group;
+                    if block_walk && best_predecessor >= 0 && start + 16 <= chunk_end && bits.count_ones() >= 4 {
+                        match advance_nonimproving_block16(scb, scr, pre, vis, start,
+                            bits, best_score, &mut skip_count, opt.max_chain_skip, i as i32) {
+                            BlockWalk::Advanced => continue,
+                            BlockWalk::Stopped(j) => { end_j = j as i64; skip_fired = true; break; }
+                            BlockWalk::Improving => {}
+                        }
                     }
-                    let p = *pre.add(j);
-                    if p >= 0 { *vis.add(p as usize) = i as i32; }
-                }
-
+                    while bits != 0 {
+                        let bit = 15 - bits.leading_zeros() as usize;
+                        bits &= !(1u16 << bit);
+                        let j = start + bit;
+                        let sc = *scb.add(j);
+                        if sc == i32::MIN { continue; }
+                        let total_sc = sc + *scr.add(j);
+                        if total_sc > best_score {
+                            best_score = total_sc; best_predecessor = j as i64;
+                            if skip_count > 0 { skip_count -= 1; }
+                        } else if *vis.add(j) == i as i32 {
+                            skip_count += 1;
+                            if skip_count > opt.max_chain_skip { end_j = j as i64; skip_fired = true; break; }
+                        }
+                        let p = *pre.add(j);
+                        if p >= 0 { *vis.add(p as usize) = i as i32; }
+                    }
+                    if skip_fired { break; }
                 }
 
                 if skip_fired { break; }
@@ -2094,7 +2035,8 @@ unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
     );
 
     if n_u == 0 {
-        ctx.predecessors = predecessors; ctx.bt_candidates = std::mem::take(&mut bt_candidates);
+        ctx.predecessors = predecessors;
+        ctx.bt_candidates = std::mem::take(&mut bt_candidates);
         ctx.scores = scores;
         ctx.peak_scores = peak_scores;
         ctx.visited = visited;
@@ -2143,7 +2085,8 @@ unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
         }
     }
 
-    ctx.predecessors = predecessors; ctx.bt_candidates = std::mem::take(&mut bt_candidates);
+    ctx.predecessors = predecessors;
+    ctx.bt_candidates = std::mem::take(&mut bt_candidates);
     ctx.scores = scores;
     ctx.peak_scores = peak_scores;
     ctx.visited = visited;
@@ -2156,15 +2099,6 @@ unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
 
     (u2, b2)
 }}
-
-    };
-}
-#[cfg(target_arch = "x86_64")]
-define_chain_avx512!(chain_anchors_avx512_impl, "avx512f,avx512bw,avx2", false, false,false,false,64);
-#[cfg(target_arch = "x86_64")]
-define_chain_avx512!(chain_anchors_avx512_feature_control, "avx512f,avx512bw,avx2,bmi2,popcnt", false, false,false,false,64);
-#[cfg(target_arch = "x86_64")]
-define_chain_avx512!(chain_anchors_avx512_block_walk, "avx512f,avx512bw,avx2,bmi2,popcnt", true, false,false,false,64);
 
 // =============================================================================
 // NEON (aarch64) implementation — 4-wide, mirrors AVX2 logic exactly
@@ -3544,57 +3478,50 @@ mod tests {
     }
 }
 
-#[cfg(target_arch = "x86_64")]
-define_chain_avx512!(chain_anchors_avx512_bucket_direct,"avx512f,avx512bw,avx2,bmi2,popcnt",true,true,false,false,64);
-
-#[cfg(target_arch = "x86_64")]
-define_chain_avx512!(chain_anchors_avx512_bucket_bulk,"avx512f,avx512bw,avx2,bmi2,popcnt",true,true,true,false,64);
-
-#[cfg(target_arch="x86_64")]
-define_chain_avx512!(chain_anchors_avx512_bucket_diag32,"avx512f,avx512bw,avx2,bmi2,popcnt",true,true,true,true,64);
-
-#[cfg(target_arch="x86_64")]
-define_chain_avx512!(chain_anchors_avx512_bucket_chunk16,"avx512f,avx512bw,avx2,bmi2,popcnt",true,true,true,true,16);
-#[cfg(target_arch="x86_64")]
-define_chain_avx512!(chain_anchors_avx512_bucket_chunk32,"avx512f,avx512bw,avx2,bmi2,popcnt",true,true,true,true,32);
-
-#[cfg(target_arch="x86_64")]
-static BUCKET_VECTOR_MERGE_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||std::env::var("BONEFISH_BUCKET_VECTOR_MERGE_OFF").is_ok_and(|v|v!="0"));
-
-
-// Integer-only hashing for internal diagonal coordinates. Equality and insertion
-// order determine all bucket IDs; hash-table iteration is never observed.
-#[derive(Default)]
-struct DiagIntegerHasher(u64);
-impl std::hash::Hasher for DiagIntegerHasher{
- fn finish(&self)->u64{
-  let mut x=self.0;x^=x>>30;x=x.wrapping_mul(0xbf58476d1ce4e5b9);
-  x^=x>>27;x=x.wrapping_mul(0x94d049bb133111eb);x^(x>>31)
- }
- fn write(&mut self,bytes:&[u8]){for &b in bytes{self.0=(self.0^b as u64).wrapping_mul(0x100000001b3)}}
- fn write_i64(&mut self,value:i64){self.0=value as u64}
- fn write_u64(&mut self,value:u64){self.0=value}
-}
-static BUCKET_HASH_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||std::env::var("BONEFISH_BUCKET_HASH_OFF").is_ok_and(|v|v!="0"));
 #[cfg(test)]
-mod diagonal_hash_tests{
- use super::*;
- #[test]
- fn integer_hash_bucket_build_preserves_every_field_and_reuse(){
-  let mut seed=0x3891_abd7_44ae_0f11u64;
-  let mut rnd=||{seed^=seed<<13;seed^=seed>>7;seed^=seed<<17;seed};
-  let(mut old,mut new)=(DiagBuckets::default(),DiagBuckets::default());
-  for case in 0..700{
-   let n=[0,1,2,31,1023,1024,2048,6000][case%8];
-   let q:Vec<_>=(0..n).map(|_|rnd() as i32).collect();
-   let r:Vec<_>=(0..n).map(|_|if case%3==0{17}else{rnd() as i32}).collect();
-   let bw=[-1,0,1,2,15,512,20000,i32::MAX][case%8];
-   old.build_original(&r,&q,bw);new.build_fast(&r,&q,bw);
-   assert_eq!(new.id,old.id,"id case={case}");assert_eq!(new.diag,old.diag);
-   assert_eq!(new.keys,old.keys);assert_eq!(new.nbr,old.nbr);assert_eq!(new.lists,old.lists);
-   for(i,&k)in old.keys.iter().enumerate(){assert_eq!(new.map_fast.get(&k),Some(&(i as u32)));}
-   // Lists may contain previous anchors when the buffers are reused.
-   for l in &mut old.lists{l.push(17)}for l in &mut new.lists{l.push(17)}
-  }
- }
+mod diag_bucket_tests {
+    use super::*;
+
+    #[test]
+    fn integer_hasher_buckets_match_std_hashmap() {
+        let mut seed = 0x3891_abd7_44ae_0f11u64;
+        let mut rnd = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        // One DiagBuckets for all cases: rebuilding must also reset reused buffers.
+        let mut bk = DiagBuckets::default();
+        for case in 0..700 {
+            let n = [0, 1, 2, 31, 1023, 1024, 2048, 6000][case % 8];
+            let q: Vec<_> = (0..n).map(|_| rnd() as i32).collect();
+            let r: Vec<_> = (0..n).map(|_| if case % 3 == 0 { 17 } else { rnd() as i32 }).collect();
+            let bw = [-1, 0, 1, 2, 15, 512, 20000, i32::MAX][case % 8];
+            bk.build(&r, &q, bw);
+
+            // Reference: bucket ids in first-seen order, from a std HashMap.
+            let shift = if bw > 1 { 32 - ((bw - 1) as u32).leading_zeros() } else { 0 };
+            let diag: Vec<i64> = r.iter().zip(&q).map(|(&r, &q)| r as i64 - q as i64).collect();
+            let mut map = std::collections::HashMap::new();
+            let mut keys = Vec::new();
+            let id: Vec<u32> = diag.iter().map(|&d| {
+                *map.entry(d >> shift).or_insert_with(|| {
+                    keys.push(d >> shift);
+                    keys.len() as u32 - 1
+                })
+            }).collect();
+            let get = |k: i64| map.get(&k).copied().unwrap_or(u32::MAX);
+            let nbr: Vec<_> = keys.iter().map(|&k| [get(k - 1), get(k), get(k + 1)]).collect();
+
+            assert_eq!(bk.diag, diag, "diag case={case}");
+            assert_eq!(bk.id, id, "id case={case}");
+            assert_eq!(bk.keys, keys, "keys case={case}");
+            assert_eq!(bk.nbr, nbr, "nbr case={case}");
+            assert!(bk.lists[..keys.len()].iter().all(Vec::is_empty), "lists case={case}");
+            for l in &mut bk.lists {
+                l.push(17);
+            }
+        }
+    }
 }

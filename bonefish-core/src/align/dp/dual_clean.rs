@@ -49,10 +49,6 @@ pub fn clean_x86() -> Option<bool> {
 static CLEAN_DUAL_ENV: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("BONEFISH_EXP_CLEAN_DP").is_ok_and(|v| v != "0"));
 
-/// Keep chaining's selected SIMD mode while isolating the DP port in comparisons.
-static FORCE_DP_AVX2: std::sync::LazyLock<bool> =
-    std::sync::LazyLock::new(|| std::env::var("BONEFISH_FORCE_DP_AVX2").is_ok_and(|v| v != "0"));
-
 /// Maximum number of active cells per anti-diagonal. A 32-cell band fits in AVX2 even
 /// when the caller's nominal bandwidth is larger (short sequences or adaptive bands).
 #[cfg(target_arch = "x86_64")]
@@ -63,8 +59,9 @@ pub(super) fn clean_band_cells(qlen: usize, tlen: usize, bandwidth: i32, adaptiv
     qlen.min(tlen).min(cells)
 }
 
-/// Use 64 lanes for wide bands on capable CPUs; retain 256-bit vectors for bands
-/// of at most 32 cells. Runtime detection and process SIMD caps apply to every path.
+/// Clean-kernel entry point on AVX2 machines. Bands wider than one 32-byte vector use the
+/// 64-lane AVX-512 kernels when `use_avx512()` allows (CPU support, preset cap, env overrides);
+/// everything else stays on `extend_dual_affine_avx2_clean`.
 #[cfg(target_arch = "x86_64")]
 #[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn extend_dual_affine_clean(
@@ -73,9 +70,7 @@ pub(super) unsafe fn extend_dual_affine_clean(
     bandwidth: i32, z_drop: i32, end_bonus: i32, flags: i32, adaptive: i32, band_shift: i32,
     result: &mut DpResult,
 ) { unsafe {
-    if clean_band_cells(qseq.len(), tseq.len(), bandwidth, adaptive) > 32
-        && super::use_avx512() && !*FORCE_DP_AVX2
-    {
+    if clean_band_cells(qseq.len(), tseq.len(), bandwidth, adaptive) > 32 && super::use_avx512() {
         super::dual_clean512::extend_dual_affine_avx512_clean(qseq, tseq, alphabet_size, score_matrix,
             gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags,
             adaptive, band_shift, result);
@@ -88,7 +83,8 @@ pub(super) unsafe fn extend_dual_affine_clean(
 
 /// AVX2 kernel with `extend_dual_affine_scalar` semantics. Same arguments as the other dual
 /// kernels; generic (non-uniform mismatch) scoring is not handled here (callers route it to
-/// the scalar kernel).
+/// the scalar kernel). Single-vector approximate bands use the register kernel, in its
+/// AVX-512VL/VBMI form (`dual_clean_reg32vl`) when `use_avx512()` allows and the CPU has both.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[allow(clippy::too_many_arguments)]
@@ -107,7 +103,7 @@ pub(super) unsafe fn extend_dual_affine_avx2_clean(
     let with_cigar = (flags & SCORE_ONLY) == 0;
     let right_align = (flags & RIGHT_ALIGN) != 0;
     if approx_max && adaptive <= 0 && (0..=31).contains(&bandwidth) && !*REG1_OFF {
-        let use_vl = super::use_avx512() && !*FORCE_DP_AVX2 && !*REG32VL_OFF
+        let use_vl = super::use_avx512()
             && is_x86_feature_detected!("avx512vbmi") && is_x86_feature_detected!("avx512vl");
         macro_rules! go1 {
             ($c:literal, $r:literal, $n:literal) => {
@@ -140,6 +136,46 @@ pub(super) unsafe fn extend_dual_affine_avx2_clean(
         };
     }
     match (approx_max, with_cigar, right_align, has_n) {
+        (false, false, false, false) => go!(false, false, false, false),
+        (false, false, false, true) => go!(false, false, false, true),
+        (false, false, true, false) => go!(false, false, true, false),
+        (false, false, true, true) => go!(false, false, true, true),
+        (false, true, false, false) => go!(false, true, false, false),
+        (false, true, false, true) => go!(false, true, false, true),
+        (false, true, true, false) => go!(false, true, true, false),
+        (false, true, true, true) => go!(false, true, true, true),
+        (true, false, false, false) => go!(true, false, false, false),
+        (true, false, false, true) => go!(true, false, false, true),
+        (true, false, true, false) => go!(true, false, true, false),
+        (true, false, true, true) => go!(true, false, true, true),
+        (true, true, false, false) => go!(true, true, false, false),
+        (true, true, false, true) => go!(true, true, false, true),
+        (true, true, true, false) => go!(true, true, true, false),
+        (true, true, true, true) => go!(true, true, true, true),
+    }
+}}
+
+/// `clean_impl` alone, dispatched on the flags: the reference the register and AVX-512 kernels
+/// are tested against. (`extend_dual_affine_avx2_clean` routes narrow approximate bands to a
+/// register kernel, which on AVX-512 VBMI/VL machines is not an AVX2 kernel.)
+#[cfg(all(test, target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+#[allow(clippy::too_many_arguments)]
+pub(super) unsafe fn clean_impl_reference(
+    qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
+    gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8,
+    bandwidth: i32, z_drop: i32, end_bonus: i32, flags: i32, adaptive: i32, band_shift: i32,
+    result: &mut DpResult,
+) { unsafe {
+    let m1 = alphabet_size.wrapping_sub(1) as u8;
+    let has_n = qseq.iter().chain(tseq).any(|&c| c >= m1);
+    macro_rules! go {
+        ($a:literal, $c:literal, $r:literal, $n:literal) => {
+            clean_impl::<$a, $c, $r, $n>(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2,
+                                         bandwidth, z_drop, end_bonus, flags, adaptive, band_shift, result)
+        };
+    }
+    match ((flags & APPROX_MAX) != 0, (flags & SCORE_ONLY) == 0, (flags & RIGHT_ALIGN) != 0, has_n) {
         (false, false, false, false) => go!(false, false, false, false),
         (false, false, false, true) => go!(false, false, false, true),
         (false, false, true, false) => go!(false, false, true, false),
@@ -618,10 +654,9 @@ unsafe fn clean_impl<const APPROX: bool, const CIGAR: bool, const RIGHT: bool, c
 }}
 
 /// BONEFISH_REG1_OFF=1: use the memory-array kernel for single-vector bands too (comparisons).
+#[cfg(target_arch = "x86_64")]
 static REG1_OFF: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("BONEFISH_REG1_OFF").is_ok_and(|v| v != "0"));
-static REG32VL_OFF: std::sync::LazyLock<bool> =
-    std::sync::LazyLock::new(|| std::env::var("BONEFISH_REG32VL_OFF").is_ok_and(|v| v != "0"));
 
 /// Bytes 1..=31 of `v` moved down one lane, `fill` byte 0 into lane 31.
 #[cfg(target_arch = "x86_64")]
@@ -643,7 +678,7 @@ unsafe fn shr1_next(v: __m256i, fill: __m256i) -> __m256i {
 #[target_feature(enable = "avx2")]
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::manual_is_multiple_of)] // kernel left as written; `% 32` matches the vector width
-pub(super) unsafe fn reg1_impl<const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
+unsafe fn reg1_impl<const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
     qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
     gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8,
     bandwidth: i32, z_drop: i32, end_bonus: i32, flags: i32, band_shift: i32,
@@ -933,7 +968,7 @@ mod reg1_tests {
     /// The register kernel must reproduce clean_impl exactly on every eligible call.
     #[test]
     fn reg1_matches_clean_impl() {
-        if !is_x86_feature_detected!("avx2") { return; }
+        if !crate::align::dp::simd_test_available("avx2", is_x86_feature_detected!("avx2")) { return; }
         let mut x = 0x9E37_79B9_7F4A_7C15u64;
         let mut rnd = move || { x ^= x << 13; x ^= x >> 7; x ^= x << 17; x };
         let mat = { let mut m = [0i8; 25]; for i in 0..5 { for j in 0..5 { m[i * 5 + j] = if i == 4 || j == 4 { -1 } else if i == j { 2 } else { -4 }; } } m };
@@ -965,18 +1000,11 @@ mod reg1_tests {
             let (cig, right) = (flags & SCORE_ONLY == 0, flags & RIGHT_ALIGN != 0);
             let mut a = DpResult::default();
             let mut b = DpResult::default();
-            let mut vl = DpResult::default();
-            let has_vl = is_x86_feature_detected!("avx512vbmi") && is_x86_feature_detected!("avx512vl")
-                && is_x86_feature_detected!("avx512bw");
             unsafe {
                 macro_rules! both {
                     ($c:literal, $r:literal, $n:literal) => {{
                         clean_impl::<true, $c, $r, $n>(&q, &t, 5, &mat, 4, 2, 24, 1, bw, zdrop, end_bonus, flags, 0, shift, &mut a);
                         reg1_impl::<$c, $r, $n>(&q, &t, 5, &mat, 4, 2, 24, 1, bw, zdrop, end_bonus, flags, shift, &mut b);
-                        if has_vl {
-                            super::super::dual_clean_reg32vl::reg32vl_impl::<true, $c, $r, $n>(
-                                &q, &t, 5, &mat, 4, 2, 24, 1, bw, zdrop, end_bonus, flags, 0, shift, &mut vl);
-                        }
                     }};
                 }
                 match (cig, right, has_n) {
@@ -994,7 +1022,6 @@ mod reg1_tests {
                 r.max_query_end_target_pos, r.max_target_end_score, r.max_target_end_query_pos, r.score, r.reach_end,
                 r.zdropped, r.cigar.clone());
             assert_eq!(key(&a), key(&b), "case {case}: qlen {} tlen {} bw {bw} shift {shift} zdrop {zdrop} flags {flags:#x}", q.len(), t.len());
-            if has_vl { assert_eq!(key(&a), key(&vl), "VL case {case}: bw {bw} shift {shift} flags {flags:#x}"); }
             n_cases += 1;
         }
         assert_eq!(n_cases, 20000);

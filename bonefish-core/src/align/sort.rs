@@ -12,18 +12,6 @@ const RS_MAX_BITS: u32 = 8;
 #[cfg(target_arch = "x86_64")]
 mod network512;
 
-/// The 32-bit composite preserves the old stable leaf order. Runtime ISA caps
-/// still select the portable leaf sorter; the comparison switch is cached once.
-#[cfg(target_arch = "x86_64")]
-static SORT_NETWORK512: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-    is_x86_feature_detected!("avx512f")
-        && !*crate::align::env_flags::FORCE_AVX2
-        && !*crate::align::env_flags::FORCE_SSE
-        && !*crate::align::env_flags::FORCE_SCALAR
-        && !std::env::var("BONEFISH_SORT_NETWORK_OFF").is_ok_and(|v| v != "0")
-});
-
-
 /// Trait for types that can be radix-sorted by extracting a u64 key.
 pub trait RadixKey: Copy {
     fn radix_key(&self) -> u64;
@@ -48,11 +36,11 @@ impl RadixKey for Minimizer {
             rs_insertsort(arr);
             return;
         }
+        // With s <= 26 the composite fits in 32 bits, so an AVX-512 sorting network can sort it.
         #[cfg(target_arch = "x86_64")]
-        if s <= 26 && *SORT_NETWORK512 {
-            // The range check above establishes 16..=64 elements; s<=26
-            // leaves six index bits in the 32-bit stable composite key.
-            unsafe { network512::sort_leaf(arr, s); }
+        if s <= 26 && crate::align::dp::use_avx512() {
+            // SAFETY: use_avx512() implies AVX-512BW and so AVX-512F; 16 <= n <= 64 and s <= 26.
+            unsafe { network512::sort_leaf(arr, s) };
             return;
         }
         let mask = (1u64 << s) - 1;
@@ -106,30 +94,38 @@ fn rs_sort<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
     // differ, so bytes shared by every key can be skipped below.
     let k0 = arr[0].radix_key();
     let mut diff = 0u64;
-    if arr.len()>=1024 && !*SORT_HIST_OFF {
-        // Independent counters remove the repeated-bucket load/store dependency.
-        // Reducing them gives exactly the old histogram and permutation boundaries.
-        let(mut h1,mut h2,mut h3)=([0usize;256],[0usize;256],[0usize;256]);
-        let mut groups=arr.chunks_exact(4);
-        for group in &mut groups {
-            let(a,b,c,d)=(group[0].radix_key(),group[1].radix_key(),group[2].radix_key(),group[3].radix_key());
-            diff|=(a^k0)|(b^k0)|(c^k0)|(d^k0);
+    if arr.len() >= 1024 {
+        // Four histograms, one per element of each group of four, break the load/store
+        // dependency between consecutive increments of the same bucket; summed they are the
+        // same histogram.
+        let (mut h1, mut h2, mut h3) = ([0usize; 256], [0usize; 256], [0usize; 256]);
+        let (groups, rest) = arr.as_chunks::<4>();
+        for [a, b, c, d] in groups {
+            let (a, b, c, d) = (a.radix_key(), b.radix_key(), c.radix_key(), d.radix_key());
+            diff |= (a ^ k0) | (b ^ k0) | (c ^ k0) | (d ^ k0);
+            // SAFETY: masked bytes are < 256.
             unsafe {
-                *be.get_unchecked_mut(((a>>s)&m) as usize)+=1;
-                *h1.get_unchecked_mut(((b>>s)&m) as usize)+=1;
-                *h2.get_unchecked_mut(((c>>s)&m) as usize)+=1;
-                *h3.get_unchecked_mut(((d>>s)&m) as usize)+=1;
+                *be.get_unchecked_mut(((a >> s) & m) as usize) += 1;
+                *h1.get_unchecked_mut(((b >> s) & m) as usize) += 1;
+                *h2.get_unchecked_mut(((c >> s) & m) as usize) += 1;
+                *h3.get_unchecked_mut(((d >> s) & m) as usize) += 1;
             }
         }
-        for item in groups.remainder(){let k=item.radix_key();diff|=k^k0;unsafe{*be.get_unchecked_mut(((k>>s)&m) as usize)+=1;}}
-        for i in 0..size{be[i]+=h1[i]+h2[i]+h3[i];}
-    }else{
-    for item in arr.iter() {
-        let k = item.radix_key();
-        diff |= k ^ k0;
-        let byte = ((k >> s) & m) as usize;
-        unsafe { *be.get_unchecked_mut(byte) += 1; }
-    }
+        for item in rest {
+            let k = item.radix_key();
+            diff |= k ^ k0;
+            unsafe { *be.get_unchecked_mut(((k >> s) & m) as usize) += 1; }
+        }
+        for i in 0..size {
+            be[i] += h1[i] + h2[i] + h3[i];
+        }
+    } else {
+        for item in arr.iter() {
+            let k = item.radix_key();
+            diff |= k ^ k0;
+            let byte = ((k >> s) & m) as usize;
+            unsafe { *be.get_unchecked_mut(byte) += 1; }
+        }
     }
     // Next byte to sort on: the next lower byte in which some keys differ (a byte shared by
     // every key of the array is shared within each bucket, and sorting on it moves nothing).
@@ -159,69 +155,45 @@ fn rs_sort<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
         return;
     }
 
-    // Pointer cursors name the same destinations as the original index table.
-    // Avoid re-scaling each loaded cursor on the cycle's serial routing path.
-    if !*SORT_CURSOR_OFF {
-        let a=arr.as_mut_ptr();
-        let mut cursors=[a;256];
-        for k in 0..size{cursors[k]=unsafe{a.add(bb[k])};}
-        unsafe{
-            for k in 0..size{
-                let end=a.add(be[k]);
-                while cursors[k]<end{
-                    let front=cursors[k];let bucket=(((*front).radix_key()>>s)&m) as usize;
-                    if bucket==k{cursors[k]=front.add(1);continue}
-                    let mut tmp=*front;let mut cur=bucket;
-                    loop{
-                        let dest=*cursors.get_unchecked(cur);
-                        std::ptr::swap(&mut tmp,dest);
-                        *cursors.get_unchecked_mut(cur)=dest.add(1);
-                        cur=((tmp.radix_key()>>s)&m) as usize;
-                        if cur==k{break}
-                    }
-                    *cursors[k]=tmp;cursors[k]=cursors[k].add(1);
-                }
-            }
-        }
-    }else{
-    // In-place cyclic permutation (American Flag sort).
-    // SAFETY: bucket ids are < 256 (masked), and bb[c] < be[c] <= arr.len() whenever an element
-    // of bucket c remains to be placed, so every arr index is in bounds.
+    // In-place cyclic permutation (American Flag sort). The per-bucket write cursors are
+    // pointers rather than indices, which keeps the index scaling off the cycle's serial chain.
+    // SAFETY: bucket ids are < 256 (masked), and cursors[c] < a + be[c] <= a + arr.len() whenever
+    // an element of bucket c remains to be placed, so every pointer dereferenced is inside arr.
     let a = arr.as_mut_ptr();
-    let mut k = 0usize;
+    let mut cursors = [a; 256];
+    for k in 0..size {
+        cursors[k] = unsafe { a.add(bb[k]) };
+    }
     unsafe {
-        while k < size {
-            let bk = *bb.get_unchecked(k);
-            if bk < *be.get_unchecked(k) {
-                let l = (((*a.add(bk)).radix_key() >> s) & m) as usize;
-                if l != k {
-                    // Element at k's front belongs to bucket l — start swap cycle
-                    let mut tmp = *a.add(bk);
-                    let mut cur = l;
-                    loop {
-                        // Place tmp into bucket cur, pick up what was there
-                        let p = a.add(*bb.get_unchecked(cur));
-                        std::ptr::swap(&mut tmp, p);
-                        *bb.get_unchecked_mut(cur) += 1;
-                        // Where does the picked-up element belong?
-                        cur = ((tmp.radix_key() >> s) & m) as usize;
-                        if cur == k {
-                            break;
-                        }
-                    }
-                    // Place the final element (belonging to bucket k) at k's front
-                    *a.add(*bb.get_unchecked(k)) = tmp;
-                    *bb.get_unchecked_mut(k) += 1;
-                } else {
+        for k in 0..size {
+            let end = a.add(be[k]);
+            while cursors[k] < end {
+                let front = cursors[k];
+                let bucket = (((*front).radix_key() >> s) & m) as usize;
+                if bucket == k {
                     // Element already in correct bucket
-                    *bb.get_unchecked_mut(k) += 1;
+                    cursors[k] = front.add(1);
+                    continue;
                 }
-            } else {
-                k += 1;
+                // Element at k's front belongs to another bucket: start a swap cycle
+                let mut tmp = *front;
+                let mut cur = bucket;
+                loop {
+                    // Place tmp into bucket cur, pick up what was there
+                    let dest = *cursors.get_unchecked(cur);
+                    std::ptr::swap(&mut tmp, dest);
+                    *cursors.get_unchecked_mut(cur) = dest.add(1);
+                    // Where does the picked-up element belong?
+                    cur = ((tmp.radix_key() >> s) & m) as usize;
+                    if cur == k {
+                        break;
+                    }
+                }
+                // Place the final element (belonging to bucket k) at k's front
+                *cursors[k] = tmp;
+                cursors[k] = cursors[k].add(1);
             }
         }
-    }
-
     }
 
     // Reset bb to proper bucket boundaries for recursion
@@ -540,126 +512,144 @@ mod leaf_sort_tests {
     }
 }
 
-static SORT_HIST_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||std::env::var("BONEFISH_SORT_HIST_OFF").is_ok_and(|v|v!="0"));
-
 #[cfg(test)]
-fn rs_sort_original<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
-    let size = 1usize << n_bits; // 256
-    let m = (size - 1) as u64;
+mod radix_order_tests {
+    use super::*;
 
-    // bb[i] = current write position for bucket i (advances during permutation)
-    // be[i] = end boundary for bucket i (fixed after prefix sum)
-    let mut bb = [0usize; 256];
-    let mut be = [0usize; 256];
+    /// `rs_sort` before the four-histogram count and the pointer-cursor permutation: the
+    /// oracle for its exact (unstable) output order.
+    fn rs_sort_original<T: RadixKey>(arr: &mut [T], n_bits: u32, s: u32) {
+        let size = 1usize << n_bits; // 256
+        let m = (size - 1) as u64;
 
-    // Count elements per bucket (byte < 256 = be.len()); `diff` collects the bits in which keys
-    // differ, so bytes shared by every key can be skipped below.
-    let k0 = arr[0].radix_key();
-    let mut diff = 0u64;
-    for item in arr.iter() {
-        let k = item.radix_key();
-        diff |= k ^ k0;
-        let byte = ((k >> s) & m) as usize;
-        unsafe { *be.get_unchecked_mut(byte) += 1; }
-    }
-    // Next byte to sort on: the next lower byte in which some keys differ (a byte shared by
-    // every key of the array is shared within each bucket, and sorting on it moves nothing).
-    let next_varying = |from: u32| -> Option<u32> {
-        let mut t = from;
-        loop {
-            if t == 0 { return None; }
-            t = t.saturating_sub(n_bits);
-            if (diff >> t) & m != 0 { return Some(t); }
+        // bb[i] = current write position for bucket i (advances during permutation)
+        // be[i] = end boundary for bucket i (fixed after prefix sum)
+        let mut bb = [0usize; 256];
+        let mut be = [0usize; 256];
+
+        // Count elements per bucket (byte < 256 = be.len()); `diff` collects the bits in which keys
+        // differ, so bytes shared by every key can be skipped below.
+        let k0 = arr[0].radix_key();
+        let mut diff = 0u64;
+        for item in arr.iter() {
+            let k = item.radix_key();
+            diff |= k ^ k0;
+            let byte = ((k >> s) & m) as usize;
+            unsafe { *be.get_unchecked_mut(byte) += 1; }
         }
-    };
+        // Next byte to sort on: the next lower byte in which some keys differ (a byte shared by
+        // every key of the array is shared within each bucket, and sorting on it moves nothing).
+        let next_varying = |from: u32| -> Option<u32> {
+            let mut t = from;
+            loop {
+                if t == 0 { return None; }
+                t = t.saturating_sub(n_bits);
+                if (diff >> t) & m != 0 { return Some(t); }
+            }
+        };
 
-    // Prefix sums: be[i] = cumulative end, bb[i] = start of bucket i
-    #[allow(clippy::manual_memcpy)] // can't use copy_from_slice: be is modified in the same loop
-    for i in 1..size {
-        be[i] += be[i - 1];
-        bb[i] = be[i - 1];
-    }
-
-    // A byte shared by every key leaves the array as it is: go straight to the next byte
-    // (exactly what the permutation + recursion below would amount to).
-    let b0 = ((k0 >> s) & m) as usize;
-    if be[b0] - bb[b0] == arr.len() {
-        if let Some(t) = next_varying(s) {
-            rs_sort_original(arr, n_bits, t);
+        // Prefix sums: be[i] = cumulative end, bb[i] = start of bucket i
+        #[allow(clippy::manual_memcpy)] // can't use copy_from_slice: be is modified in the same loop
+        for i in 1..size {
+            be[i] += be[i - 1];
+            bb[i] = be[i - 1];
         }
-        return;
-    }
 
-    // In-place cyclic permutation (American Flag sort).
-    // SAFETY: bucket ids are < 256 (masked), and bb[c] < be[c] <= arr.len() whenever an element
-    // of bucket c remains to be placed, so every arr index is in bounds.
-    let a = arr.as_mut_ptr();
-    let mut k = 0usize;
-    unsafe {
-        while k < size {
-            let bk = *bb.get_unchecked(k);
-            if bk < *be.get_unchecked(k) {
-                let l = (((*a.add(bk)).radix_key() >> s) & m) as usize;
-                if l != k {
-                    // Element at k's front belongs to bucket l — start swap cycle
-                    let mut tmp = *a.add(bk);
-                    let mut cur = l;
-                    loop {
-                        // Place tmp into bucket cur, pick up what was there
-                        let p = a.add(*bb.get_unchecked(cur));
-                        std::ptr::swap(&mut tmp, p);
-                        *bb.get_unchecked_mut(cur) += 1;
-                        // Where does the picked-up element belong?
-                        cur = ((tmp.radix_key() >> s) & m) as usize;
-                        if cur == k {
-                            break;
+        // A byte shared by every key leaves the array as it is: go straight to the next byte
+        // (exactly what the permutation + recursion below would amount to).
+        let b0 = ((k0 >> s) & m) as usize;
+        if be[b0] - bb[b0] == arr.len() {
+            if let Some(t) = next_varying(s) {
+                rs_sort_original(arr, n_bits, t);
+            }
+            return;
+        }
+
+        // In-place cyclic permutation (American Flag sort).
+        // SAFETY: bucket ids are < 256 (masked), and bb[c] < be[c] <= arr.len() whenever an element
+        // of bucket c remains to be placed, so every arr index is in bounds.
+        let a = arr.as_mut_ptr();
+        let mut k = 0usize;
+        unsafe {
+            while k < size {
+                let bk = *bb.get_unchecked(k);
+                if bk < *be.get_unchecked(k) {
+                    let l = (((*a.add(bk)).radix_key() >> s) & m) as usize;
+                    if l != k {
+                        // Element at k's front belongs to bucket l — start swap cycle
+                        let mut tmp = *a.add(bk);
+                        let mut cur = l;
+                        loop {
+                            // Place tmp into bucket cur, pick up what was there
+                            let p = a.add(*bb.get_unchecked(cur));
+                            std::ptr::swap(&mut tmp, p);
+                            *bb.get_unchecked_mut(cur) += 1;
+                            // Where does the picked-up element belong?
+                            cur = ((tmp.radix_key() >> s) & m) as usize;
+                            if cur == k {
+                                break;
+                            }
                         }
+                        // Place the final element (belonging to bucket k) at k's front
+                        *a.add(*bb.get_unchecked(k)) = tmp;
+                        *bb.get_unchecked_mut(k) += 1;
+                    } else {
+                        // Element already in correct bucket
+                        *bb.get_unchecked_mut(k) += 1;
                     }
-                    // Place the final element (belonging to bucket k) at k's front
-                    *a.add(*bb.get_unchecked(k)) = tmp;
-                    *bb.get_unchecked_mut(k) += 1;
                 } else {
-                    // Element already in correct bucket
-                    *bb.get_unchecked_mut(k) += 1;
+                    k += 1;
                 }
-            } else {
-                k += 1;
+            }
+        }
+
+        // Reset bb to proper bucket boundaries for recursion
+        bb[0] = 0;
+        bb[1..size].copy_from_slice(&be[..(size - 1)]);
+
+        // Recurse on sub-buckets
+        if let Some(next_s) = next_varying(s) {
+            for i in 0..size {
+                let len = be[i] - bb[i];
+                if len > RS_MIN_SIZE {
+                    rs_sort_original(&mut arr[bb[i]..be[i]], n_bits, next_s);
+                } else if len > 1 {
+                    T::leaf_sort(&mut arr[bb[i]..be[i]], s);
+                }
             }
         }
     }
 
-    // Reset bb to proper bucket boundaries for recursion
-    bb[0] = 0;
-    bb[1..size].copy_from_slice(&be[..(size - 1)]);
-
-    // Recurse on sub-buckets
-    if let Some(next_s) = next_varying(s) {
-        for i in 0..size {
-            let len = be[i] - bb[i];
-            if len > RS_MIN_SIZE {
-                rs_sort_original(&mut arr[bb[i]..be[i]], n_bits, next_s);
-            } else if len > 1 {
-                T::leaf_sort(&mut arr[bb[i]..be[i]], s);
-            }
+    /// The four-histogram count and pointer-cursor permutation reproduce the original
+    /// unstable order exactly, payloads included.
+    #[test]
+    fn rs_sort_matches_original_order() {
+        let mut seed = 0x9127_aaff_cc21_8821u64;
+        let mut rnd = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for case in 0..1500 {
+            let n = [65, 255, 256, 1023, 1024, 1025, 4097, 20000][case % 8];
+            let mut old: Vec<_> = (0..n)
+                .map(|i| {
+                    let x = match case % 5 {
+                        0 => rnd() & 7,
+                        1 => i as u64,
+                        2 => 17,
+                        3 => ((rnd() & 1) << 63) | (rnd() & 0xffff_ffff),
+                        _ => rnd(),
+                    };
+                    Minimizer { x, y: rnd() }
+                })
+                .collect();
+            let mut new = old.clone();
+            let shift = top_varying_byte_shift(&old);
+            rs_sort_original(&mut old, RS_MAX_BITS, shift);
+            radix_sort_128x(&mut new);
+            assert_eq!(old, new, "case={case} n={n}");
         }
     }
 }
-
-
-#[cfg(test)]
-mod histogram_tests{
- use super::*;
- #[test]
- fn four_histograms_preserve_original_cycles_and_full_payloads(){
-  let mut seed=0x9127_aaff_cc21_8821u64;
-  let mut rnd=||{seed^=seed<<13;seed^=seed>>7;seed^=seed<<17;seed};
-  for case in 0..1500{
-   let n=[65,255,256,1023,1024,1025,4097,20000][case%8];
-   let mut old:Vec<_>=(0..n).map(|i|Minimizer{x:match case%5{0=>rnd()&7,1=>i as u64,2=>17,3=>((rnd()&1)<<63)|(rnd()&0xffffffff),_=>rnd()},y:rnd()}).collect();
-   let mut new=old.clone();let shift=top_varying_byte_shift(&old);
-   rs_sort_original(&mut old,RS_MAX_BITS,shift);radix_sort_128x(&mut new);assert_eq!(old,new,"case={case} n={n}");
-  }
- }
-}
-
-static SORT_CURSOR_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||std::env::var("BONEFISH_SORT_CURSOR_OFF").is_ok_and(|v|v!="0"));
