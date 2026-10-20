@@ -114,7 +114,7 @@ pub(crate) fn dp_cache_cap_bytes() -> usize {
 /// `BONEFISH_REQUIRE_SIMD` to the features its runner has (comma-separated, e.g.
 /// `avx512bw,avx512vbmi,avx512vl`), which turns such a skip into a failure, so the tests
 /// cannot pass without running on a machine that does have the feature.
-#[cfg(test)]
+#[cfg(all(test, target_arch = "x86_64"))]
 pub(crate) fn simd_test_available(feature: &str, has: bool) -> bool {
     if !has {
         let required = std::env::var("BONEFISH_REQUIRE_SIMD").unwrap_or_default();

@@ -15,6 +15,7 @@ use core::arch::x86_64::*;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(target_arch = "x86_64")]
 use super::common::*;
 
 static CLEAN_DUAL: AtomicBool = AtomicBool::new(false);

@@ -203,6 +203,7 @@ fn sketch_sequence_impl(
 }
 
 /// BONEFISH_SKETCH_SCALAR=1: always use the one-pass sketcher (comparisons).
+#[cfg(target_arch = "x86_64")]
 static SKETCH_SCALAR: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("BONEFISH_SKETCH_SCALAR").is_ok_and(|v| v != "0"));
 
