@@ -257,6 +257,7 @@ pub struct DiagBuckets {
     /// Per bucket: indices of the anchors processed so far, ascending.
     lists: Vec<Vec<u32>>,
     map: std::collections::HashMap<i64, u32>,
+    map_fast:std::collections::HashMap<i64,u32,std::hash::BuildHasherDefault<DiagIntegerHasher>>,
     keys: Vec<i64>,
     g_idx: Vec<u32>,
     g_ref: Vec<i32>,
@@ -275,7 +276,10 @@ const DIAG_BUCKET_MIN_DENSITY: usize = 2;
 const DIAG_BUCKET_MIN_WINDOW: usize = 128;
 
 impl DiagBuckets {
-    fn build(&mut self, ref_pos: &[i32], query_pos: &[i32], bw: i32) {
+    fn build(&mut self,ref_pos:&[i32],query_pos:&[i32],bw:i32){
+        if *BUCKET_HASH_OFF {self.build_original(ref_pos,query_pos,bw)}else{self.build_fast(ref_pos,query_pos,bw)}
+    }
+    fn build_original(&mut self, ref_pos: &[i32], query_pos: &[i32], bw: i32) {
         let n = ref_pos.len();
         let shift = if bw > 1 { 32 - ((bw - 1) as u32).leading_zeros() } else { 0 };
         self.map.clear();
@@ -297,6 +301,31 @@ impl DiagBuckets {
         self.nbr.clear();
         for &key in &self.keys {
             let get = |k: i64| self.map.get(&k).copied().unwrap_or(u32::MAX);
+            self.nbr.push([get(key - 1), get(key), get(key + 1)]);
+        }
+    }
+    fn build_fast(&mut self, ref_pos: &[i32], query_pos: &[i32], bw: i32) {
+        let n = ref_pos.len();
+        let shift = if bw > 1 { 32 - ((bw - 1) as u32).leading_zeros() } else { 0 };
+        self.map_fast.clear();
+        self.keys.clear();
+        self.id.clear();
+        self.diag.clear();
+        for j in 0..n {
+            let d = ref_pos[j] as i64 - query_pos[j] as i64;
+            self.diag.push(d);
+            let key = d >> shift;
+            let next = self.keys.len() as u32;
+            let id = *self.map_fast.entry(key).or_insert(next);
+            if id == next { self.keys.push(key); }
+            self.id.push(id);
+        }
+        let nb = self.keys.len();
+        if self.lists.len() < nb { self.lists.resize_with(nb, Vec::new); }
+        for l in &mut self.lists[..nb] { l.clear(); }
+        self.nbr.clear();
+        for &key in &self.keys {
+            let get = |k: i64| self.map_fast.get(&k).copied().unwrap_or(u32::MAX);
             self.nbr.push([get(key - 1), get(key), get(key + 1)]);
         }
     }
@@ -1194,6 +1223,12 @@ unsafe fn compute_chain_scores_batch_avx512(
         let gap_w = _mm512_abs_epi32(diff);
         valid &= !_mm512_cmpgt_epi32_mask(gap_w, bw_v);
 
+        if valid == 0 {
+            _mm512_storeu_si512(sc_buf.as_mut_ptr().add(j) as *mut __m512i, min_val_v);
+            j += 16;
+            continue;
+        }
+
         let min_diff = _mm512_min_epi32(rdiff, qdiff);
         let mut score = _mm512_min_epi32(span_v, min_diff);
 
@@ -1228,40 +1263,455 @@ unsafe fn compute_chain_scores_batch_avx512(
         j += 16;
     }
 
-    // Scalar remainder
-    while j < end {
-        let qj = soa_query_pos[j];
-        let rj = soa_ref_pos[j];
-        let span_j = soa_query_span[j];
-        let rid_j = soa_rid_strand[j];
-        let query_diff = qi.wrapping_sub(qj);
-        if query_diff <= 0 || query_diff > max_dist_x {
-            sc_buf[j] = i32::MIN; j += 1; continue;
+    // Use the same eight-lane/scalar tail boundaries as AVX2.
+    if j < end {
+        compute_chain_scores_batch_avx2(qi, ri, rid_strand_i,
+            soa_ref_pos, soa_query_pos, soa_query_span, soa_rid_strand,
+            max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip, sc_buf, j, end);
+    }
+
+}}
+
+/// Score bucket candidates directly from the source arrays. The anchor window
+/// guarantees a common reference/strand. `diag[k]` is ref[k]-query[k] modulo 2^32,
+/// so qdiff+(diag_i-diag_j) is exactly the original wrapping reference difference.
+/// No field-copy arrays are needed. The eight-lane and scalar tail boundaries are
+/// kept unchanged, including their float-to-int conversion behaviour.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx2")]
+#[allow(clippy::too_many_arguments)]
+unsafe fn chain_scores_bucket_direct_avx512<const UNIFORM:bool>(
+    qi:i32,ri:i32,rid:u32,qry:&[i32],span:&[i32],diag:&[i32],idx:&[u32],
+    max_dist_x:i32,max_dist_y:i32,bw:i32,chn_pen_gap:f32,chn_pen_skip:f32,
+    sc_buf:&mut[i32],uniform_span:i32,
+) { unsafe {
+    debug_assert_eq!(qry.len(),span.len());debug_assert_eq!(qry.len(),diag.len());
+    debug_assert!(sc_buf.len()>=idx.len());
+    debug_assert!(idx.iter().all(|&k|(k as usize)<qry.len() && k<=i32::MAX as u32));
+    let qi_v=_mm512_set1_epi32(qi);
+    let diag_i=ri.wrapping_sub(qi);let di=_mm512_set1_epi32(diag_i);
+    let max_dx_v=_mm512_set1_epi32(max_dist_x);let max_dy_v=_mm512_set1_epi32(max_dist_y);
+    let bw_v=_mm512_set1_epi32(bw);let zero_v=_mm512_setzero_si512();
+    let one_v=_mm512_set1_epi32(1);let min_val_v=_mm512_set1_epi32(i32::MIN);
+    let pen_gap_v=_mm512_set1_ps(chn_pen_gap);let pen_skip_v=_mm512_set1_ps(chn_pen_skip);
+    let half_v=_mm512_set1_ps(0.5f32);
+    let aligned_end=idx.len()/16*16;let mut j=0;
+    while j<aligned_end {
+        let ix=_mm512_loadu_si512(idx.as_ptr().add(j).cast());
+        let qj=_mm512_i32gather_epi32::<4>(ix,qry.as_ptr());
+        let dj=_mm512_i32gather_epi32::<4>(ix,diag.as_ptr());
+        let span_v=if UNIFORM {_mm512_set1_epi32(uniform_span)}
+            else {_mm512_i32gather_epi32::<4>(ix,span.as_ptr())};
+        let qdiff=_mm512_sub_epi32(qi_v,qj);
+        let delta=_mm512_sub_epi32(di,dj);
+        let rdiff=_mm512_add_epi32(qdiff,delta);
+        let gap_w=_mm512_abs_epi32(delta);
+        let mut valid=_mm512_cmpgt_epi32_mask(qdiff,zero_v);
+        valid&=!_mm512_cmpgt_epi32_mask(qdiff,max_dx_v);
+        valid&=!_mm512_cmpgt_epi32_mask(qdiff,max_dy_v);
+        valid&=!_mm512_cmpeq_epi32_mask(rdiff,zero_v);
+        valid&=!_mm512_cmpgt_epi32_mask(gap_w,bw_v);
+        if valid==0 {
+            _mm512_storeu_si512(sc_buf.as_mut_ptr().add(j).cast(),min_val_v);
+            j+=16;continue;
         }
-        let ref_diff = ri.wrapping_sub(rj);
-        if rid_strand_i == rid_j && (ref_diff == 0 || query_diff > max_dist_y) {
-            sc_buf[j] = i32::MIN; j += 1; continue;
+        let min_diff = _mm512_min_epi32(rdiff, qdiff);
+        let mut score = _mm512_min_epi32(span_v, min_diff);
+
+        // Penalty computation
+        let needs_pen: __mmask16 = _mm512_cmpgt_epi32_mask(gap_w, zero_v)
+            | _mm512_cmpgt_epi32_mask(min_diff, span_v);
+
+        let gap_w_f = _mm512_cvtepi32_ps(gap_w);
+        let min_diff_f = _mm512_cvtepi32_ps(min_diff);
+        let lin_pen = _mm512_add_ps(
+            _mm512_mul_ps(pen_gap_v, gap_w_f),
+            _mm512_mul_ps(pen_skip_v, min_diff_f),
+        );
+
+        let gw_plus1_f = _mm512_cvtepi32_ps(_mm512_add_epi32(gap_w, one_v));
+        let log2_val = simd_fast_log2_avx512(gw_plus1_f);
+        // Zero out log_pen where gap_width == 0
+        let gw_gt_zero = _mm512_cmpgt_epi32_mask(gap_w, zero_v);
+        let log_pen = _mm512_maskz_mov_ps(gw_gt_zero, log2_val);
+
+        let total_pen = _mm512_add_ps(lin_pen, _mm512_mul_ps(half_v, log_pen));
+        let pen_i32 = _mm512_cvttps_epi32(total_pen);
+
+        // Apply penalty only where needs_pen
+        let pen_masked = _mm512_maskz_mov_epi32(needs_pen, pen_i32);
+        score = _mm512_sub_epi32(score, pen_masked);
+
+        // Mask invalid scores to i32::MIN
+        score = _mm512_mask_blend_epi32(valid, min_val_v, score);
+
+        _mm512_storeu_si512(sc_buf.as_mut_ptr().add(j) as *mut __m512i, score);
+        j+=16;
+    }
+    if j<idx.len() {
+        let m=idx.len()-j;
+        let (mut tq,mut tr,mut ts,tid)=([0i32;16],[0i32;16],[0i32;16],[rid;16]);
+        for t in 0..m {
+            let k=*idx.get_unchecked(j+t) as usize;
+            tq[t]=*qry.get_unchecked(k);ts[t]=if UNIFORM {uniform_span} else {*span.get_unchecked(k)};
+            let delta=diag_i.wrapping_sub(*diag.get_unchecked(k));
+            tr[t]=ri.wrapping_sub(qi.wrapping_sub(tq[t]).wrapping_add(delta));
         }
-        let gap_width = (ref_diff - query_diff).abs();
-        if rid_strand_i == rid_j && gap_width > bw {
-            sc_buf[j] = i32::MIN; j += 1; continue;
-        }
-        let min_diff = ref_diff.min(query_diff);
-        let mut sc = span_j.min(min_diff);
-        if gap_width > 0 || min_diff > span_j {
-            let lin_pen = chn_pen_gap * (gap_width as f32) + chn_pen_skip * (min_diff as f32);
-            let log_pen = if gap_width >= 1 { fast_log2((gap_width + 1) as f32) } else { 0.0f32 };
-            sc -= (lin_pen + 0.5f32 * log_pen) as i32;
-        }
-        sc_buf[j] = sc;
-        j += 1;
+        compute_chain_scores_batch_avx2(qi,ri,rid,&tr[..m],&tq[..m],&ts[..m],&tid[..m],
+            max_dist_x,max_dist_y,bw,chn_pen_gap,chn_pen_skip,&mut sc_buf[j..],0,m);
     }
 }}
 
-/// AVX-512 SIMD-optimized chaining — 16-wide, same structure as AVX2.
 #[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx512f", enable = "avx512bw")]
+#[target_feature(enable = "avx512f")]
+unsafe fn bucket_uniform_span(span:&[i32])->i32 { unsafe {
+    let Some(&first)=span.first() else {return -1};
+    let v=_mm512_set1_epi32(first);let mut at=0;
+    while at+16<=span.len() {
+        if _mm512_cmpeq_epi32_mask(v,_mm512_loadu_si512(span.as_ptr().add(at).cast()))!=u16::MAX {return -1}
+        at+=16;
+    }
+    if span[at..].iter().all(|&s|s==first) {first} else {-1}
+}}
+
+/// Consume a whole reverse run only when all sixteen heads precede every
+/// other active bucket head and are inside the anchor window. Compress-store
+/// preserves lane order, so both the selected indices and remaining cursors
+/// match the scalar three-way merge exactly. Diagonals stay i64 throughout.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx2,popcnt")]
+#[inline]
+unsafe fn bucket_filter_run16(
+    list:*const u32,cur:&mut usize,floor:i64,diags:&[i64],di:i64,bw:i32,out:&mut Vec<u32>,
+)->bool { unsafe {
+    if *cur<16 || out.len()>48 {return false}
+    if *list.add(*cur-16) as i64<=floor {return false}
+    debug_assert!(out.capacity()>=64);
+    let reverse=_mm512_setr_epi32(15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+    let ix=_mm512_permutexvar_epi32(reverse,_mm512_loadu_si512(list.add(*cur-16).cast()));
+    let low=_mm512_i32gather_epi64::<8>(_mm512_castsi512_si256(ix),diags.as_ptr());
+    let high=_mm512_i32gather_epi64::<8>(_mm512_extracti64x4_epi64::<1>(ix),diags.as_ptr());
+    let dv=_mm512_set1_epi64(di);let bv=_mm512_set1_epi64(bw as i64);
+    let m0=!_mm512_cmpgt_epi64_mask(_mm512_abs_epi64(_mm512_sub_epi64(low,dv)),bv);
+    let m1=!_mm512_cmpgt_epi64_mask(_mm512_abs_epi64(_mm512_sub_epi64(high,dv)),bv);
+    let mask=m0 as u16|((m1 as u16)<<8);let n=out.len();
+    _mm512_mask_compressstoreu_epi32(out.as_mut_ptr().add(n).cast(),mask,ix);
+    out.set_len(n+mask.count_ones() as usize);*cur-=16;
+    true
+}}
+
+/// Neighboring diagonal buckets bound the real difference to 2*width-1.
+/// With bw<=2^30 the bucket width is <=2^30, so that difference fits i32,
+/// even if each full diagonal does not. Wrapping diagonal subtraction is
+/// then exact, allowing one 16-lane gather instead of two 8-lane i64 gathers.
+#[cfg(target_arch="x86_64")]
+#[target_feature(enable="avx512f,avx2,popcnt")]
+#[inline]
+unsafe fn bucket_filter_run16_diag32(
+    list:*const u32,cur:&mut usize,floor:i64,diags:&[i32],di:i32,bw:i32,out:&mut Vec<u32>,
+)->bool { unsafe {
+    // Every list element belongs to key_i-1, key_i or key_i+1; 0<=bw<=2^30.
+    if *cur<16 || out.len()>48 {return false}
+    if *list.add(*cur-16) as i64<=floor {return false}
+    debug_assert!(out.capacity()>=64);
+    let reverse=_mm512_setr_epi32(15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+    let ix=_mm512_permutexvar_epi32(reverse,_mm512_loadu_si512(list.add(*cur-16).cast()));
+    let dj=_mm512_i32gather_epi32::<4>(ix,diags.as_ptr());
+    let distance=_mm512_abs_epi32(_mm512_sub_epi32(dj,_mm512_set1_epi32(di)));
+    let mask=!_mm512_cmpgt_epi32_mask(distance,_mm512_set1_epi32(bw));
+    let n=out.len();
+    _mm512_mask_compressstoreu_epi32(out.as_mut_ptr().add(n).cast(),mask,ix);
+    out.set_len(n+mask.count_ones() as usize);*cur-=16;
+    true
+}}
+
+// Merge sixteen heads from interleaved diagonal lists in exact reverse-index order.
+#[cfg(target_arch="x86_64")]
+#[target_feature(enable="avx512f")]
+#[inline]
+unsafe fn bucket_head16(list:*const u32, n:usize)->__m512i { unsafe {
+    if n==0 {return _mm512_set1_epi32(-1)}
+    let count=n.min(16);let mask=if count==16 {u16::MAX} else {(1u16<<count)-1};
+    let raw=_mm512_mask_loadu_epi32(_mm512_set1_epi32(-1),mask,list.add(n-count).cast());
+    let order=_mm512_sub_epi32(_mm512_set1_epi32(count as i32-1),_mm512_setr_epi32(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15));
+    _mm512_mask_permutexvar_epi32(_mm512_set1_epi32(-1),mask,order,raw)
+}}
+#[cfg(target_arch="x86_64")]
+#[target_feature(enable="avx512f")]
+#[inline]
+unsafe fn merge_desc16(a:__m512i,b:__m512i)->__m512i {
+    let rev=_mm512_setr_epi32(15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0);
+    let mut v=_mm512_max_epi32(a,_mm512_permutexvar_epi32(rev,b));
+    macro_rules! step {($ix:expr,$mask:expr)=>{{let t=_mm512_permutexvar_epi32($ix,v);v=_mm512_mask_max_epi32(_mm512_min_epi32(v,t),$mask,v,t);}}}
+    step!(_mm512_setr_epi32(8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7),0x00ff);
+    step!(_mm512_setr_epi32(4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11),0x0f0f);
+    step!(_mm512_setr_epi32(2,3,0,1,6,7,4,5,10,11,8,9,14,15,12,13),0x3333);
+    step!(_mm512_setr_epi32(1,0,3,2,5,4,7,6,9,8,11,10,13,12,15,14),0x5555);
+    v
+}
+#[cfg(target_arch="x86_64")]
+#[target_feature(enable="avx512f,popcnt")]
+#[inline]
+unsafe fn bucket_merge_filter16_diag32(
+    lists:[*const u32;3],cur:&mut[usize;3],window_start:usize,
+    diags:&[i32],di:i32,bw:i32,out:&mut Vec<u32>,
+) { unsafe {
+    // Lists are disjoint, sorted ascending, and contain signed-i32-addressable
+    // source indices. At least sixteen elements remain across the three lists.
+    // Neighbor buckets give the same exact wrapping-diagonal proof as run16.
+    debug_assert!(cur.iter().sum::<usize>()>=16 && out.capacity()>=out.len()+16);
+    let a=bucket_head16(lists[0],cur[0]);let b=bucket_head16(lists[1],cur[1]);let c=bucket_head16(lists[2],cur[2]);
+    let ix=merge_desc16(merge_desc16(a,b),c);
+    let cutoff=_mm512_set1_epi32(_mm_extract_epi32::<3>(_mm512_extracti32x4_epi32::<3>(ix)));
+    cur[0]-=_mm512_cmpge_epi32_mask(a,cutoff).count_ones() as usize;
+    cur[1]-=_mm512_cmpge_epi32_mask(b,cutoff).count_ones() as usize;
+    cur[2]-=_mm512_cmpge_epi32_mask(c,cutoff).count_ones() as usize;
+    let dj=_mm512_i32gather_epi32::<4>(ix,diags.as_ptr());
+    let delta=_mm512_abs_epi32(_mm512_sub_epi32(dj,_mm512_set1_epi32(di)));
+    let mask=_mm512_cmple_epi32_mask(delta,_mm512_set1_epi32(bw))
+        & _mm512_cmpge_epi32_mask(ix,_mm512_set1_epi32(window_start as i32));
+    let n=out.len();_mm512_mask_compressstoreu_epi32(out.as_mut_ptr().add(n).cast(),mask,ix);
+    out.set_len(n+mask.count_ones() as usize);
+}}
+
+/// Masked reverse-scan chunk, with the same lane validity and score arithmetic as AVX2.
+/// Whole off-band groups need only the diagonal load; a zero valid mask skips penalty
+/// arithmetic and score stores. Only set bits in the returned mask may be read.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx2")]
+#[allow(clippy::too_many_arguments)]
+unsafe fn chain_scores_masked_avx512(
+    qi: i32, ri: i32, rid_strand_i: u32, diag_i: i32,
+    soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32], soa_rid_strand: &[u32], soa_diag: &[i32],
+    max_dist_x: i32, max_dist_y: i32, bw: i32, chn_pen_gap: f32, chn_pen_skip: f32,
+    sc_buf: &mut [i32], start: usize, end: usize,
+) -> u64 { unsafe {
+    debug_assert!(end - start <= 64);
+    let diag_i_v = _mm512_set1_epi32(diag_i);
+    let qi_v = _mm512_set1_epi32(qi);
+    let ri_v = _mm512_set1_epi32(ri);
+    let rid_i_v = _mm512_set1_epi32(rid_strand_i as i32);
+    let max_dx_v = _mm512_set1_epi32(max_dist_x);
+    let max_dy_v = _mm512_set1_epi32(max_dist_y);
+    let bw_v = _mm512_set1_epi32(bw);
+    let zero_v = _mm512_setzero_si512();
+    let one_v = _mm512_set1_epi32(1);
+    let min_val_v = _mm512_set1_epi32(i32::MIN);
+    let pen_gap_v = _mm512_set1_ps(chn_pen_gap);
+    let pen_skip_v = _mm512_set1_ps(chn_pen_skip);
+    let half_v = _mm512_set1_ps(0.5f32);
+    let mut mask = 0u64;
+    let aligned_end = start + ((end - start) / 16) * 16;
+    let mut j = start;
+    while j < aligned_end {
+        let dj = _mm512_loadu_si512(soa_diag.as_ptr().add(j) as *const __m512i);
+        // Keep the batch kernel's signed abs semantics, including i32::MIN.
+        let gap_w = _mm512_abs_epi32(_mm512_sub_epi32(diag_i_v, dj));
+        let gw_gt_bw = _mm512_cmpgt_epi32_mask(gap_w, bw_v);
+        if gw_gt_bw == u16::MAX {
+            j += 16;
+            continue;
+        }
+        let qj_v = _mm512_loadu_si512(soa_query_pos.as_ptr().add(j) as *const __m512i);
+        let rj_v = _mm512_loadu_si512(soa_ref_pos.as_ptr().add(j) as *const __m512i);
+        let span_v = _mm512_loadu_si512(soa_query_span.as_ptr().add(j) as *const __m512i);
+        let rid_j_v = _mm512_loadu_si512(soa_rid_strand.as_ptr().add(j) as *const __m512i);
+        let qdiff = _mm512_sub_epi32(qi_v, qj_v);
+        let rdiff = _mm512_sub_epi32(ri_v, rj_v);
+        let mut valid = _mm512_cmpgt_epi32_mask(qdiff, zero_v);
+        valid &= !_mm512_cmpgt_epi32_mask(qdiff, max_dx_v);
+        valid &= _mm512_cmpeq_epi32_mask(rid_i_v, rid_j_v);
+        valid &= !_mm512_cmpeq_epi32_mask(rdiff, zero_v);
+        valid &= !_mm512_cmpgt_epi32_mask(qdiff, max_dy_v);
+        valid &= !gw_gt_bw;
+        if valid == 0 {
+            j += 16;
+            continue;
+        }
+        let min_diff = _mm512_min_epi32(rdiff, qdiff);
+        let mut score = _mm512_min_epi32(span_v, min_diff);
+        let gw_gt_zero = _mm512_cmpgt_epi32_mask(gap_w, zero_v);
+        let needs_pen = gw_gt_zero | _mm512_cmpgt_epi32_mask(min_diff, span_v);
+        let lin_pen = _mm512_add_ps(_mm512_mul_ps(pen_gap_v, _mm512_cvtepi32_ps(gap_w)),
+                                    _mm512_mul_ps(pen_skip_v, _mm512_cvtepi32_ps(min_diff)));
+        let log2_val = simd_fast_log2_avx512(_mm512_cvtepi32_ps(_mm512_add_epi32(gap_w, one_v)));
+        let log_pen = _mm512_maskz_mov_ps(gw_gt_zero, log2_val);
+        let total_pen = _mm512_add_ps(lin_pen, _mm512_mul_ps(half_v, log_pen));
+        let pen_i32 = _mm512_cvttps_epi32(total_pen);
+        score = _mm512_sub_epi32(score, _mm512_maskz_mov_epi32(needs_pen, pen_i32));
+        score = _mm512_mask_blend_epi32(valid, min_val_v, score);
+        _mm512_storeu_si512(sc_buf.as_mut_ptr().add(j) as *mut __m512i, score);
+        mask |= (valid as u64) << (j - start);
+        j += 16;
+    }
+    // Preserve the AVX2 oracle's eight-lane and scalar tail boundaries.
+    if j < end {
+        mask |= chain_scores_masked_avx2(qi, ri, rid_strand_i, diag_i,
+            soa_ref_pos, soa_query_pos, soa_query_span, soa_rid_strand, soa_diag,
+            max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip, sc_buf, j, end)
+            << (j - start);
+    }
+    mask
+}}
+
+/// A no-improvement block can batch its skip/visited effects. A predecessor always
+/// precedes its anchor, so an in-block stamp can only affect a later visit in the
+/// reverse scan. Computing the local stamp mask in advance is therefore exact,
+/// even when an early stop discards the suffix. Only the actually visited prefix
+/// is committed to the global array; the stop-triggering candidate is excluded.
+#[cfg(target_arch = "x86_64")]
+#[derive(Debug, PartialEq, Eq)]
+enum BlockWalk { Improving, Advanced, Stopped(usize) }
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,avx512f,avx512bw,bmi2,popcnt")]
+#[inline]
+unsafe fn advance_nonimproving_block16(
+    scb: *const i32, scores: *const i32, pre: *const i32, visited: *mut i32,
+    start: usize, mask: u16, best: i32, skip: &mut i32, limit: i32, stamp: i32,
+) -> BlockWalk { unsafe {
+    // Caller guarantees full16 readable lanes; every nonnegative predecessor is
+    // less than its own anchor index. skip is0..limit and limit<=i32::MAX-16.
+    let sc = _mm512_loadu_si512(scb.add(start).cast());
+    let good = mask & _mm512_cmpneq_epi32_mask(sc, _mm512_set1_epi32(i32::MIN));
+    if good == 0 { return BlockWalk::Advanced; }
+    let total = _mm512_add_epi32(sc, _mm512_loadu_si512(scores.add(start).cast()));
+    if _mm512_mask_reduce_max_epi32(good, total) > best {
+        return BlockWalk::Improving;
+    }
+    let preds = _mm512_loadu_si512(pre.add(start).cast());
+    let zero = _mm512_setzero_si512();
+    let nonnegative = _mm512_cmpge_epi32_mask(preds, zero);
+    let local = _mm512_sub_epi32(preds, _mm512_set1_epi32(start as i32));
+    let in_block = good & nonnegative & _mm512_cmpge_epi32_mask(local, zero)
+        & _mm512_cmplt_epi32_mask(local, _mm512_set1_epi32(16));
+    let local_marks = _mm512_reduce_or_epi32(_mm512_maskz_sllv_epi32(
+        in_block, _mm512_set1_epi32(1), local)) as u16;
+    let current_marks = _mm512_cmpeq_epi32_mask(
+        _mm512_loadu_si512(visited.add(start).cast()), _mm512_set1_epi32(stamp));
+    let marked = good & (current_marks | local_marks);
+    let count = (marked as u32).count_ones();
+    let budget = (limit - *skip) as u32;
+    let (processed, outcome) = if count > budget {
+        // The (budget+1)th marked candidate from the high end fires the stop.
+        let rank = count - budget - 1;
+        let bit = _pdep_u32(1u32 << rank, marked as u32).trailing_zeros() as usize;
+        let processed = good & !(((1u32 << (bit + 1)) - 1) as u16);
+        *skip = limit + 1;
+        (processed, BlockWalk::Stopped(start + bit))
+    } else {
+        *skip += count as i32;
+        (good, BlockWalk::Advanced)
+    };
+    // Duplicate scatter destinations all receive the same stamp; order is immaterial.
+    _mm512_mask_i32scatter_epi32::<4>(visited.cast(), processed & nonnegative,
+        preds, _mm512_set1_epi32(stamp));
+    outcome
+}}
+
+#[cfg(target_arch = "x86_64")]
+static BLOCK_WALK_OFF: std::sync::LazyLock<bool> = std::sync::LazyLock::new(||
+    std::env::var("BONEFISH_CHAIN_BLOCK_WALK_OFF").is_ok_and(|v| v != "0"));
+
+#[cfg(target_arch = "x86_64")]
+static BUCKET_DIRECT_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||
+    std::env::var("BONEFISH_BUCKET_DIRECT_OFF").is_ok_and(|v|v!="0"));
+#[cfg(target_arch = "x86_64")]
+static BUCKET_UNIFORM_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||
+    std::env::var("BONEFISH_BUCKET_UNIFORM_OFF").is_ok_and(|v|v!="0"));
+
+#[cfg(target_arch = "x86_64")]
+static BUCKET_MERGE_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||
+    std::env::var("BONEFISH_BUCKET_MERGE_OFF").is_ok_and(|v|v!="0"));
+
+#[cfg(target_arch="x86_64")]
+static BUCKET_CHUNK_SIZE:std::sync::LazyLock<u8>=std::sync::LazyLock::new(||
+    std::env::var("BONEFISH_BUCKET_CHUNK_SIZE").ok().and_then(|v|v.parse().ok()).unwrap_or(32));
+
+#[cfg(target_arch="x86_64")]
+static BUCKET_WIDE_DIAG:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||
+    std::env::var("BONEFISH_BUCKET_WIDE_DIAG").is_ok_and(|v|v!="0"));
+
+/// AVX-512 SIMD-optimized chaining — 16-wide with AVX2's scan optimizations.
+#[cfg(target_arch = "x86_64")]
+static BUCKET_GATHER_OFF: std::sync::LazyLock<bool> = std::sync::LazyLock::new(||
+    std::env::var("BONEFISH_BUCKET_GATHER_OFF").is_ok_and(|v| v != "0"));
+
+/// Copy the selected predecessors in their original visit order. All indices come from
+/// this anchor's bucket lists and are less than every source length. Reserve once per
+/// field, then gather 16 entries at a time without per-entry Vec growth checks.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+#[inline]
+unsafe fn gather_bucket_fields_avx512(
+    bk: &mut DiagBuckets, refs: &[i32], qry: &[i32], span: &[i32], rid: &[u32],
+) { unsafe {
+    let n = bk.g_idx.len();
+    bk.g_ref.reserve(n.saturating_sub(bk.g_ref.len()));
+    bk.g_qry.reserve(n.saturating_sub(bk.g_qry.len()));
+    bk.g_span.reserve(n.saturating_sub(bk.g_span.len()));
+    bk.g_rid.reserve(n.saturating_sub(bk.g_rid.len()));
+    let mut at = 0;
+    // Gather indices are signed i32. Retain scalar addressing for larger arrays.
+    if refs.len() <= i32::MAX as usize {
+        while at + 16 <= n {
+            let ix = _mm512_loadu_si512(bk.g_idx.as_ptr().add(at).cast());
+            _mm512_storeu_si512(bk.g_ref.as_mut_ptr().add(at).cast(), _mm512_i32gather_epi32::<4>(ix, refs.as_ptr()));
+            _mm512_storeu_si512(bk.g_qry.as_mut_ptr().add(at).cast(), _mm512_i32gather_epi32::<4>(ix, qry.as_ptr()));
+            _mm512_storeu_si512(bk.g_span.as_mut_ptr().add(at).cast(), _mm512_i32gather_epi32::<4>(ix, span.as_ptr()));
+            _mm512_storeu_si512(bk.g_rid.as_mut_ptr().add(at).cast(), _mm512_i32gather_epi32::<4>(ix, rid.as_ptr().cast()));
+            at += 16;
+        }
+    }
+    while at < n {
+        let j = *bk.g_idx.get_unchecked(at) as usize;
+        bk.g_ref.as_mut_ptr().add(at).write(*refs.get_unchecked(j));
+        bk.g_qry.as_mut_ptr().add(at).write(*qry.get_unchecked(j));
+        bk.g_span.as_mut_ptr().add(at).write(*span.get_unchecked(j));
+        bk.g_rid.as_mut_ptr().add(at).write(*rid.get_unchecked(j));
+        at += 1;
+    }
+    bk.g_ref.set_len(n); bk.g_qry.set_len(n); bk.g_span.set_len(n); bk.g_rid.set_len(n);
+}}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx2")]
 pub(crate) unsafe fn chain_anchors_avx512(
+    opt: &ChainingParams,
+    max_dist_x: i32,
+    max_dist_y: i32,
+    a: &mut [Minimizer],
+    ctx: &mut ChainingBuffers,
+) -> (Vec<u64>, Vec<Minimizer>) {
+    unsafe {
+        if is_x86_feature_detected!("bmi2") && is_x86_feature_detected!("popcnt") {
+            if *BLOCK_WALK_OFF {
+                chain_anchors_avx512_feature_control::<true, true>(opt, max_dist_x, max_dist_y, a, ctx)
+            } else if *BUCKET_DIRECT_OFF || *BUCKET_GATHER_OFF {
+                chain_anchors_avx512_block_walk::<true, true>(opt, max_dist_x, max_dist_y, a, ctx)
+            } else if *BUCKET_MERGE_OFF {
+                chain_anchors_avx512_bucket_direct::<true,true>(opt,max_dist_x,max_dist_y,a,ctx)
+            } else if *BUCKET_WIDE_DIAG {
+                chain_anchors_avx512_bucket_bulk::<true,true>(opt,max_dist_x,max_dist_y,a,ctx)
+            } else {
+                match *BUCKET_CHUNK_SIZE {
+                    16=>chain_anchors_avx512_bucket_chunk16::<true,true>(opt,max_dist_x,max_dist_y,a,ctx),
+                    32=>chain_anchors_avx512_bucket_chunk32::<true,true>(opt,max_dist_x,max_dist_y,a,ctx),
+                    _=>chain_anchors_avx512_bucket_diag32::<true,true>(opt,max_dist_x,max_dist_y,a,ctx),
+                }
+            }
+        } else {
+            chain_anchors_avx512_impl::<true, true>(opt, max_dist_x, max_dist_y, a, ctx)
+        }
+    }
+}
+
+// All variants share score arithmetic, predecessor ordering, and backtracking.
+#[cfg(target_arch = "x86_64")]
+macro_rules! define_chain_avx512 {
+    ($name:ident, $features:literal, $fast:literal, $direct:literal, $bulk:literal, $narrow:literal, $chunk:literal) => {
+#[target_feature(enable = $features)]
+unsafe fn $name<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
     opt: &ChainingParams,
     max_dist_x: i32,
     max_dist_y: i32,
@@ -1269,36 +1719,49 @@ pub(crate) unsafe fn chain_anchors_avx512(
     ctx: &mut ChainingBuffers,
 ) -> (Vec<u64>, Vec<Minimizer>) { unsafe {
     let n = a.len();
-    if n == 0 { return (Vec::new(), Vec::new()); }
+    if n == 0 {
+        return (Vec::new(), Vec::new());
+    }
 
     let bw = opt.bandwidth;
     let mut max_dist_x = max_dist_x;
     let mut max_dist_y = max_dist_y;
-    if max_dist_x < bw { max_dist_x = bw; }
-    if max_dist_y < bw { max_dist_y = bw; }
+    if max_dist_x < bw {
+        max_dist_x = bw;
+    }
+    if max_dist_y < bw {
+        max_dist_y = bw;
+    }
 
     let real_max_drop = bw;
     let no_chain_skip = opt.max_chain_skip <= 0;
 
+    // --- Extract SoA fields from AoS Minimizer array ---
     let mut soa_ref_pos = std::mem::take(&mut ctx.soa_ref_pos);
     let mut soa_query_pos = std::mem::take(&mut ctx.soa_query_pos);
     let mut soa_query_span = std::mem::take(&mut ctx.soa_query_span);
     let mut soa_rid_strand = std::mem::take(&mut ctx.soa_ref_id_strand);
     let mut soa_sc_buf = std::mem::take(&mut ctx.soa_scores_buf);
+    let mut soa_diag = std::mem::take(&mut ctx.soa_diag);
 
     soa_ref_pos.resize(n, 0);
     soa_query_pos.resize(n, 0);
     soa_query_span.resize(n, 0);
     soa_rid_strand.resize(n, 0);
     soa_sc_buf.resize(n, 0);
+    if USE_MASKED_SCAN && !no_chain_skip { soa_diag.resize(n, 0); }
 
     for j in 0..n {
         soa_ref_pos[j] = a[j].ref_pos();
         soa_query_pos[j] = a[j].query_pos();
         soa_query_span[j] = a[j].query_span();
         soa_rid_strand[j] = (a[j].x >> 32) as u32;
+        if USE_MASKED_SCAN && !no_chain_skip {
+            soa_diag[j] = soa_ref_pos[j].wrapping_sub(soa_query_pos[j]);
+        }
     }
 
+    // --- DP buffers ---
     let mut predecessors = std::mem::take(&mut ctx.predecessors); let mut bt_candidates = std::mem::take(&mut ctx.bt_candidates);
     let mut scores = std::mem::take(&mut ctx.scores);
     let mut peak_scores = std::mem::take(&mut ctx.peak_scores);
@@ -1313,6 +1776,27 @@ pub(crate) unsafe fn chain_anchors_avx512(
     let mut window_start: usize = 0;
     let mut best_anchor_idx: i64 = -1;
 
+    let mut bk = std::mem::take(&mut ctx.diag_buckets);
+    let use_buckets = USE_DIAG_BUCKETS && !no_chain_skip && n >= DIAG_BUCKET_MIN_N && {
+        let (lo, hi) = soa_query_pos.iter().fold((i32::MAX, i32::MIN), |(l, h), &q| (l.min(q), h.max(q)));
+        // The score kernel uses wrapping i32 position differences. The i64 bucket
+        // diagonals are equivalent only without a signed-coordinate wrap; retain the
+        // contiguous scan for larger positions and widen the density arithmetic too.
+        lo >= 0
+            && n >= DIAG_BUCKET_MIN_DENSITY * (hi as i64 - lo as i64 + 1) as usize
+            && soa_ref_pos.iter().all(|&r| r >= 0)
+    };
+    if use_buckets { bk.build(&soa_ref_pos, &soa_query_pos, bw); }
+    let direct_buckets=$direct && USE_MASKED_SCAN && n<=i32::MAX as usize;
+    let narrow_buckets=$narrow && bw>=0 && bw<=(1<<30);
+    if $bulk && direct_buckets && use_buckets {
+        bk.g_idx.reserve(64usize.saturating_sub(bk.g_idx.len()));
+    }
+    let vector_merge=$bulk && !*BUCKET_VECTOR_MERGE_OFF;
+    let uniform_span=if direct_buckets && use_buckets && !*BUCKET_UNIFORM_OFF {
+        bucket_uniform_span(&soa_query_span)
+    } else {-1};
+
     for i in 0..n {
         let mut best_predecessor: i64 = -1;
         let mut best_score = a[i].query_span();
@@ -1321,13 +1805,19 @@ pub(crate) unsafe fn chain_anchors_avx512(
         while window_start < i
             && (a[i].ref_id_strand() != a[window_start].ref_id_strand()
                 || (a[i].x > a[window_start].x + max_dist_x as u64))
-        { window_start += 1; }
+        {
+            window_start += 1;
+        }
 
         if !no_chain_skip && (i - window_start) > opt.max_chain_iter as usize {
             window_start = i - opt.max_chain_iter as usize;
         }
 
-        let mut end_j: i64 = if window_start > 0 { window_start as i64 - 1 } else { -1 };
+        let mut end_j: i64 = if window_start > 0 {
+            window_start as i64 - 1
+        } else {
+            -1
+        };
 
         if no_chain_skip {
             if i > window_start {
@@ -1345,24 +1835,101 @@ pub(crate) unsafe fn chain_anchors_avx512(
                 let total_sc = sc + scores[j];
                 if total_sc > best_score { best_score = total_sc; best_predecessor = j as i64; }
             }
-        } else {
-            const CHUNK_SIZE: usize = 64;
-            let mut chunk_end = i;
+        } else if use_buckets && i - window_start > DIAG_BUCKET_MIN_WINDOW {
+            // Merge only the in-band predecessors, in the original descending visit order.
+            const CHUNK_SIZE: usize = $chunk;
+            let nb = bk.nbr[bk.id[i] as usize];
+            let mut lp: [*const u32; 3] = [std::ptr::null(); 3];
+            let mut cur = [0usize; 3];
+            for t in 0..3 {
+                if nb[t] != u32::MAX {
+                    let list = &bk.lists[nb[t] as usize];
+                    lp[t] = list.as_ptr();
+                    cur[t] = list.len();
+                }
+            }
+            // SAFETY: a nonzero cursor belongs to a present bucket, and its list is not
+            // modified until this anchor's scan ends. All stored indices precede i.
+            let tail = |t: usize, c: usize| -> i64 {
+                if c > 0 { *lp[t].add(c - 1) as i64 } else { -1 }
+            };
+            let (mut v0, mut v1, mut v2) = (tail(0, cur[0]), tail(1, cur[1]), tail(2, cur[2]));
+            let di = bk.diag[i];
+            let ws = window_start as i64;
             let mut skip_fired = false;
-            while chunk_end > window_start {
-                let chunk_start = if chunk_end >= window_start + CHUNK_SIZE { chunk_end - CHUNK_SIZE } else { window_start };
-
+            let mut exhausted = false;
+            loop {
+                bk.g_idx.clear();
+                while bk.g_idx.len() < CHUNK_SIZE {
+                    let t = if v0 >= v1 && v0 >= v2 { 0 } else if v1 >= v2 { 1 } else { 2 };
+                    let j = [v0, v1, v2][t];
+                    if j < ws { exhausted = true; break; }
+                    if $bulk && direct_buckets && bk.g_idx.len()+16<=CHUNK_SIZE && cur[t]>=16 {
+                        let other=match t {0=>v1.max(v2),1=>v0.max(v2),_=>v0.max(v1)};
+                        let floor=other.max(ws-1);
+                        // A full run needs sixteen distinct indices above floor.
+                        if j-floor>=16 && if narrow_buckets {
+                            bucket_filter_run16_diag32(lp[t],&mut cur[t],floor,&soa_diag,di as i32,bw,&mut bk.g_idx)
+                        } else {bucket_filter_run16(lp[t],&mut cur[t],floor,&bk.diag,di,bw,&mut bk.g_idx)} {
+                            match t {0=>v0=tail(0,cur[0]),1=>v1=tail(1,cur[1]),_=>v2=tail(2,cur[2])}
+                            continue;
+                        }
+                    }
+                    if vector_merge && direct_buckets && narrow_buckets && bk.g_idx.len()+16<=CHUNK_SIZE
+                        && cur.iter().sum::<usize>()>=16 {
+                        bucket_merge_filter16_diag32(lp,&mut cur,window_start,&soa_diag,di as i32,bw,&mut bk.g_idx);
+                        v0=tail(0,cur[0]);v1=tail(1,cur[1]);v2=tail(2,cur[2]);
+                        continue;
+                    }
+                    cur[t] -= 1;
+                    match t {
+                        0 => v0 = tail(0, cur[0]),
+                        1 => v1 = tail(1, cur[1]),
+                        _ => v2 = tail(2, cur[2]),
+                    }
+                    // Out-of-band pairs score i32::MIN and have no skip/visited effects.
+                    if (bk.diag[j as usize] - di).abs() > bw as i64 { continue; }
+                    bk.g_idx.push(j as u32);
+                }
+                let m = bk.g_idx.len();
+                if m == 0 { break; }
+                if direct_buckets {
+                    bk.g_sc.resize(m,0);
+                    if uniform_span>=0 {
+                        chain_scores_bucket_direct_avx512::<true>(
+                        soa_query_pos[i],soa_ref_pos[i],soa_rid_strand[i],
+                        &soa_query_pos,&soa_query_span,&soa_diag,&bk.g_idx,
+                        max_dist_x,max_dist_y,bw,opt.chn_pen_gap,opt.chn_pen_skip,&mut bk.g_sc,uniform_span);
+                    } else {
+                        chain_scores_bucket_direct_avx512::<false>(
+                        soa_query_pos[i],soa_ref_pos[i],soa_rid_strand[i],
+                        &soa_query_pos,&soa_query_span,&soa_diag,&bk.g_idx,
+                        max_dist_x,max_dist_y,bw,opt.chn_pen_gap,opt.chn_pen_skip,&mut bk.g_sc,uniform_span);
+                    }
+                } else {
+                if !*BUCKET_GATHER_OFF {
+                    gather_bucket_fields_avx512(&mut bk, &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand);
+                } else {
+                    bk.g_ref.clear(); bk.g_qry.clear(); bk.g_span.clear(); bk.g_rid.clear();
+                    for &j in &bk.g_idx {
+                        let j = j as usize;
+                        bk.g_ref.push(soa_ref_pos[j]); bk.g_qry.push(soa_query_pos[j]);
+                        bk.g_span.push(soa_query_span[j]); bk.g_rid.push(soa_rid_strand[j]);
+                    }
+                }
+                bk.g_sc.resize(m, 0);
                 compute_chain_scores_batch_avx512(
                     soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
-                    &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
+                    &bk.g_ref, &bk.g_qry, &bk.g_span, &bk.g_rid,
                     max_dist_x, max_dist_y, bw,
                     opt.chn_pen_gap, opt.chn_pen_skip,
-                    &mut soa_sc_buf, chunk_start, chunk_end,
+                    &mut bk.g_sc, 0, m,
                 );
-
-                for j in (chunk_start..chunk_end).rev() {
-                    let sc = soa_sc_buf[j];
+                }
+                for t in 0..m {
+                    let sc = bk.g_sc[t];
                     if sc == i32::MIN { continue; }
+                    let j = bk.g_idx[t] as usize;
                     let total_sc = sc + scores[j];
                     if total_sc > best_score {
                         best_score = total_sc; best_predecessor = j as i64;
@@ -1373,15 +1940,109 @@ pub(crate) unsafe fn chain_anchors_avx512(
                     }
                     if predecessors[j] >= 0 { visited[predecessors[j] as usize] = i as i32; }
                 }
+                if skip_fired || exhausted { break; }
+            }
+        } else {
+            const CHUNK_SIZE: usize = 64;
+            const FIRST_CHUNK: usize = 32;
+            let mut chunk_end = i;
+            let mut skip_fired = false;
+            let mut csize = if USE_MASKED_SCAN { FIRST_CHUNK } else { CHUNK_SIZE };
+            while chunk_end > window_start {
+                let chunk_start = if chunk_end >= window_start + csize { chunk_end - csize } else { window_start };
+                csize = CHUNK_SIZE;
+
+                let mut valid = if USE_MASKED_SCAN {
+                    chain_scores_masked_avx512(
+                        soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i], soa_diag[i],
+                        &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand, &soa_diag,
+                        max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
+                        &mut soa_sc_buf, chunk_start, chunk_end,
+                    )
+                } else {
+                    compute_chain_scores_batch_avx512(
+                        soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
+                        &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
+                        max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
+                        &mut soa_sc_buf, chunk_start, chunk_end,
+                    );
+                    (chunk_start..chunk_end).fold(0u64, |m, j| {
+                        m | (((soa_sc_buf[j] != i32::MIN) as u64) << (j - chunk_start))
+                    })
+                };
+
+                // SAFETY: every mask bit indexes chunk_start..chunk_end <= i < n;
+                // predecessors were assigned only to earlier anchors. All four buffers have
+                // length n and do not alias. Match AVX2's candidate walk without bounds checks.
+                let (scb, scr, vis, pre) = (soa_sc_buf.as_ptr(), scores.as_ptr(), visited.as_mut_ptr(), predecessors.as_ptr());
+                if $fast && i <= i32::MAX as usize && opt.max_chain_skip <= i32::MAX - 16 {
+                    while valid != 0 {
+                        let group = (63 - valid.leading_zeros() as usize) & !15;
+                        let mut bits = (valid >> group) as u16;
+                        valid &= !(0xffffu64 << group);
+                        let start = chunk_start + group;
+                        if best_predecessor >= 0 && start + 16 <= chunk_end && bits.count_ones() >= 4 {
+                            match advance_nonimproving_block16(scb, scr, pre, vis, start,
+                                bits, best_score, &mut skip_count, opt.max_chain_skip, i as i32) {
+                                BlockWalk::Advanced => continue,
+                                BlockWalk::Stopped(j) => { end_j = j as i64; skip_fired = true; break; }
+                                BlockWalk::Improving => {}
+                            }
+                        }
+                        while bits != 0 {
+                            let bit = 15 - bits.leading_zeros() as usize;
+                            bits &= !(1u16 << bit);
+                            let j = start + bit;
+                            let sc = *scb.add(j);
+                            if sc == i32::MIN { continue; }
+                            let total_sc = sc + *scr.add(j);
+                            if total_sc > best_score {
+                                best_score = total_sc; best_predecessor = j as i64;
+                                if skip_count > 0 { skip_count -= 1; }
+                            } else if *vis.add(j) == i as i32 {
+                                skip_count += 1;
+                                if skip_count > opt.max_chain_skip { end_j = j as i64; skip_fired = true; break; }
+                            }
+                            let p = *pre.add(j);
+                            if p >= 0 { *vis.add(p as usize) = i as i32; }
+                        }
+
+                        if skip_fired { break; }
+                    }
+                } else {
+                while valid != 0 {
+                    let bit = 63 - valid.leading_zeros() as usize;
+                    valid &= !(1u64 << bit);
+                    let j = chunk_start + bit;
+                    let sc = *scb.add(j);
+                    if sc == i32::MIN { continue; }
+                    let total_sc = sc + *scr.add(j);
+                    if total_sc > best_score {
+                        best_score = total_sc; best_predecessor = j as i64;
+                        if skip_count > 0 { skip_count -= 1; }
+                    } else if *vis.add(j) == i as i32 {
+                        skip_count += 1;
+                        if skip_count > opt.max_chain_skip { end_j = j as i64; skip_fired = true; break; }
+                    }
+                    let p = *pre.add(j);
+                    if p >= 0 { *vis.add(p as usize) = i as i32; }
+                }
+
+                }
 
                 if skip_fired { break; }
                 chunk_end = chunk_start;
             }
+        }
 
+        if !no_chain_skip {
             if best_anchor_idx < 0 || a[i].x - a[best_anchor_idx as usize].x > max_dist_x as u64 {
                 let mut best = i32::MIN; best_anchor_idx = -1;
                 for j in (window_start..i).rev() {
-                    if best < scores[j] { best = scores[j]; best_anchor_idx = j as i64; }
+                    let sj = *scores.get_unchecked(j);
+                    let better = best < sj;
+                    best_anchor_idx = if better { j as i64 } else { best_anchor_idx };
+                    best = if better { sj } else { best };
                 }
             }
 
@@ -1399,28 +2060,50 @@ pub(crate) unsafe fn chain_anchors_avx512(
         predecessors[i] = best_predecessor as i32;
         peak_scores[i] = if best_predecessor >= 0
             && peak_scores[best_predecessor as usize] > best_score
-        { peak_scores[best_predecessor as usize] } else { best_score };
+        {
+            peak_scores[best_predecessor as usize]
+        } else {
+            best_score
+        };
 
         if best_anchor_idx < 0
             || (a[i].x - a[best_anchor_idx as usize].x <= max_dist_x as u64
                 && scores[best_anchor_idx as usize] < scores[i])
-        { best_anchor_idx = i as i64; }
+        {
+            best_anchor_idx = i as i64;
+        }
 
-        if global_max_score < best_score { global_max_score = best_score; }
+        if global_max_score < best_score {
+            global_max_score = best_score;
+        }
+        if use_buckets { bk.lists[bk.id[i] as usize].push(i as u32); }
     }
+    ctx.diag_buckets = bk;
 
+    // --- Backtrack and compact (identical to AVX2/scalar) ---
     let (u, n_u, n_v) = chain_backtrack(
-        n, &scores, &predecessors, &mut peak_scores, &mut visited,
+        n,
+        &scores,
+        &predecessors,
+        &mut peak_scores,
+        &mut visited,
         &mut bt_candidates,
-        opt.min_cnt, opt.min_chain_score, real_max_drop,
+        opt.min_cnt,
+        opt.min_chain_score,
+        real_max_drop,
     );
 
     if n_u == 0 {
-        ctx.predecessors = predecessors; ctx.bt_candidates = std::mem::take(&mut bt_candidates); ctx.scores = scores;
-        ctx.peak_scores = peak_scores; ctx.visited = visited;
-        ctx.soa_ref_pos = soa_ref_pos; ctx.soa_query_pos = soa_query_pos;
-        ctx.soa_query_span = soa_query_span; ctx.soa_ref_id_strand = soa_rid_strand;
+        ctx.predecessors = predecessors; ctx.bt_candidates = std::mem::take(&mut bt_candidates);
+        ctx.scores = scores;
+        ctx.peak_scores = peak_scores;
+        ctx.visited = visited;
+        ctx.soa_ref_pos = soa_ref_pos;
+        ctx.soa_query_pos = soa_query_pos;
+        ctx.soa_query_span = soa_query_span;
+        ctx.soa_ref_id_strand = soa_rid_strand;
         ctx.soa_scores_buf = soa_sc_buf;
+        ctx.soa_diag = soa_diag;
         return (Vec::new(), Vec::new());
     }
 
@@ -1440,7 +2123,10 @@ pub(crate) unsafe fn chain_anchors_avx512(
     let mut k_pos = 0usize;
     for (i, &u_val) in u[..n_u].iter().enumerate() {
         let ni = (u_val & 0xFFFFFFFF) as usize;
-        w.push(Minimizer { x: b[k_pos].x, y: ((k_pos as u64) << 32) | (i as u64) });
+        w.push(Minimizer {
+            x: b[k_pos].x,
+            y: ((k_pos as u64) << 32) | (i as u64),
+        });
         k_pos += ni;
     }
     radix_sort_128x(&mut w);
@@ -1452,17 +2138,33 @@ pub(crate) unsafe fn chain_anchors_avx512(
         let offset = (w_val.y >> 32) as usize;
         let ni = (u[j] & 0xFFFFFFFF) as usize;
         u2.push(u[j]);
-        for idx in 0..ni { b2.push(b[offset + idx]); }
+        for idx in 0..ni {
+            b2.push(b[offset + idx]);
+        }
     }
 
-    ctx.predecessors = predecessors; ctx.bt_candidates = std::mem::take(&mut bt_candidates); ctx.scores = scores;
-    ctx.peak_scores = peak_scores; ctx.visited = visited;
-    ctx.soa_ref_pos = soa_ref_pos; ctx.soa_query_pos = soa_query_pos;
-    ctx.soa_query_span = soa_query_span; ctx.soa_ref_id_strand = soa_rid_strand;
+    ctx.predecessors = predecessors; ctx.bt_candidates = std::mem::take(&mut bt_candidates);
+    ctx.scores = scores;
+    ctx.peak_scores = peak_scores;
+    ctx.visited = visited;
+    ctx.soa_ref_pos = soa_ref_pos;
+    ctx.soa_query_pos = soa_query_pos;
+    ctx.soa_query_span = soa_query_span;
+    ctx.soa_ref_id_strand = soa_rid_strand;
     ctx.soa_scores_buf = soa_sc_buf;
+    ctx.soa_diag = soa_diag;
 
     (u2, b2)
 }}
+
+    };
+}
+#[cfg(target_arch = "x86_64")]
+define_chain_avx512!(chain_anchors_avx512_impl, "avx512f,avx512bw,avx2", false, false,false,false,64);
+#[cfg(target_arch = "x86_64")]
+define_chain_avx512!(chain_anchors_avx512_feature_control, "avx512f,avx512bw,avx2,bmi2,popcnt", false, false,false,false,64);
+#[cfg(target_arch = "x86_64")]
+define_chain_avx512!(chain_anchors_avx512_block_walk, "avx512f,avx512bw,avx2,bmi2,popcnt", true, false,false,false,64);
 
 // =============================================================================
 // NEON (aarch64) implementation — 4-wide, mirrors AVX2 logic exactly
@@ -2494,6 +3196,10 @@ pub(crate) unsafe fn chain_anchors_wasm(
 #[path = "chain_simd_masked_tests.rs"]
 mod masked_tests;
 
+#[cfg(all(test, target_arch = "x86_64"))]
+#[path = "chain_simd_avx512_tests.rs"]
+mod avx512_tests;
+
 #[cfg(all(test, target_arch = "aarch64"))]
 #[path = "chain_simd_neon_tests.rs"]
 mod neon_tests;
@@ -2836,4 +3542,59 @@ mod tests {
         assert_eq!(noskip_anchor_count, chains_noskip.len(),
             "no-skip: u anchor count doesn't match chains length");
     }
+}
+
+#[cfg(target_arch = "x86_64")]
+define_chain_avx512!(chain_anchors_avx512_bucket_direct,"avx512f,avx512bw,avx2,bmi2,popcnt",true,true,false,false,64);
+
+#[cfg(target_arch = "x86_64")]
+define_chain_avx512!(chain_anchors_avx512_bucket_bulk,"avx512f,avx512bw,avx2,bmi2,popcnt",true,true,true,false,64);
+
+#[cfg(target_arch="x86_64")]
+define_chain_avx512!(chain_anchors_avx512_bucket_diag32,"avx512f,avx512bw,avx2,bmi2,popcnt",true,true,true,true,64);
+
+#[cfg(target_arch="x86_64")]
+define_chain_avx512!(chain_anchors_avx512_bucket_chunk16,"avx512f,avx512bw,avx2,bmi2,popcnt",true,true,true,true,16);
+#[cfg(target_arch="x86_64")]
+define_chain_avx512!(chain_anchors_avx512_bucket_chunk32,"avx512f,avx512bw,avx2,bmi2,popcnt",true,true,true,true,32);
+
+#[cfg(target_arch="x86_64")]
+static BUCKET_VECTOR_MERGE_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||std::env::var("BONEFISH_BUCKET_VECTOR_MERGE_OFF").is_ok_and(|v|v!="0"));
+
+
+// Integer-only hashing for internal diagonal coordinates. Equality and insertion
+// order determine all bucket IDs; hash-table iteration is never observed.
+#[derive(Default)]
+struct DiagIntegerHasher(u64);
+impl std::hash::Hasher for DiagIntegerHasher{
+ fn finish(&self)->u64{
+  let mut x=self.0;x^=x>>30;x=x.wrapping_mul(0xbf58476d1ce4e5b9);
+  x^=x>>27;x=x.wrapping_mul(0x94d049bb133111eb);x^(x>>31)
+ }
+ fn write(&mut self,bytes:&[u8]){for &b in bytes{self.0=(self.0^b as u64).wrapping_mul(0x100000001b3)}}
+ fn write_i64(&mut self,value:i64){self.0=value as u64}
+ fn write_u64(&mut self,value:u64){self.0=value}
+}
+static BUCKET_HASH_OFF:std::sync::LazyLock<bool>=std::sync::LazyLock::new(||std::env::var("BONEFISH_BUCKET_HASH_OFF").is_ok_and(|v|v!="0"));
+#[cfg(test)]
+mod diagonal_hash_tests{
+ use super::*;
+ #[test]
+ fn integer_hash_bucket_build_preserves_every_field_and_reuse(){
+  let mut seed=0x3891_abd7_44ae_0f11u64;
+  let mut rnd=||{seed^=seed<<13;seed^=seed>>7;seed^=seed<<17;seed};
+  let(mut old,mut new)=(DiagBuckets::default(),DiagBuckets::default());
+  for case in 0..700{
+   let n=[0,1,2,31,1023,1024,2048,6000][case%8];
+   let q:Vec<_>=(0..n).map(|_|rnd() as i32).collect();
+   let r:Vec<_>=(0..n).map(|_|if case%3==0{17}else{rnd() as i32}).collect();
+   let bw=[-1,0,1,2,15,512,20000,i32::MAX][case%8];
+   old.build_original(&r,&q,bw);new.build_fast(&r,&q,bw);
+   assert_eq!(new.id,old.id,"id case={case}");assert_eq!(new.diag,old.diag);
+   assert_eq!(new.keys,old.keys);assert_eq!(new.nbr,old.nbr);assert_eq!(new.lists,old.lists);
+   for(i,&k)in old.keys.iter().enumerate(){assert_eq!(new.map_fast.get(&k),Some(&(i as u32)));}
+   // Lists may contain previous anchors when the buffers are reused.
+   for l in &mut old.lists{l.push(17)}for l in &mut new.lists{l.push(17)}
+  }
+ }
 }

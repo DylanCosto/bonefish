@@ -49,6 +49,43 @@ pub fn clean_x86() -> Option<bool> {
 static CLEAN_DUAL_ENV: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("BONEFISH_EXP_CLEAN_DP").is_ok_and(|v| v != "0"));
 
+/// Keep chaining's selected SIMD mode while isolating the DP port in comparisons.
+static FORCE_DP_AVX2: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("BONEFISH_FORCE_DP_AVX2").is_ok_and(|v| v != "0"));
+
+/// Maximum number of active cells per anti-diagonal. A 32-cell band fits in AVX2 even
+/// when the caller's nominal bandwidth is larger (short sequences or adaptive bands).
+#[cfg(target_arch = "x86_64")]
+#[inline]
+pub(super) fn clean_band_cells(qlen: usize, tlen: usize, bandwidth: i32, adaptive: i32) -> usize {
+    let wl = if bandwidth < 0 { qlen.max(tlen) } else { bandwidth as usize };
+    let cells = if adaptive > 0 { (adaptive as usize).min(wl.max(1)) } else { wl.saturating_add(1) };
+    qlen.min(tlen).min(cells)
+}
+
+/// Use 64 lanes for wide bands on capable CPUs; retain 256-bit vectors for bands
+/// of at most 32 cells. Runtime detection and process SIMD caps apply to every path.
+#[cfg(target_arch = "x86_64")]
+#[allow(clippy::too_many_arguments)]
+pub(super) unsafe fn extend_dual_affine_clean(
+    qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
+    gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8,
+    bandwidth: i32, z_drop: i32, end_bonus: i32, flags: i32, adaptive: i32, band_shift: i32,
+    result: &mut DpResult,
+) { unsafe {
+    if clean_band_cells(qseq.len(), tseq.len(), bandwidth, adaptive) > 32
+        && super::use_avx512() && !*FORCE_DP_AVX2
+    {
+        super::dual_clean512::extend_dual_affine_avx512_clean(qseq, tseq, alphabet_size, score_matrix,
+            gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags,
+            adaptive, band_shift, result);
+    } else {
+        extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix,
+            gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags,
+            adaptive, band_shift, result);
+    }
+}}
+
 /// AVX2 kernel with `extend_dual_affine_scalar` semantics. Same arguments as the other dual
 /// kernels; generic (non-uniform mismatch) scoring is not handled here (callers route it to
 /// the scalar kernel).
@@ -70,10 +107,18 @@ pub(super) unsafe fn extend_dual_affine_avx2_clean(
     let with_cigar = (flags & SCORE_ONLY) == 0;
     let right_align = (flags & RIGHT_ALIGN) != 0;
     if approx_max && adaptive <= 0 && (0..=31).contains(&bandwidth) && !*REG1_OFF {
+        let use_vl = super::use_avx512() && !*FORCE_DP_AVX2 && !*REG32VL_OFF
+            && is_x86_feature_detected!("avx512vbmi") && is_x86_feature_detected!("avx512vl");
         macro_rules! go1 {
             ($c:literal, $r:literal, $n:literal) => {
-                reg1_impl::<$c, $r, $n>(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2,
+                if use_vl {
+                    super::dual_clean_reg32vl::reg32vl_impl::<true, $c, $r, $n>(
+                        qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2,
+                        bandwidth, z_drop, end_bonus, flags, adaptive, band_shift, result)
+                } else {
+                    reg1_impl::<$c, $r, $n>(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2,
                                         bandwidth, z_drop, end_bonus, flags, band_shift, result)
+                }
             };
         }
         match (with_cigar, right_align, has_n) {
@@ -192,7 +237,6 @@ unsafe fn clean_impl<const APPROX: bool, const CIGAR: bool, const RIGHT: bool, c
     // decrease, so the scalar boundary semantics carry over unchanged; the matrix bound
     // st0 >= r - qlen + 1 pulls it onto the end corner for global alignment.
     let adaptive = if adaptive > 0 { adaptive.min(wl.max(1)) } else { 0 };
-    let band_w = if adaptive > 0 { adaptive } else { wl };
     let mut a_st: i32 = 0;
     let mut a_step: i32 = 0;
 
@@ -201,7 +245,7 @@ unsafe fn clean_impl<const APPROX: bool, const CIGAR: bool, const RIGHT: bool, c
     // traceback rows and band offsets.
     let tpad = (target_len + 64).next_multiple_of(32);
     let qpad = (query_len + 64).next_multiple_of(32);
-    let n_col = query_len.min(target_len).min((band_w + 1) as usize).div_ceil(32) + 1;
+    let n_col = clean_band_cells(query_len, target_len, bandwidth, adaptive).div_ceil(32);
     let stride = n_col * 32;
     let n_diag = query_len + target_len - 1;
     let state_bytes = 7 * tpad + qpad;
@@ -576,6 +620,8 @@ unsafe fn clean_impl<const APPROX: bool, const CIGAR: bool, const RIGHT: bool, c
 /// BONEFISH_REG1_OFF=1: use the memory-array kernel for single-vector bands too (comparisons).
 static REG1_OFF: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("BONEFISH_REG1_OFF").is_ok_and(|v| v != "0"));
+static REG32VL_OFF: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("BONEFISH_REG32VL_OFF").is_ok_and(|v| v != "0"));
 
 /// Bytes 1..=31 of `v` moved down one lane, `fill` byte 0 into lane 31.
 #[cfg(target_arch = "x86_64")]
@@ -597,7 +643,7 @@ unsafe fn shr1_next(v: __m256i, fill: __m256i) -> __m256i {
 #[target_feature(enable = "avx2")]
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::manual_is_multiple_of)] // kernel left as written; `% 32` matches the vector width
-unsafe fn reg1_impl<const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
+pub(super) unsafe fn reg1_impl<const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
     qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
     gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8,
     bandwidth: i32, z_drop: i32, end_bonus: i32, flags: i32, band_shift: i32,
@@ -653,7 +699,7 @@ unsafe fn reg1_impl<const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
     // Target and reversed query, padded for 32-byte loads; traceback rows and band offsets.
     let tpad = (target_len + 64).next_multiple_of(32);
     let qpad = (query_len + 64).next_multiple_of(32);
-    let n_col = query_len.min(target_len).min((wl + 1) as usize).div_ceil(32) + 1;
+    let n_col = query_len.min(target_len).min((wl + 1) as usize).div_ceil(32);
     let stride = n_col * 32;
     let n_diag = query_len + target_len - 1;
     let state_bytes = tpad + qpad;
@@ -687,8 +733,6 @@ unsafe fn reg1_impl<const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
     let (mut ur, mut vr, mut xr, mut yr) = (neg_qe_, neg_qe_, neg_qe_, neg_qe_);
     let (mut x2r, mut y2r) = (neg_q2e2_, neg_q2e2_);
     let mut lo: i32 = 0;
-    let mut last_st: i32 = -1;
-    let mut last_en: i32 = -1;
     let mut h0: i32 = 0;
     let mut last_h0_t: i32 = 0;
     let qe_scalar = qi + ei;
@@ -711,32 +755,22 @@ unsafe fn reg1_impl<const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
         }
         debug_assert!(en0 - st0 < 32);
 
-        // Left boundary: the previous anti-diagonal's value at st0 - 1 (lane st0 - 1 - lo).
-        let (x1, x21, v1): (i8, i8, i8) = if st0 > 0 {
-            if st0 > last_st && st0 - 1 <= last_en {
-                let l = (st0 - 1 - lo) as usize;
-                _mm256_store_si256(ub.0.as_mut_ptr() as *mut __m256i, xr);
-                let xv = ub.0[l];
-                _mm256_store_si256(ub.0.as_mut_ptr() as *mut __m256i, x2r);
-                let x2v = ub.0[l];
-                _mm256_store_si256(ub.0.as_mut_ptr() as *mut __m256i, vr);
-                (xv, x2v, ub.0[l])
-            } else {
-                (neg_qe, neg_q2e2, neg_qe)
-            }
-        } else {
-            (neg_qe, neg_q2e2, top_u(r))
-        };
-        // Re-index the registers from st0 (the band start advances by at most one).
-        while lo < st0 {
+        // A one-cell band advance cancels the recurrence's left shift for x/v/x2.
+        // Keep those old vectors directly; only the same-position u/y/y2 inputs move right.
+        // Static-band starts advance by at most one cell on each anti-diagonal.
+        let (xt1, vt1, x2t1) = if lo < st0 {
+            debug_assert_eq!(st0, lo + 1);
             ur = shr1_next(ur, neg_qe_);
-            vr = shr1_next(vr, neg_qe_);
-            xr = shr1_next(xr, neg_qe_);
             yr = shr1_next(yr, neg_qe_);
-            x2r = shr1_next(x2r, neg_q2e2_);
             y2r = shr1_next(y2r, neg_q2e2_);
-            lo += 1;
-        }
+            lo = st0;
+            (xr, vr, x2r)
+        } else {
+            let v1 = if st0 == 0 { top_u(r) } else { neg_qe };
+            (super::common::avx2_shl1_prev(xr, neg_qe_),
+             super::common::avx2_shl1_prev(vr, _mm256_set1_epi8(v1)),
+             super::common::avx2_shl1_prev(x2r, neg_q2e2_))
+        };
         if en0 >= r {
             // New top cell at target position r.
             let m = _mm256_cmpeq_epi8(lane_, _mm256_set1_epi8((r - st0) as i8));
@@ -762,9 +796,6 @@ unsafe fn reg1_impl<const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
         if HAS_N {
             z = _mm256_blendv_epi8(z, sc_n_, _mm256_cmpeq_epi8(_mm256_max_epu8(sq, qv), m1_));
         }
-        let xt1 = super::common::avx2_shl1_prev(xr, _mm256_set1_epi8(x1));
-        let vt1 = super::common::avx2_shl1_prev(vr, _mm256_set1_epi8(v1));
-        let x2t1 = super::common::avx2_shl1_prev(x2r, _mm256_set1_epi8(x21));
         let ut = ur;
         let a = _mm256_add_epi8(xt1, vt1);
         let b = _mm256_add_epi8(yr, ut);
@@ -885,8 +916,6 @@ unsafe fn reg1_impl<const CIGAR: bool, const RIGHT: bool, const HAS_N: bool>(
         if r == query_len as i32 + target_len as i32 - 2 && en0 == target_len as i32 - 1 {
             result.score = h0;
         }
-        last_st = st0;
-        last_en = en0;
     }
 
     if result.score == NEG_INF {
@@ -936,11 +965,18 @@ mod reg1_tests {
             let (cig, right) = (flags & SCORE_ONLY == 0, flags & RIGHT_ALIGN != 0);
             let mut a = DpResult::default();
             let mut b = DpResult::default();
+            let mut vl = DpResult::default();
+            let has_vl = is_x86_feature_detected!("avx512vbmi") && is_x86_feature_detected!("avx512vl")
+                && is_x86_feature_detected!("avx512bw");
             unsafe {
                 macro_rules! both {
                     ($c:literal, $r:literal, $n:literal) => {{
                         clean_impl::<true, $c, $r, $n>(&q, &t, 5, &mat, 4, 2, 24, 1, bw, zdrop, end_bonus, flags, 0, shift, &mut a);
                         reg1_impl::<$c, $r, $n>(&q, &t, 5, &mat, 4, 2, 24, 1, bw, zdrop, end_bonus, flags, shift, &mut b);
+                        if has_vl {
+                            super::super::dual_clean_reg32vl::reg32vl_impl::<true, $c, $r, $n>(
+                                &q, &t, 5, &mat, 4, 2, 24, 1, bw, zdrop, end_bonus, flags, 0, shift, &mut vl);
+                        }
                     }};
                 }
                 match (cig, right, has_n) {
@@ -958,6 +994,7 @@ mod reg1_tests {
                 r.max_query_end_target_pos, r.max_target_end_score, r.max_target_end_query_pos, r.score, r.reach_end,
                 r.zdropped, r.cigar.clone());
             assert_eq!(key(&a), key(&b), "case {case}: qlen {} tlen {} bw {bw} shift {shift} zdrop {zdrop} flags {flags:#x}", q.len(), t.len());
+            if has_vl { assert_eq!(key(&a), key(&vl), "VL case {case}: bw {bw} shift {shift} flags {flags:#x}"); }
             n_cases += 1;
         }
         assert_eq!(n_cases, 20000);

@@ -1,0 +1,24 @@
+[*] Loading index from /home/enigmaadmin/bonefish-test/out/grch38.raw...
+[*] Loaded part 1 in 0.003s — k: 19; w: 19; #seq: 195; total len: 3099922541
+[*] Mapped 161762 reads in 32.273s (1 index part)
+--- Alignment Breakdown ---
+  Sequence Sketching: 32.910s
+  Seeding (Lookup):   86.036s
+  Chaining:           144.973s
+  Alignment (Ext):    244.979s
+  Post-chain:         91.819s
+  Total Measured:     600.716s
+  Reads: 161762, Seeds: 270631798, Anchors: 1178695239, Chains: 402318754
+---------------------------
+--- Post-chain sub-timers ---
+  RMQ rescue:      82.955s (36158 calls, 193307375 anchors, 66535 skipped: no joinable chains)
+    of which high-occ re-chain: 0.000s (0 calls)
+  Build regs:      5.004s
+  Parent+filter:   1.384s
+  Div+strand:      1.695s
+  Squeezed+bounds: 0.722s
+  Extension probe stops: 56349
+  Sub-anchored long gaps: 86979
+  Narrow gap band: 5214981 used (26286 widened), 26238 too wide, 1546 edge fallbacks
+-----------------------------
+SKETCH_AVX512_TOTAL calls=143152 bases=2706881735

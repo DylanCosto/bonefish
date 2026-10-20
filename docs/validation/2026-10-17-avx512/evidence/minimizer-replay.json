@@ -1,0 +1,53 @@
+{
+  "utc": "2026-10-17T23:17:27.265225+00:00",
+  "scope": "Diagnostic single-thread kernel replay on256original realreads,actualindexk19w19,CPU23. Exact source modules included,portableopt3/fatLTO/oneCGU. CPU is CLOCK_THREAD_CPUTIME_ID, not cycles or frequency. Not whole-mapper speed evidence; other VM jobs may overlap.",
+  "all256_x_y_order_matches": true,
+  "corpus": {
+    "reads": 256,
+    "bases": 4571254,
+    "sha256": "a29bf6eb0cc75646c58b83d844a82cf08969fe460ff9220f132bf7df7cec784a",
+    "source": "first256 original hg001_wg_1x.fq.gz reads; same known2edff9a3 input",
+    "k": 19,
+    "w": 19
+  },
+  "receipts": {
+    "minimizer": {
+      "binary_sha256": "fcf428db62c3e724777432051547e243f9bbffc4403354b2f7a38786740a2265",
+      "source": "$BENCH_ROOT/avx512-tuning/minimizer512-source"
+    },
+    "mincache": {
+      "binary_sha256": "a6a9c9e2f3af655b4b6b4b0507d203b7d57a13c6101ce6fe3e03bdfa1a1c721e",
+      "source": "$BENCH_ROOT/avx512-tuning/minimizer-cache512-source"
+    },
+    "minblock": {
+      "binary_sha256": "e0fbbc3ee421bfec039868bab9c4f3b104fda958b614325b66ec3703592e56e4",
+      "source": "$BENCH_ROOT/avx512-tuning/minimizer-block512-source"
+    }
+  },
+  "harness_sha256": "d55f3426bf8b3fd06dd38e538ee3bbe3b709cbade76574ac01581a04e21a5c06",
+  "replay_sha256": "ec71f099cbde7d454eaa708d251097a3eaaccef4860e73f7daac6d7038593589",
+  "medians": {
+    "baseline_AVX2": {
+      "cpu_s": 0.798113819,
+      "wall_s": 0.798130971
+    },
+    "original512": {
+      "cpu_s": 0.875809842,
+      "wall_s": 0.87582885
+    },
+    "cached512": {
+      "cpu_s": 0.810258652,
+      "wall_s": 0.810277506
+    },
+    "blocked512": {
+      "cpu_s": 0.462793503,
+      "wall_s": 0.46281561
+    }
+  },
+  "CPU_speedup_vs_AVX2": {
+    "baseline_AVX2": 1.0,
+    "original512": 0.9112866523370263,
+    "cached512": 0.9850111652988557,
+    "blocked512": 1.72455709474383
+  }
+}

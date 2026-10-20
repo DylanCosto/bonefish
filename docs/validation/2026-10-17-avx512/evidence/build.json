@@ -1,0 +1,55 @@
+{
+  "source_base_commit": "6e39b586a68439a8d176aafd68a87f0a05fd9b88",
+  "selected_binary_sha256": "e0fbbc3ee421bfec039868bab9c4f3b104fda958b614325b66ec3703592e56e4",
+  "selected_source_sha256": {
+    "bonefish-core/src/align/chain_simd.rs": "8efbdadaed2068648766ce2c958aaa2753c3ecb9340e419686159e39bb8baa5f",
+    "bonefish-core/src/align/chain_simd_avx512_tests.rs": "1f1fac411023cee8dc0ee68286656fdf703430c2bde9c4af02e9aacaf09453bd",
+    "bonefish-core/src/align/chain_simd_masked_tests.rs": "65be35ebed5f1a286eff09fc73c9bd7b6bb9a088f808231d1f06808491d4c2e1",
+    "bonefish-core/src/align/dp/dual.rs": "51337b9827f68e7516d1ff0a2743e605bb074ca975c6da78ff67fcfcdff1d094",
+    "bonefish-core/src/align/dp/dual_clean.rs": "c1e93f4e2c8273873e0981d7d8269290389a7fce9ba3aba88d45a06ac1f9bba5",
+    "bonefish-core/src/align/dp/mod.rs": "6b8cfe3819957de7dc8af7468e195be84a43294855e9e820c71111328ba9b326",
+    "bonefish-core/src/align/dp/dual_clean512.rs": "46025919e2b56eaf7fa0d49ccae0db043bde5c01982329d0ea47af5291eb0893",
+    "bonefish-core/src/align/dp/dual_clean512/tests.rs": "c39c0a9cad2a537c29fa406d4e9d140ec5f0ec79a5358d396fe723a97a834ca1",
+    "bonefish-core/src/align/dp/dual_clean_reg64.rs": "5bfcb2efb09f7f97a71cfb8faeb9e4515cc7f18e5e2eb90275c070d52311fb7b",
+    "bonefish-core/src/align/dp/dual_clean_reg32vl.rs": "39cf63388e953eecf3c2dd4ca57ba874b79207072785796579f1cf4c0d403338",
+    "bonefish-core/src/align/sort.rs": "a3e6766a99a68d02cfdb902657e1dd9d561c525148fb0925bde59ee95b9f81a4",
+    "bonefish-core/src/align/sort/network512.rs": "ad6319ef8a7e2f69a9ef6567165736c8f69ca461ae8cc6e649f5ee616974cfed",
+    "bonefish-core/src/align/dp/common.rs": "fc28797a53681bf9b150924ad8dd4b1afdbdc07f78f92155e6c0f96c6ef419d8",
+    "bonefish-core/src/align/chain_rmq.rs": "3f586505eb4df4810620d841409de24c858d6ffd9ee32eec846a455c326ca07a",
+    "bonefish-core/src/align/sketch.rs": "a479c84b8c42c6bef4713f7097941d0ad679b765ec05391d1423957a715f4720",
+    "bonefish-core/src/align/sketch512.rs": "127d75b7bd52ad938e1bc5581f02edd2eeb81049e923ffc170de70c8f9d5e8cf"
+  },
+  "tests": {
+    "passed": 188,
+    "failed": 0,
+    "ignored": 7
+  },
+  "compiler": "Rust 1.99.1, GCC 15.3",
+  "release_settings": {
+    "opt_level": 3,
+    "lto": "fat",
+    "codegen_units": 1,
+    "features": [
+      "jemalloc"
+    ]
+  },
+  "global_target_cpu_native": false,
+  "global_avx512_flags": false,
+  "pgo": false,
+  "source_verification": "All 856 reconstructed repository files matched the actual measured checkout before PR packaging.",
+  "scope": "Historical measurements are for the recorded 2026-10-17 source and binaries; benchmark binaries are not committed.",
+  "pr_packaging_normalizations": [
+    {
+      "path": "bonefish-core/src/align/dp/dual_clean_reg32vl.rs",
+      "change": "Remove one extra blank line at EOF; no code changes.",
+      "measured_source_sha256": "39cf63388e953eecf3c2dd4ca57ba874b79207072785796579f1cf4c0d403338",
+      "pr_source_sha256": "d3937d8967371bfac2f22da1323f800ebf2dcb0d0a1018b21c18f8519ec2fe41"
+    },
+    {
+      "path": "bonefish-core/src/align/dp/dual_clean_reg64.rs",
+      "change": "Remove one extra blank line at EOF; no code changes.",
+      "measured_source_sha256": "5bfcb2efb09f7f97a71cfb8faeb9e4515cc7f18e5e2eb90275c070d52311fb7b",
+      "pr_source_sha256": "13257c06f5d7566acba44e9dc847b79c45c9f9ea8ee7dee33a9feaeb30858f16"
+    }
+  ]
+}

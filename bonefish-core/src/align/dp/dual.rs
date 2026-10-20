@@ -118,7 +118,7 @@ pub fn extend_dual_affine(
     {
         if super::dual_clean::clean_dual() && (flags & GENERIC_SCORING) == 0 {
             match super::dual_clean::clean_x86() {
-                Some(true) => { unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, 0, 0, result); } return; }
+                Some(true) => { unsafe { super::dual_clean::extend_dual_affine_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, 0, 0, result); } return; }
                 Some(false) => { unsafe { super::dual_clean16::extend_dual_affine_sse41_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, 0, 0, result); } return; }
                 None => {}
             }
@@ -2682,7 +2682,7 @@ pub fn extend_dual_affine_adaptive(
     if (flags & GENERIC_SCORING) == 0 && gap_open != gap_open2 {
         #[cfg(target_arch = "x86_64")]
         match super::dual_clean::clean_x86() {
-            Some(true) => { unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, width, 0, result); } return; }
+            Some(true) => { unsafe { super::dual_clean::extend_dual_affine_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, width, 0, result); } return; }
             Some(false) => { unsafe { super::dual_clean16::extend_dual_affine_sse41_clean(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop, end_bonus, flags, width, 0, result); } return; }
             None => {}
         }
@@ -2714,7 +2714,7 @@ pub fn extend_dual_affine_diag_range(
     if (flags & GENERIC_SCORING) == 0 && go != go2 {
         #[cfg(target_arch = "x86_64")]
         match super::dual_clean::clean_x86() {
-            Some(true) => { unsafe { super::dual_clean::extend_dual_affine_avx2_clean(qseq, tseq, alphabet_size, score_matrix, go, ge, go2, ge2, half, z_drop, end_bonus, flags, 0, shift, result); } return; }
+            Some(true) => { unsafe { super::dual_clean::extend_dual_affine_clean(qseq, tseq, alphabet_size, score_matrix, go, ge, go2, ge2, half, z_drop, end_bonus, flags, 0, shift, result); } return; }
             Some(false) => { unsafe { super::dual_clean16::extend_dual_affine_sse41_clean(qseq, tseq, alphabet_size, score_matrix, go, ge, go2, ge2, half, z_drop, end_bonus, flags, 0, shift, result); } return; }
             None => {}
         }

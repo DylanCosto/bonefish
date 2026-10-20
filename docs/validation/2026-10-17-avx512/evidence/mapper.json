@@ -1,0 +1,513 @@
+{
+  "schema_version": 1,
+  "measured_utc_date": "2026-10-17",
+  "cpu_model": "Intel(R) Xeon(R) Gold 5418Y",
+  "platform": "x86_64 Linux VMware guest",
+  "control_binary_sha256": "6f78425f49e64e2e687b32f021da8ccffbd4321ae43b909b30f8996db6929935",
+  "selected_binary_sha256": "e0fbbc3ee421bfec039868bab9c4f3b104fda958b614325b66ec3703592e56e4",
+  "input": {
+    "reads": 161762,
+    "read_bases": 2713864134,
+    "reference_bases": 3099922541,
+    "reference_contigs": 195,
+    "threads": 24,
+    "index_k": 19,
+    "index_w": 19,
+    "reads_SHA256": "2edff9a3834d5d55963da198bad3717064e0ed5232a037d6783c84fbc8ffb288",
+    "reference_SHA256": "fb4243ebb014caf27111f24dd62b7ce42160f28581da6f8fcd6cba5977778d02",
+    "canonical_SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+    "normalization": "remove @PG only; repeatedoriginal1xdataset,not newcoverage"
+  },
+  "summary": {
+    "control": {
+      "n": 3,
+      "wall_s": 32.86,
+      "cpu_s": 550.12,
+      "peak_RSS_GiB": 13.815486907958984,
+      "wall_values_s": [
+        32.86,
+        33.22,
+        32.67
+      ],
+      "cpu_values_s": [
+        550.12,
+        548.0,
+        553.29
+      ]
+    },
+    "optimized": {
+      "n": 3,
+      "wall_s": 31.84,
+      "cpu_s": 536.36,
+      "peak_RSS_GiB": 13.80810546875,
+      "wall_values_s": [
+        32.24,
+        31.0,
+        31.84
+      ],
+      "cpu_values_s": [
+        536.49,
+        534.96,
+        536.36
+      ]
+    }
+  },
+  "comparison": {
+    "wall_s_reduction_percent": 3.1040779062690205,
+    "cpu_s_reduction_percent": 2.5012724496473515,
+    "peak_RSS_GiB_reduction_percent": 0.05342873007777582,
+    "elapsed_speedup": 1.032035175879397,
+    "CPU_speedup": 1.0256544112163473
+  },
+  "all_outputs_match": true,
+  "activation_coverage": {
+    "calls": 143152,
+    "aggregate_bases": 2706881735,
+    "scope": "Actual path counters on separate coverage run; not enabled for speed pairs."
+  },
+  "execution_context": {
+    "status": "WALL_TIMING_PROVISIONAL_DUE_TO_COMPETING_VM_WORK",
+    "scope_note": "Three alternating full-input pairs show CPU gains in each pair; background setup jobs were user-confirmed and monitored. No quiet-window or physical-frequency claim."
+  },
+  "runs": [
+    {
+      "mode": "control",
+      "phase": "speed",
+      "trial": 1,
+      "started_utc": "2026-10-17T23:21:03.871017+00:00",
+      "finished_utc": "2026-10-17T23:21:36.739493+00:00",
+      "threads": 24,
+      "command": [
+        "$BENCH_ROOT/avx512-tuning/bonefish-chain-sort-final",
+        "-a",
+        "-t",
+        "24",
+        "$BENCH_ROOT/out/grch38.raw",
+        "$BENCH_ROOT/hg001_wg_1x.fq.gz"
+      ],
+      "env_overrides": {},
+      "binary_sha256": "6f78425f49e64e2e687b32f021da8ccffbd4321ae43b909b30f8996db6929935",
+      "wall_s": 32.86,
+      "user_s": 522.51,
+      "system_s": 27.61,
+      "cpu_s": 550.12,
+      "peak_RSS_KiB": 14486588,
+      "peak_RSS_GiB": 13.815486907958984,
+      "major_faults": 0,
+      "minor_faults": 9610768,
+      "involuntary_context_switches": 149091,
+      "voluntary_context_switches": 91360,
+      "exit_code": 0,
+      "SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+      "processed_reads": 161762,
+      "elapsed_worker_stage_s": {
+        "Sequence Sketching": 55.098,
+        "Seeding (Lookup)": 83.335,
+        "Chaining": 143.437,
+        "Alignment (Ext)": 246.513,
+        "Post-chain": 91.672,
+        "Total Measured": 620.056
+      }
+    },
+    {
+      "mode": "optimized",
+      "phase": "speed",
+      "trial": 1,
+      "started_utc": "2026-10-17T23:21:37.977266+00:00",
+      "finished_utc": "2026-10-17T23:22:10.223023+00:00",
+      "threads": 24,
+      "command": [
+        "$BENCH_ROOT/avx512-tuning/minimizer-singletrack/bonefish-minblock",
+        "-a",
+        "-t",
+        "24",
+        "$BENCH_ROOT/out/grch38.raw",
+        "$BENCH_ROOT/hg001_wg_1x.fq.gz"
+      ],
+      "env_overrides": {},
+      "binary_sha256": "e0fbbc3ee421bfec039868bab9c4f3b104fda958b614325b66ec3703592e56e4",
+      "wall_s": 32.24,
+      "user_s": 511.1,
+      "system_s": 25.39,
+      "cpu_s": 536.49,
+      "peak_RSS_KiB": 14457732,
+      "peak_RSS_GiB": 13.787967681884766,
+      "major_faults": 0,
+      "minor_faults": 8709364,
+      "involuntary_context_switches": 148473,
+      "voluntary_context_switches": 90908,
+      "exit_code": 0,
+      "SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+      "processed_reads": 161762,
+      "elapsed_worker_stage_s": {
+        "Sequence Sketching": 33.102,
+        "Seeding (Lookup)": 85.816,
+        "Chaining": 145.75,
+        "Alignment (Ext)": 244.591,
+        "Post-chain": 91.696,
+        "Total Measured": 600.956
+      }
+    },
+    {
+      "mode": "optimized",
+      "phase": "speed",
+      "trial": 2,
+      "started_utc": "2026-10-17T23:22:11.456800+00:00",
+      "finished_utc": "2026-10-17T23:22:42.460192+00:00",
+      "threads": 24,
+      "command": [
+        "$BENCH_ROOT/avx512-tuning/minimizer-singletrack/bonefish-minblock",
+        "-a",
+        "-t",
+        "24",
+        "$BENCH_ROOT/out/grch38.raw",
+        "$BENCH_ROOT/hg001_wg_1x.fq.gz"
+      ],
+      "env_overrides": {},
+      "binary_sha256": "e0fbbc3ee421bfec039868bab9c4f3b104fda958b614325b66ec3703592e56e4",
+      "wall_s": 31.0,
+      "user_s": 511.04,
+      "system_s": 23.92,
+      "cpu_s": 534.96,
+      "peak_RSS_KiB": 14482224,
+      "peak_RSS_GiB": 13.811325073242188,
+      "major_faults": 0,
+      "minor_faults": 8281517,
+      "involuntary_context_switches": 155244,
+      "voluntary_context_switches": 90837,
+      "exit_code": 0,
+      "SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+      "processed_reads": 161762,
+      "elapsed_worker_stage_s": {
+        "Sequence Sketching": 33.154,
+        "Seeding (Lookup)": 87.199,
+        "Chaining": 145.908,
+        "Alignment (Ext)": 246.835,
+        "Post-chain": 92.639,
+        "Total Measured": 605.734
+      }
+    },
+    {
+      "mode": "control",
+      "phase": "speed",
+      "trial": 2,
+      "started_utc": "2026-10-17T23:22:43.700178+00:00",
+      "finished_utc": "2026-10-17T23:23:16.925752+00:00",
+      "threads": 24,
+      "command": [
+        "$BENCH_ROOT/avx512-tuning/bonefish-chain-sort-final",
+        "-a",
+        "-t",
+        "24",
+        "$BENCH_ROOT/out/grch38.raw",
+        "$BENCH_ROOT/hg001_wg_1x.fq.gz"
+      ],
+      "env_overrides": {},
+      "binary_sha256": "6f78425f49e64e2e687b32f021da8ccffbd4321ae43b909b30f8996db6929935",
+      "wall_s": 33.22,
+      "user_s": 521.94,
+      "system_s": 26.06,
+      "cpu_s": 548.0,
+      "peak_RSS_KiB": 14512640,
+      "peak_RSS_GiB": 13.84033203125,
+      "major_faults": 0,
+      "minor_faults": 8891583,
+      "involuntary_context_switches": 189291,
+      "voluntary_context_switches": 90373,
+      "exit_code": 0,
+      "SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+      "processed_reads": 161762,
+      "elapsed_worker_stage_s": {
+        "Sequence Sketching": 54.666,
+        "Seeding (Lookup)": 83.897,
+        "Chaining": 143.044,
+        "Alignment (Ext)": 246.832,
+        "Post-chain": 92.112,
+        "Total Measured": 620.551
+      }
+    },
+    {
+      "mode": "control",
+      "phase": "speed",
+      "trial": 3,
+      "started_utc": "2026-10-17T23:23:18.173775+00:00",
+      "finished_utc": "2026-10-17T23:23:50.848657+00:00",
+      "threads": 24,
+      "command": [
+        "$BENCH_ROOT/avx512-tuning/bonefish-chain-sort-final",
+        "-a",
+        "-t",
+        "24",
+        "$BENCH_ROOT/out/grch38.raw",
+        "$BENCH_ROOT/hg001_wg_1x.fq.gz"
+      ],
+      "env_overrides": {},
+      "binary_sha256": "6f78425f49e64e2e687b32f021da8ccffbd4321ae43b909b30f8996db6929935",
+      "wall_s": 32.67,
+      "user_s": 526.23,
+      "system_s": 27.06,
+      "cpu_s": 553.29,
+      "peak_RSS_KiB": 14476920,
+      "peak_RSS_GiB": 13.806266784667969,
+      "major_faults": 0,
+      "minor_faults": 9080910,
+      "involuntary_context_switches": 169442,
+      "voluntary_context_switches": 91381,
+      "exit_code": 0,
+      "SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+      "processed_reads": 161762,
+      "elapsed_worker_stage_s": {
+        "Sequence Sketching": 56.357,
+        "Seeding (Lookup)": 85.084,
+        "Chaining": 146.034,
+        "Alignment (Ext)": 251.031,
+        "Post-chain": 93.624,
+        "Total Measured": 632.13
+      }
+    },
+    {
+      "mode": "optimized",
+      "phase": "speed",
+      "trial": 3,
+      "started_utc": "2026-10-17T23:23:52.094707+00:00",
+      "finished_utc": "2026-10-17T23:24:23.945656+00:00",
+      "threads": 24,
+      "command": [
+        "$BENCH_ROOT/avx512-tuning/minimizer-singletrack/bonefish-minblock",
+        "-a",
+        "-t",
+        "24",
+        "$BENCH_ROOT/out/grch38.raw",
+        "$BENCH_ROOT/hg001_wg_1x.fq.gz"
+      ],
+      "env_overrides": {},
+      "binary_sha256": "e0fbbc3ee421bfec039868bab9c4f3b104fda958b614325b66ec3703592e56e4",
+      "wall_s": 31.84,
+      "user_s": 512.07,
+      "system_s": 24.29,
+      "cpu_s": 536.36,
+      "peak_RSS_KiB": 14478848,
+      "peak_RSS_GiB": 13.80810546875,
+      "major_faults": 0,
+      "minor_faults": 8377189,
+      "involuntary_context_switches": 158485,
+      "voluntary_context_switches": 91619,
+      "exit_code": 0,
+      "SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+      "processed_reads": 161762,
+      "elapsed_worker_stage_s": {
+        "Sequence Sketching": 33.873,
+        "Seeding (Lookup)": 87.999,
+        "Chaining": 148.824,
+        "Alignment (Ext)": 250.163,
+        "Post-chain": 93.116,
+        "Total Measured": 613.975
+      }
+    },
+    {
+      "mode": "control_avx2",
+      "phase": "parity",
+      "trial": 1,
+      "started_utc": "2026-10-17T23:24:25.207968+00:00",
+      "finished_utc": "2026-10-17T23:25:02.224424+00:00",
+      "threads": 24,
+      "command": [
+        "$BENCH_ROOT/avx512-tuning/bonefish-chain-sort-final",
+        "-a",
+        "-t",
+        "24",
+        "$BENCH_ROOT/out/grch38.raw",
+        "$BENCH_ROOT/hg001_wg_1x.fq.gz"
+      ],
+      "env_overrides": {
+        "BONEFISH_FORCE_AVX2": "1"
+      },
+      "binary_sha256": "6f78425f49e64e2e687b32f021da8ccffbd4321ae43b909b30f8996db6929935",
+      "wall_s": 37.01,
+      "user_s": 636.03,
+      "system_s": 26.76,
+      "cpu_s": 662.79,
+      "peak_RSS_KiB": 14432940,
+      "peak_RSS_GiB": 13.764324188232422,
+      "major_faults": 0,
+      "minor_faults": 9499375,
+      "involuntary_context_switches": 182576,
+      "voluntary_context_switches": 91750,
+      "exit_code": 0,
+      "SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+      "processed_reads": 161762,
+      "elapsed_worker_stage_s": {
+        "Sequence Sketching": 55.676,
+        "Seeding (Lookup)": 92.354,
+        "Chaining": 200.776,
+        "Alignment (Ext)": 323.577,
+        "Post-chain": 93.873,
+        "Total Measured": 766.257
+      }
+    },
+    {
+      "mode": "avx2",
+      "phase": "parity",
+      "trial": 1,
+      "started_utc": "2026-10-17T23:25:03.469189+00:00",
+      "finished_utc": "2026-10-17T23:25:40.576794+00:00",
+      "threads": 24,
+      "command": [
+        "$BENCH_ROOT/avx512-tuning/minimizer-singletrack/bonefish-minblock",
+        "-a",
+        "-t",
+        "24",
+        "$BENCH_ROOT/out/grch38.raw",
+        "$BENCH_ROOT/hg001_wg_1x.fq.gz"
+      ],
+      "env_overrides": {
+        "BONEFISH_FORCE_AVX2": "1"
+      },
+      "binary_sha256": "e0fbbc3ee421bfec039868bab9c4f3b104fda958b614325b66ec3703592e56e4",
+      "wall_s": 37.1,
+      "user_s": 635.14,
+      "system_s": 25.1,
+      "cpu_s": 660.24,
+      "peak_RSS_KiB": 14470304,
+      "peak_RSS_GiB": 13.799957275390625,
+      "major_faults": 0,
+      "minor_faults": 8712988,
+      "involuntary_context_switches": 195604,
+      "voluntary_context_switches": 92523,
+      "exit_code": 0,
+      "SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+      "processed_reads": 161762,
+      "elapsed_worker_stage_s": {
+        "Sequence Sketching": 55.134,
+        "Seeding (Lookup)": 92.122,
+        "Chaining": 197.224,
+        "Alignment (Ext)": 317.511,
+        "Post-chain": 93.034,
+        "Total Measured": 755.024
+      }
+    },
+    {
+      "mode": "sse41",
+      "phase": "parity",
+      "trial": 1,
+      "started_utc": "2026-10-17T23:25:41.816241+00:00",
+      "finished_utc": "2026-10-17T23:26:26.439860+00:00",
+      "threads": 24,
+      "command": [
+        "$BENCH_ROOT/avx512-tuning/minimizer-singletrack/bonefish-minblock",
+        "-a",
+        "-t",
+        "24",
+        "$BENCH_ROOT/out/grch38.raw",
+        "$BENCH_ROOT/hg001_wg_1x.fq.gz"
+      ],
+      "env_overrides": {
+        "BONEFISH_FORCE_SSE": "1"
+      },
+      "binary_sha256": "e0fbbc3ee421bfec039868bab9c4f3b104fda958b614325b66ec3703592e56e4",
+      "wall_s": 44.62,
+      "user_s": 845.49,
+      "system_s": 23.91,
+      "cpu_s": 869.4,
+      "peak_RSS_KiB": 14001936,
+      "peak_RSS_GiB": 13.353286743164062,
+      "major_faults": 0,
+      "minor_faults": 8541983,
+      "involuntary_context_switches": 251941,
+      "voluntary_context_switches": 90553,
+      "exit_code": 0,
+      "SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+      "processed_reads": 161762,
+      "elapsed_worker_stage_s": {
+        "Sequence Sketching": 51.408,
+        "Seeding (Lookup)": 88.004,
+        "Chaining": 339.731,
+        "Alignment (Ext)": 419.372,
+        "Post-chain": 90.517,
+        "Total Measured": 989.031
+      }
+    },
+    {
+      "mode": "off",
+      "phase": "parity",
+      "trial": 1,
+      "started_utc": "2026-10-17T23:26:27.680364+00:00",
+      "finished_utc": "2026-10-17T23:27:00.813493+00:00",
+      "threads": 24,
+      "command": [
+        "$BENCH_ROOT/avx512-tuning/minimizer-singletrack/bonefish-minblock",
+        "-a",
+        "-t",
+        "24",
+        "$BENCH_ROOT/out/grch38.raw",
+        "$BENCH_ROOT/hg001_wg_1x.fq.gz"
+      ],
+      "env_overrides": {
+        "BONEFISH_SKETCH_AVX512_OFF": "1"
+      },
+      "binary_sha256": "e0fbbc3ee421bfec039868bab9c4f3b104fda958b614325b66ec3703592e56e4",
+      "wall_s": 33.13,
+      "user_s": 523.43,
+      "system_s": 24.76,
+      "cpu_s": 548.1899999999999,
+      "peak_RSS_KiB": 14377096,
+      "peak_RSS_GiB": 13.711067199707031,
+      "major_faults": 0,
+      "minor_faults": 8507673,
+      "involuntary_context_switches": 178208,
+      "voluntary_context_switches": 91083,
+      "exit_code": 0,
+      "SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+      "processed_reads": 161762,
+      "elapsed_worker_stage_s": {
+        "Sequence Sketching": 54.849,
+        "Seeding (Lookup)": 85.306,
+        "Chaining": 145.275,
+        "Alignment (Ext)": 247.317,
+        "Post-chain": 92.627,
+        "Total Measured": 625.375
+      }
+    },
+    {
+      "mode": "coverage",
+      "phase": "parity",
+      "trial": 1,
+      "started_utc": "2026-10-17T23:27:02.065932+00:00",
+      "finished_utc": "2026-10-17T23:27:34.647280+00:00",
+      "threads": 24,
+      "command": [
+        "$BENCH_ROOT/avx512-tuning/minimizer-singletrack/bonefish-minblock",
+        "-a",
+        "-t",
+        "24",
+        "$BENCH_ROOT/out/grch38.raw",
+        "$BENCH_ROOT/hg001_wg_1x.fq.gz"
+      ],
+      "env_overrides": {
+        "BONEFISH_SKETCH_AVX512_REPORT": "1"
+      },
+      "binary_sha256": "e0fbbc3ee421bfec039868bab9c4f3b104fda958b614325b66ec3703592e56e4",
+      "wall_s": 32.57,
+      "user_s": 510.41,
+      "system_s": 24.22,
+      "cpu_s": 534.63,
+      "peak_RSS_KiB": 14599072,
+      "peak_RSS_GiB": 13.922760009765625,
+      "major_faults": 0,
+      "minor_faults": 8384543,
+      "involuntary_context_switches": 149609,
+      "voluntary_context_switches": 91044,
+      "exit_code": 0,
+      "SAM_MD5": "9bc7ff3e9f498cc1530b2b1d78c47e10",
+      "processed_reads": 161762,
+      "elapsed_worker_stage_s": {
+        "Sequence Sketching": 32.91,
+        "Seeding (Lookup)": 86.036,
+        "Chaining": 144.973,
+        "Alignment (Ext)": 244.979,
+        "Post-chain": 91.819,
+        "Total Measured": 600.716
+      }
+    }
+  ]
+}

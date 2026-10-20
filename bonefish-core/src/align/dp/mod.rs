@@ -16,6 +16,12 @@ mod common;
 mod single;
 mod dual;
 mod dual_clean;
+#[cfg(target_arch = "x86_64")]
+mod dual_clean512;
+#[cfg(target_arch = "x86_64")]
+mod dual_clean_reg64;
+#[cfg(target_arch = "x86_64")]
+mod dual_clean_reg32vl;
 mod dual_clean16;
 pub use dual_clean::{clean_dual, set_clean_dual};
 mod lw;

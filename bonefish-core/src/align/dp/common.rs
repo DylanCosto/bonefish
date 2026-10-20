@@ -749,3 +749,100 @@ pub(super) fn traceback_single_affine_safe(
         result.cigar = cigar;
     }
 }
+
+#[inline(always)]
+pub(super) unsafe fn trace_plane_bit64(p:*mut u8,index:usize,plane:usize)->bool {unsafe {
+    let word=std::ptr::read_unaligned(p.add((index&!63)+plane*8).cast::<u64>());
+    (word>>(index&63))&1!=0
+}}
+
+#[inline(always)]
+pub(super) unsafe fn trace_plane_direction64(p:*mut u8,index:usize)->i32 {unsafe {
+    if !trace_plane_bit64(p,index,0) {0}
+    else if trace_plane_bit64(p,index,1) {3+trace_plane_bit64(p,index,3) as i32}
+    else {1+trace_plane_bit64(p,index,2) as i32}
+}}
+
+/// Traceback for64-lane mask planes: eight u64 words per64cells.
+/// Safety: pointers must describe a valid mask-plane allocation and matching band bounds.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+pub(super) unsafe fn traceback_dual_affine_bitplanes64(
+    result: &mut DpResult,
+    query_len: usize,
+    target_len: usize,
+    end_bonus: i32,
+    flags: i32,
+    n_col_: usize,
+    simd_width: usize,
+    p_ptr: *mut u8,
+    band_offset_ptr: *mut i32,
+    band_offset_end_ptr: *mut i32,
+) { unsafe {
+    let (mut i, mut j) = traceback_start_position(result, query_len, target_len, end_bonus, flags);
+
+    if i < 0 || j < 0 {
+        return;
+    }
+    let mut cigar = Vec::new();
+    let mut state = 0i32;
+    let stride = n_col_ * simd_width;
+
+    while i >= 0 && j >= 0 {
+        let r = i + j;
+        let off_r = *band_offset_ptr.add(r as usize);
+        let off_end_r = *band_offset_end_ptr.add(r as usize);
+
+        let mut force_state = -1i32;
+        if i < off_r { force_state = 2; }
+        if i > off_end_r { force_state = 1; }
+
+        if force_state>=0 {state=force_state;}
+        else {
+            let idx=r as usize*stride+(i-off_r) as usize;
+            if state!=0 && !trace_plane_bit64(p_ptr,idx,state as usize+3) {state=0;}
+            if state==0 {state=trace_plane_direction64(p_ptr,idx);}
+        }
+
+        let (op, di, dj) = match state {
+            0 => (0u32, 1, 1),  // M
+            1 => (2u32, 1, 0),  // D1
+            2 => (1u32, 0, 1),  // I1
+            3 => (2u32, 1, 0),  // D2
+            4 => (1u32, 0, 1),  // I2
+            _ => (0u32, 1, 1),
+        };
+
+        i -= di;
+        j -= dj;
+        let mut run = 1u32;
+        if state == 0 {
+            // Fast path along a run of matches: the next cell stays M iff it is in the band and
+            // its gap-winner plane bit is clear (the general step would pick state 0).
+            while i >= 0 && j >= 0 {
+                let r = i + j;
+                let off_r = *band_offset_ptr.add(r as usize);
+                if i < off_r || i > *band_offset_end_ptr.add(r as usize) { break; }
+                if trace_plane_bit64(p_ptr,r as usize*stride+(i-off_r) as usize,0) {break;}
+                run += 1;
+                i -= 1;
+                j -= 1;
+            }
+        }
+        push_cigar(&mut cigar, op, run);
+    }
+
+    // Handle remaining
+    if i >= 0 {
+        push_cigar(&mut cigar, 2, (i + 1) as u32);
+    }
+    if j >= 0 {
+        push_cigar(&mut cigar, 1, (j + 1) as u32);
+    }
+
+    let rev_cigar = (flags & REV_CIGAR) != 0;
+    if !rev_cigar {
+        cigar.reverse();
+    }
+    result.cigar = cigar;
+}}
