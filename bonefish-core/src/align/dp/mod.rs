@@ -110,6 +110,22 @@ pub(crate) fn dp_cache_cap_bytes() -> usize {
     bytes
 }
 
+/// Tests of CPU-specific kernels skip when the CPU lacks `feature` (`has == false`). CI sets
+/// `BONEFISH_REQUIRE_SIMD` to the features its runner has (comma-separated, e.g.
+/// `avx512bw,avx512vbmi,avx512vl`), which turns such a skip into a failure, so the tests
+/// cannot pass without running on a machine that does have the feature.
+#[cfg(test)]
+pub(crate) fn simd_test_available(feature: &str, has: bool) -> bool {
+    if !has {
+        let required = std::env::var("BONEFISH_REQUIRE_SIMD").unwrap_or_default();
+        assert!(
+            !required.split(',').any(|f| f.trim() == feature),
+            "BONEFISH_REQUIRE_SIMD lists {feature}, but the CPU does not report it"
+        );
+    }
+    has
+}
+
 #[cfg(target_arch = "x86_64")]
 #[inline]
 fn simd_cap() -> SimdCap {
