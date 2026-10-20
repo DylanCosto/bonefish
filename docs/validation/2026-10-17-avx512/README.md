@@ -86,6 +86,29 @@ a 2x whole-mapper improvement or a cumulative 2.06x speedup. Earlier full 10x
 DP-stage parity results are recorded in the historical wide-DP report; the final
 minimizer increment was validated on the complete original 1x dataset.
 
+## Tidy before merge
+
+Before merging, the series was cut down to the code its default configuration runs: 32
+diagnostic `BONEFISH_*` switches, seven non-default chaining variants, the DP shifted-load
+and traceback alternatives, the replay benchmarks and the minimizer activation counter were
+removed, and the AVX-512 sorting network now follows the process SIMD cap like the other
+AVX-512 paths. AVX-512 tests compare against the AVX2 or scalar code; CI lists the runner's
+SIMD features in `BONEFISH_REQUIRE_SIMD`, which turns a skipped test into a failure. The
+measurements above were made before this step.
+
+On an Intel i5-12600K (AVX2, no AVX-512), 16 threads, raw GRCh38 index, the tidied build
+gives the same output as v0.1.6 (SAM MD5 without `@PG`):
+
+| reads | v0.1.6 = tidied build |
+|---|---|
+| genome-wide HG001 sample (default, `BONEFISH_FORCE_SSE=1`, `BONEFISH_FORCE_SCALAR=1`) | `9bc7ff3e9f498cc1530b2b1d78c47e10` |
+| HG002 chr22, PAW71238 (27x) | `7e381581bc6bb5a4d56ca655b4c278b1` |
+| HG002 chr20, PAW70337 (55x) | `165b75dbfa1282faddd2c04cd86a4efb` |
+
+Genome-wide sample, three alternating runs each: v0.1.6 672.7-677.0 CPU-s (44.7-47.1 s),
+tidied build 650.8-653.1 CPU-s (45.7-48.0 s). The shared changes (RMQ ranks, radix sort,
+chaining buckets) save about 3% of CPU time on AVX2 machines too.
+
 ## Tests and reproduction
 
 The freshly built selected checkout passed **188 tests, zero failures, and seven
@@ -117,10 +140,11 @@ THREADS=24 bash scripts/validation/simd_parity.sh \
   "$BENCH_ROOT/avx512-pr-parity"
 ```
 
-`BONEFISH_FORCE_DP_AVX2=1` isolates the DP fallback while leaving chaining's
-selected SIMD mode intact. `BONEFISH_SKETCH_AVX512_OFF=1` disables the new
-minimizer, and `BONEFISH_SKETCH_AVX512_REPORT=1` enables diagnostic activation
-counters. Use the global SIMD force variables for end-to-end fallback checks.
+The measurements used diagnostic switches (`BONEFISH_FORCE_DP_AVX2`,
+`BONEFISH_SKETCH_AVX512_OFF`, `BONEFISH_SKETCH_AVX512_REPORT` and others) that were
+removed before merging (see "Tidy before merge"); the evidence files still name them. Use
+the global SIMD force variables (`BONEFISH_FORCE_AVX2=1`, `BONEFISH_FORCE_SSE=1`) for
+fallback checks.
 Check the imported evidence files independently with:
 
 ```bash
