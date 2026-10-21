@@ -90,6 +90,16 @@ On the cDNA set, the transcript-strand calls (`ts:A`) match minimap2's to within
    - **Fallback:** mixed cases, and every run with `--junc-bed`, align both strands as before.
 3. **Chaining.** The spliced chainer now uses the SIMD chainers (AVX-512, AVX2, SSE and NEON).
    It has minimap2's intron gap cost and gives output identical to the scalar chainer.
+4. **Extensions.** Extensions at the read ends now use a reduced reference window. They fill a
+   query x reference matrix up to twice as wide as needed, yet they cross an intron in only
+   0.14% of cDNA cases (48 of 34,551), and none reach the read end, because adapters and poly(A)
+   tails follow.
+   - **Window:** the near window (query length + 64 bases), plus windows around exact 10-mer
+     matches of the query further out, for a terminal exon behind an intron. Target positions are
+     mapped back to the full window afterwards.
+   - **Effect:** cDNA 200k used 744-749 CPU-s, against 792 for the build in the tables above,
+     with accuracy unchanged (simulated reads included). Direct RNA is unchanged
+     (`evidence/runs/ext1*`, `final_q`).
 
 ## Tried and not kept
 
