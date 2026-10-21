@@ -55,7 +55,8 @@ in a few minutes.
 | `cdna` | cDNA (minimap2 `splice`) |
 
 Input formats, output options, memory use and CPU support are covered in
-[docs/usage.md](docs/usage.md).
+[docs/usage.md](docs/usage.md). To replace minimap2 in an existing pipeline, including ONT's
+wf-human-variation, see [docs/pipelines.md](docs/pipelines.md).
 
 ## Speed and accuracy
 
@@ -126,6 +127,11 @@ The rest comes from engineering:
 
 `bonefish-core` (imported as `bonefish`) exposes the aligner as a Rust library: `bonefish::Aligner`
 with `Preset::Dna`, `Preset::Rna` and `Preset::Cdna`. See `bonefish-core/examples/`.
+
+## Contributing
+
+Bug reports and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). Changes in each
+release are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Credits and license
 

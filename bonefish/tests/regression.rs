@@ -54,11 +54,23 @@ fn expected() -> Vec<(String, String, String, String)> {
         .collect()
 }
 
-fn map_args(case_args: &str) -> Vec<String> {
-    let mut a: Vec<String> = case_args.split_whitespace().map(String::from).collect();
+/// Arguments for an expected.tsv case: its options (`{junc}` stands for the annotation BED), then
+/// the reference and reads. Cases named `rna_*` / `cdna_*` use the spliced dataset (made by
+/// `scripts/make_regression_rna_data.py`): direct-RNA-like or cDNA-like reads on a genome of
+/// multi-exon genes.
+fn map_args(name: &str, case_args: &str) -> Vec<String> {
+    let junc = data("rna_junc.bed").to_str().unwrap().to_string();
+    let mut a: Vec<String> = case_args.split_whitespace().map(|x| x.replace("{junc}", &junc)).collect();
     a.extend(["-t", "2"].map(String::from));
-    a.push(data("ref.fa.gz").to_str().unwrap().into());
-    a.push(data("reads.fq.gz").to_str().unwrap().into());
+    let (r, q) = if name.starts_with("rna_") {
+        ("rna_ref.fa.gz", "rna_reads.fq.gz")
+    } else if name.starts_with("cdna_") {
+        ("rna_ref.fa.gz", "cdna_reads.fq.gz")
+    } else {
+        ("ref.fa.gz", "reads.fq.gz")
+    };
+    a.push(data(r).to_str().unwrap().into());
+    a.push(data(q).to_str().unwrap().into());
     a
 }
 
@@ -67,7 +79,7 @@ fn outputs_match_expected() {
     let bless = std::env::var_os("BONEFISH_BLESS").is_some();
     let mut failures = Vec::new();
     for (name, source, args, hash) in expected() {
-        let a = map_args(&args);
+        let a = map_args(&name, &args);
         let out = run(&a.iter().map(String::as_str).collect::<Vec<_>>());
         let got = fnv1a(&out);
         if bless && source == "bonefish" {
