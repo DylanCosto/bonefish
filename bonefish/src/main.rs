@@ -48,12 +48,17 @@ struct AlignArgs {
     #[arg(short = 'd', long)]
     pub dump_index: Option<String>,
 
-    /// Preset applied before other options. There is one: ONT genomic DNA, applied by default.
+    /// Preset applied before other options:
     ///   dna              — ONT reads (R10.4.1 or R9.4.1) vs a reference genome (default)
     ///   lr:hq / lr:hq-fast / map-ont / lr — accepted as aliases of dna
+    ///   rna              — direct RNA vs a reference genome (spliced; minimap2 -x splice -uf -k14)
+    ///   cdna             — cDNA vs a reference genome (spliced; minimap2 -x splice); alias: splice
+    ///   splice:hq        — accurate cDNA (minimap2 -x splice:hq)
     /// dna = minimap2 lr:hq seeding and scoring plus --ext-bw 200 --ext-adaptive 64 --ext-rescue
     /// --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000
     /// --seg-rmq --clean-dp --rescue-join --rescue-max-density 2 --gap-subanchor-tr 150
+    /// cdna = -k15 -w5 -g2k -G200k -A1 -B2 -O2,32 -E1,0 -C9 -z200,100 -ub --junc-bonus 9
+    /// --junc-pen 5 --splice-flank yes; rna = cdna with -k14 -uf
     #[arg(short = 'x', long, verbatim_doc_comment)]
     pub preset: Option<String>,
 
@@ -171,7 +176,9 @@ struct AlignArgs {
     #[arg(short = 'U')]
     pub mid_occ_range: Option<String>,
 
-
+    /// Spliced presets: max intron length (sets the chaining reference gap and bandwidth) [200k]
+    #[arg(short = 'G', value_name = "NUM")]
+    pub max_intron_len: Option<String>,
 
     /// Only map to forward strand
     #[arg(long)]
@@ -193,8 +200,34 @@ struct AlignArgs {
     #[arg(short = 'b')]
     pub transition: Option<i32>,
 
+    /// Spliced presets: cost of a non-canonical splice site
+    #[arg(short = 'C')]
+    pub noncan: Option<i32>,
 
+    /// Spliced presets: transcript strands to score splice signals for: f (forward, direct
+    /// RNA), r (reverse), b (both, the better one is kept; cDNA) or n (none)
+    #[arg(short = 'u', value_name = "f|r|b|n")]
+    pub splice_strand: Option<String>,
 
+    /// Spliced presets: annotated junctions (BED12 transcripts, or one intron per BED6 line)
+    #[arg(long, value_name = "FILE")]
+    pub junc_bed: Option<String>,
+
+    /// Spliced presets: score bonus for an annotated junction [9]
+    #[arg(long, value_name = "INT")]
+    pub junc_bonus: Option<i32>,
+
+    /// Spliced presets: penalty for a junction absent from --junc-bed [5]
+    #[arg(long, value_name = "INT")]
+    pub junc_pen: Option<i32>,
+
+    /// Spliced presets: score the bases flanking splice sites (yes/no) [yes]
+    #[arg(long, value_name = "yes|no")]
+    pub splice_flank: Option<String>,
+
+    /// Spliced presets: write the introns of primary alignments (MAPQ >= 10) as BED instead of SAM/PAF
+    #[arg(long)]
+    pub write_junc: bool,
 
     /// Output to file instead of stdout (FILE.bam writes a coordinate-sorted BAM, as --sort)
     #[arg(short = 'o')]
@@ -550,6 +583,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
     // BAM output is always the coordinate-sorted BAM; it implies SAM records.
     if cli.output.as_deref().is_some_and(|p| p.ends_with(".bam")) { cli.sort = true; }
     if cli.sort { cli.output_sam = true; }
+    if cli.write_junc && cli.output_sam { anyhow::bail!("--write-junc writes BED, not SAM/BAM (-a, --sort, -o FILE.bam)"); }
     if let Some(k) = cli.k && !(1..=28).contains(&k) { anyhow::bail!("-k must be between 1 and 28 (got {k})"); }
     if let Some(w) = cli.w && !(1..=255).contains(&w) { anyhow::bail!("-w must be between 1 and 255 (got {w})"); }
     if let Some(p) = cli.pri_ratio && !(0.0..=1.0).contains(&p) { anyhow::bail!("-p must be between 0 and 1 (got {p})"); }
@@ -569,7 +603,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
     }
     let cs_is_none = cs_mode == Some("none");
     let cs_long = cs_mode == Some("long");
-    let do_cigar = cli.output_cigar || cli.output_sam || cli.cs.is_some() || cli.output_md || do_ds;
+    let do_cigar = cli.output_cigar || cli.output_sam || cli.cs.is_some() || cli.output_md || do_ds || cli.write_junc;
     let do_cs = cli.cs.is_some() && !cs_is_none;
     let do_md = cli.output_md;
     let rg_id: Option<String> = if let Some(rg_line) = &cli.sam_rg {
@@ -618,6 +652,40 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
     // CLI overrides (applied after preset)
     if let Some(vk) = cli.k { k = vk; }
     if let Some(vw) = cli.w { w = vw; }
+
+    let is_splice = opt.flags.contains(AlignFlags::SPLICE);
+    if !is_splice && (cli.max_intron_len.is_some() || cli.noncan.is_some() || cli.splice_strand.is_some()
+        || cli.junc_bed.is_some() || cli.junc_bonus.is_some() || cli.junc_pen.is_some()
+        || cli.splice_flank.is_some() || cli.write_junc) {
+        anyhow::bail!("-G, -C, -u, --junc-bed, --junc-bonus, --junc-pen, --splice-flank and --write-junc need a spliced preset (-x rna or -x cdna)");
+    }
+    if let Some(s) = &cli.max_intron_len {
+        let v = parse_num("-G", s)?.min(i32::MAX as i64) as i32;
+        opt.chaining.max_gap_ref = v;
+        opt.chaining.bandwidth = v;
+        opt.chaining.bandwidth_long = v;
+    }
+    if let Some(v) = cli.noncan { opt.scoring.noncanon_penalty = v; }
+    if let Some(v) = cli.junc_bonus { opt.scoring.junc_bonus = v; }
+    if let Some(v) = cli.junc_pen { opt.scoring.junc_pen = v; }
+    if let Some(u) = &cli.splice_strand {
+        opt.flags.remove(AlignFlags::SPLICE_FOR | AlignFlags::SPLICE_REV);
+        match u.as_str() {
+            "f" => opt.flags.insert(AlignFlags::SPLICE_FOR),
+            "r" => opt.flags.insert(AlignFlags::SPLICE_REV),
+            "b" => opt.flags.insert(AlignFlags::SPLICE_FOR | AlignFlags::SPLICE_REV),
+            "n" => {}
+            _ => anyhow::bail!("-u takes f, r, b or n (got '{u}')"),
+        }
+    }
+    if let Some(f) = &cli.splice_flank {
+        match f.as_str() {
+            "yes" => opt.flags.insert(AlignFlags::SPLICE_FLANK),
+            "no" => opt.flags.remove(AlignFlags::SPLICE_FLANK),
+            _ => anyhow::bail!("--splice-flank takes yes or no (got '{f}')"),
+        }
+    }
+    if cli.write_junc { opt.flags.insert(AlignFlags::OUT_JUNC); }
 
     if let Some(r_str) = &cli.bw {
         let v = parse_list("-r", r_str, 2)?;
@@ -1241,6 +1309,16 @@ struct RunConfig<'a> {
     split_out_cfg: &'a OutputConfig,
 }
 
+/// Load --junc-bed against this index part (reference ids are local to the part).
+fn load_junctions(opt: &mut MapOptions, mi: &Index, cli: &AlignArgs) -> anyhow::Result<()> {
+    if let Some(path) = &cli.junc_bed {
+        let db = bonefish::align::junc::JunctionDb::load_bed_for_index(path, mi)
+            .map_err(|e| anyhow::anyhow!("--junc-bed {}: {}", path, e))?;
+        opt.junctions = Some(std::sync::Arc::new(db));
+    }
+    Ok(())
+}
+
 /// Map all queries against one index part. Re-opens query files for each part.
 /// Returns (stats, n_reads_processed).
 fn map_one_part(
@@ -1262,6 +1340,7 @@ fn map_one_part(
     if opt.seeding.mid_occ == 0 {
         opt.seeding.mid_occ = mi.cal_mid_occ(mid_occ_frac, opt.seeding.min_mid_occ, opt.seeding.max_mid_occ);
     }
+    load_junctions(opt, mi, cli)?;
 
     // SAM header: write once for single-part, or per-part for multi-part without split-prefix
     if cli.output_sam && !*sam_header_written {
@@ -1640,6 +1719,7 @@ fn map_one_part_split(
     if opt.seeding.mid_occ == 0 {
         opt.seeding.mid_occ = mi.cal_mid_occ(mid_occ_frac, opt.seeding.min_mid_occ, opt.seeding.max_mid_occ);
     }
+    load_junctions(opt, mi, run.cli)?;
 
     // stdin can't be re-read for subsequent parts
     if query_path == "-" && part_number > 1 {

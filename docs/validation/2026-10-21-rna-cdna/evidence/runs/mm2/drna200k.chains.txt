@@ -1,0 +1,4 @@
+A ${BENCH}/results/rna/mm2/drna200k.bam: reads 200,000  mapped 162,768 (81.38%)  spliced 118,950 (73.08% of mapped)  introns 741,265, annotated 97.97%  distinct introns 104,494
+B drna200k.sam: reads 200,000  mapped 162,768 (81.38%)  spliced 118,950 (73.08% of mapped)  introns 741,265, annotated 97.97%  distinct introns 104,494
+reads spliced by either: 118,950; identical intron chain 118,950 (100.00%); spliced only by A 0, only by B 0
+differing chains: higher annotated-intron share in A 0, in B 0

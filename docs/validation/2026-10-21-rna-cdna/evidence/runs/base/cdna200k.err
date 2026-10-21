@@ -1,0 +1,23 @@
+[*] Loading index from ${DATA}/rna/bf.cdna.raw...
+[*] Loaded part 1 in 0.309s — k: 15; w: 5; #seq: 195; total len: 3099922541
+[*] Mapped 200000 reads in 313.460s (1 index part)
+--- Alignment Breakdown ---
+  Sequence Sketching: 19.279s
+  Seeding (Lookup):   682.563s
+  Chaining:           158.899s
+  Alignment (Ext):    4103.703s
+  Post-chain:         7.750s
+  Total Measured:     4972.194s
+  Reads: 200000, Seeds: 169463957, Anchors: 2477628697, Chains: 275956622
+---------------------------
+--- Post-chain sub-timers ---
+  RMQ rescue:      0.034s (0 calls, 0 anchors, 0 skipped: no joinable chains)
+    of which high-occ re-chain: 0.000s (0 calls)
+  Build regs:      3.709s
+  Parent+filter:   1.080s
+  Div+strand:      1.573s
+  Squeezed+bounds: 1.324s
+  Extension probe stops: 0
+  Sub-anchored long gaps: 0
+  Narrow gap band: 0 used (0 widened), 0 too wide, 0 edge fallbacks
+-----------------------------

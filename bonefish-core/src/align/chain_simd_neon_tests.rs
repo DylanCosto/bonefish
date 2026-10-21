@@ -28,10 +28,10 @@ fn assert_matches_contiguous(
 ) {
     let (mut a1, mut a2) = (anchors.to_vec(), anchors.to_vec());
     let (u1, ch1) = unsafe {
-        chain_anchors_neon_impl::<true, true>(opt, opt.max_dist_x, opt.max_dist_y, &mut a1, bucket_ctx)
+        chain_anchors_neon_impl::<true, true, false>(opt, opt.max_dist_x, opt.max_dist_y, &mut a1, bucket_ctx)
     };
     let (u2, ch2) = unsafe {
-        chain_anchors_neon_impl::<false, false>(opt, opt.max_dist_x, opt.max_dist_y, &mut a2, contiguous_ctx)
+        chain_anchors_neon_impl::<false, false, false>(opt, opt.max_dist_x, opt.max_dist_y, &mut a2, contiguous_ctx)
     };
     assert_eq!(u1, u2, "chain scores/counts, bandwidth {}", opt.bandwidth);
     assert_eq!(ch1, ch2, "chain anchor order, bandwidth {}", opt.bandwidth);

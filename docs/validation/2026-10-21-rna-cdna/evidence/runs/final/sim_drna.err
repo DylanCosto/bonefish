@@ -1,0 +1,23 @@
+[*] Loading index from ${DATA}/rna/bf.rna.raw...
+[*] Loaded part 1 in 0.242s — k: 14; w: 5; #seq: 195; total len: 3099922541
+[*] Mapped 44787 reads in 18.773s (1 index part)
+--- Alignment Breakdown ---
+  Sequence Sketching: 1.391s
+  Seeding (Lookup):   162.681s
+  Chaining:           54.950s
+  Alignment (Ext):    52.657s
+  Post-chain:         1.145s
+  Total Measured:     272.824s
+  Reads: 44787, Seeds: 26708262, Anchors: 1245520186, Chains: 40514084
+---------------------------
+--- Post-chain sub-timers ---
+  RMQ rescue:      0.004s (0 calls, 0 anchors, 0 skipped: no joinable chains)
+    of which high-occ re-chain: 0.000s (0 calls)
+  Build regs:      0.663s
+  Parent+filter:   0.174s
+  Div+strand:      0.184s
+  Squeezed+bounds: 0.115s
+  Extension probe stops: 0
+  Sub-anchored long gaps: 0
+  Narrow gap band: 0 used (0 widened), 0 too wide, 0 edge fallbacks
+-----------------------------

@@ -1,0 +1,4 @@
+A ${BENCH}/results/rna/mm2/drna.bam: reads 902,275  mapped 728,149 (80.70%)  spliced 533,042 (73.21% of mapped)  introns 3,330,984, annotated 97.94%  distinct introns 175,690
+B drna.sam: reads 902,275  mapped 728,120 (80.70%)  spliced 532,959 (73.20% of mapped)  introns 3,329,689, annotated 97.95%  distinct introns 175,556
+reads spliced by either: 533,047; identical intron chain 531,700 (99.75%); spliced only by A 88, only by B 5
+differing chains: higher annotated-intron share in A 598, in B 265

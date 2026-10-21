@@ -1,0 +1,30 @@
+[*] Loading index from ${DATA}/rna/bf.cdna.raw...
+[*] Loaded part 1 in 0.004s — k: 15; w: 5; #seq: 195; total len: 3099922541
+[*] Mapped 200000 reads in 51.475s (1 index part)
+PROF rough flanks: 87611 exons found: 31240
+PROF left: calls 352104 cells 70.586G time 74.91s
+PROF gap: calls 2158728 cells 116.165G time 86.68s
+PROF gap_intron: calls 8489 cells 22.149G time 17.61s
+PROF rerun: calls 134 cells 2.493G time 3.14s
+PROF right: calls 352078 cells 98.968G time 106.40s
+PROF compressed(full cells avoided): calls 899017 cells 2289.722G time 231.31s
+--- Alignment Breakdown ---
+  Sequence Sketching: 10.247s
+  Seeding (Lookup):   142.918s
+  Chaining:           96.364s
+  Alignment (Ext):    543.374s
+  Post-chain:         3.904s
+  Total Measured:     796.808s
+  Reads: 200000, Seeds: 169463957, Anchors: 2477628697, Chains: 275956622
+---------------------------
+--- Post-chain sub-timers ---
+  RMQ rescue:      0.010s (0 calls, 0 anchors, 0 skipped: no joinable chains)
+    of which high-occ re-chain: 0.000s (0 calls)
+  Build regs:      1.814s
+  Parent+filter:   0.478s
+  Div+strand:      0.945s
+  Squeezed+bounds: 0.632s
+  Extension probe stops: 0
+  Sub-anchored long gaps: 0
+  Narrow gap band: 0 used (0 widened), 0 too wide, 0 edge fallbacks
+-----------------------------

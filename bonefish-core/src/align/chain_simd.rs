@@ -6,6 +6,11 @@
 //!
 //! This guarantees bit-exact output with the scalar implementation while
 //! getting 3-5x speedup on the score computation hot path.
+//!
+//! The x86_64 and aarch64 chainers and score kernels take a `CDNA` const parameter: `true`
+//! reproduces the spliced (RNA/cDNA) scalar chainer behind `chain_anchors_cdna` (intron-friendly
+//! gap score, query-gap limit below the bandwidth, skip heuristic always on, no z-drop cut in
+//! the backtrack). The spliced scan has its own score kernels (`chain_scores_spliced_*`).
 
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::*;
@@ -16,7 +21,7 @@ use std::arch::aarch64::*;
 #[cfg(target_arch = "wasm32")]
 use std::arch::wasm32::*;
 
-use crate::align::chain::{chain_backtrack, compute_chain_score, fast_log2};
+use crate::align::chain::{chain_backtrack, chain_score, fast_log2};
 use crate::align::map::{ChainingParams, ChainingBuffers};
 use crate::align::sketch::Minimizer;
 use crate::align::sort::radix_sort_128x;
@@ -60,7 +65,7 @@ unsafe fn simd_fast_log2_avx2(x: __m256) -> __m256 {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 #[allow(clippy::too_many_arguments)]
-unsafe fn compute_chain_scores_batch_avx2(
+unsafe fn compute_chain_scores_batch_avx2<const CDNA: bool>(
     qi: i32,
     ri: i32,
     rid_strand_i: u32,
@@ -171,9 +176,14 @@ unsafe fn compute_chain_scores_batch_avx2(
         // Mask: zero out log_pen where gap_width == 0
         let log_pen = _mm256_and_ps(_mm256_castsi256_ps(gw_gt_zero), log2_val);
 
-        // total_pen = lin_pen + 0.5 * log_pen
+        // total_pen = lin_pen + 0.5 * log_pen; with CDNA, min(lin_pen, log_pen) where the
+        // reference gap is the longer (`_mm256_min_ps(a, b)` is `a < b ? a : b`, as in the scalar)
         let half_log = _mm256_mul_ps(half_v, log_pen);
-        let total_pen = _mm256_add_ps(lin_pen, half_log);
+        let mut total_pen = _mm256_add_ps(lin_pen, half_log);
+        if CDNA {
+            let longer_ref = _mm256_castsi256_ps(_mm256_cmpgt_epi32(rdiff, qdiff));
+            total_pen = _mm256_blendv_ps(total_pen, _mm256_min_ps(lin_pen, log_pen), longer_ref);
+        }
 
         // Convert to i32 (truncation toward zero, matches Rust `as i32`)
         let pen_i32 = _mm256_cvttps_epi32(total_pen);
@@ -231,7 +241,12 @@ unsafe fn compute_chain_scores_batch_avx2(
             } else {
                 0.0f32
             };
-            sc -= (lin_pen + 0.5f32 * log_pen) as i32;
+            let pen = if CDNA && ref_diff > query_diff {
+                if lin_pen < log_pen { lin_pen } else { log_pen }
+            } else {
+                lin_pen + 0.5f32 * log_pen
+            };
+            sc -= pen as i32;
         }
 
         sc_buf[j] = sc;
@@ -341,7 +356,7 @@ impl DiagBuckets {
 #[target_feature(enable = "avx2")]
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::needless_range_loop)] // tail loop over sc_buf[j..end] builds a lane mask from k
-unsafe fn chain_scores_masked_avx2(
+unsafe fn chain_scores_masked_avx2<const CDNA: bool>(
     qi: i32, ri: i32, rid_strand_i: u32, diag_i: i32,
     soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32], soa_rid_strand: &[u32], soa_diag: &[i32],
     max_dist_x: i32, max_dist_y: i32, bw: i32, chn_pen_gap: f32, chn_pen_skip: f32,
@@ -399,7 +414,11 @@ unsafe fn chain_scores_masked_avx2(
                                     _mm256_mul_ps(pen_skip_v, _mm256_cvtepi32_ps(min_diff)));
         let log2_val = simd_fast_log2_avx2(_mm256_cvtepi32_ps(_mm256_add_epi32(gap_w, one_v)));
         let log_pen = _mm256_and_ps(_mm256_castsi256_ps(gw_gt_zero), log2_val);
-        let total_pen = _mm256_add_ps(lin_pen, _mm256_mul_ps(half_v, log_pen));
+        let mut total_pen = _mm256_add_ps(lin_pen, _mm256_mul_ps(half_v, log_pen));
+        if CDNA {
+            let longer_ref = _mm256_castsi256_ps(_mm256_cmpgt_epi32(rdiff, qdiff));
+            total_pen = _mm256_blendv_ps(total_pen, _mm256_min_ps(lin_pen, log_pen), longer_ref);
+        }
         let pen_i32 = _mm256_cvttps_epi32(total_pen);
         score = _mm256_sub_epi32(score, _mm256_and_si256(needs_pen, pen_i32));
         score = _mm256_blendv_epi8(min_val_v, score, valid);
@@ -408,7 +427,7 @@ unsafe fn chain_scores_masked_avx2(
         j += 8;
     }
     if j < end {
-        compute_chain_scores_batch_avx2(qi, ri, rid_strand_i, soa_ref_pos, soa_query_pos, soa_query_span, soa_rid_strand,
+        compute_chain_scores_batch_avx2::<CDNA>(qi, ri, rid_strand_i, soa_ref_pos, soa_query_pos, soa_query_span, soa_rid_strand,
             max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip, sc_buf, j, end);
         for k in j..end {
             if sc_buf[k] != i32::MIN { mask |= 1u64 << (k - start); }
@@ -417,12 +436,86 @@ unsafe fn chain_scores_masked_avx2(
     mask
 }}
 
-/// AVX2 SIMD-optimized chaining.
-/// Phase 1: Batch-compute scores with SIMD. Phase 2: Scalar skip/visited logic.
-/// Produces bit-exact output matching `chain_anchors_scalar`.
+/// Spliced (CDNA) scoring of one scan chunk `[start, end)` of at most 64 candidates, returning
+/// the valid-candidate bitmask as `chain_scores_masked_avx2::<true>` does for candidates on
+/// anchor i's target and strand, which all chunk candidates are (the anchor window guarantees
+/// it), so targets are not compared. The 200 kb bandwidth leaves almost every candidate in band,
+/// so there is no band pre-test; instead the eight-lane groups are aligned to the top of the
+/// chunk and the lowest group's lanes below `start` (or above `end`, for a chunk ending below
+/// index 8) are masked off, so even a short window is one vector step. A group may thus store
+/// scores outside `[start, end)` (candidates of the same anchor, recomputed before they are
+/// read). Needs `sc_buf.len() >= 8` and the SoA arrays as long.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
-pub(crate) unsafe fn chain_anchors_avx2(
+#[allow(clippy::too_many_arguments)]
+unsafe fn chain_scores_spliced_avx2(
+    qi: i32, ri: i32,
+    soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32],
+    max_dist_x: i32, max_dist_y: i32, bw: i32, chn_pen_gap: f32, chn_pen_skip: f32,
+    sc_buf: &mut [i32], start: usize, end: usize,
+) -> u64 { unsafe {
+    debug_assert!(end - start <= 64 && end <= sc_buf.len() && sc_buf.len() >= 8);
+    debug_assert!(soa_ref_pos.len() >= sc_buf.len() && soa_query_pos.len() >= sc_buf.len()
+        && soa_query_span.len() >= sc_buf.len());
+    let qi_v = _mm256_set1_epi32(qi);
+    let ri_v = _mm256_set1_epi32(ri);
+    let max_dx_v = _mm256_set1_epi32(max_dist_x);
+    let max_dy_v = _mm256_set1_epi32(max_dist_y);
+    let bw_v = _mm256_set1_epi32(bw);
+    let zero_v = _mm256_setzero_si256();
+    let one_v = _mm256_set1_epi32(1);
+    let pen_gap_v = _mm256_set1_ps(chn_pen_gap);
+    let pen_skip_v = _mm256_set1_ps(chn_pen_skip);
+    let half_v = _mm256_set1_ps(0.5f32);
+    let mut mask = 0u64;
+    let mut hi = end;
+    while hi > start {
+        let lo = hi.max(8) - 8;
+        // Lanes of candidates lo..lo + 8 inside [start, hi).
+        let lanes = (0xffu32 << start.saturating_sub(lo)) & (0xffu32 >> (lo + 8 - hi));
+        let qj_v = _mm256_loadu_si256(soa_query_pos.as_ptr().add(lo) as *const __m256i);
+        let rj_v = _mm256_loadu_si256(soa_ref_pos.as_ptr().add(lo) as *const __m256i);
+        let span_v = _mm256_loadu_si256(soa_query_span.as_ptr().add(lo) as *const __m256i);
+        let qdiff = _mm256_sub_epi32(qi_v, qj_v);
+        let rdiff = _mm256_sub_epi32(ri_v, rj_v);
+        let gap_w = _mm256_abs_epi32(_mm256_sub_epi32(rdiff, qdiff));
+        let mut valid = _mm256_cmpgt_epi32(qdiff, zero_v);
+        valid = _mm256_andnot_si256(_mm256_cmpgt_epi32(qdiff, max_dx_v), valid);
+        valid = _mm256_andnot_si256(_mm256_cmpeq_epi32(rdiff, zero_v), valid);
+        valid = _mm256_andnot_si256(_mm256_cmpgt_epi32(qdiff, max_dy_v), valid);
+        valid = _mm256_andnot_si256(_mm256_cmpgt_epi32(gap_w, bw_v), valid);
+        let vm = _mm256_movemask_ps(_mm256_castsi256_ps(valid)) as u32 & lanes;
+        if vm != 0 {
+            let min_diff = _mm256_min_epi32(rdiff, qdiff);
+            let mut score = _mm256_min_epi32(span_v, min_diff);
+            let gw_gt_zero = _mm256_cmpgt_epi32(gap_w, zero_v);
+            let needs_pen = _mm256_or_si256(gw_gt_zero, _mm256_cmpgt_epi32(min_diff, span_v));
+            let lin_pen = _mm256_add_ps(_mm256_mul_ps(pen_gap_v, _mm256_cvtepi32_ps(gap_w)),
+                                        _mm256_mul_ps(pen_skip_v, _mm256_cvtepi32_ps(min_diff)));
+            let log2_val = simd_fast_log2_avx2(_mm256_cvtepi32_ps(_mm256_add_epi32(gap_w, one_v)));
+            let log_pen = _mm256_and_ps(_mm256_castsi256_ps(gw_gt_zero), log2_val);
+            // min(lin_pen, log_pen) where the reference gap is the longer, else lin_pen + log_pen / 2
+            // (`_mm256_min_ps(a, b)` is `a < b ? a : b`, as in the scalar)
+            let longer_ref = _mm256_castsi256_ps(_mm256_cmpgt_epi32(rdiff, qdiff));
+            let total_pen = _mm256_blendv_ps(_mm256_add_ps(lin_pen, _mm256_mul_ps(half_v, log_pen)),
+                                             _mm256_min_ps(lin_pen, log_pen), longer_ref);
+            let pen_i32 = _mm256_cvttps_epi32(total_pen);
+            score = _mm256_sub_epi32(score, _mm256_and_si256(needs_pen, pen_i32));
+            _mm256_storeu_si256(sc_buf.as_mut_ptr().add(lo) as *mut __m256i, score);
+            mask |= if lo >= start { (vm as u64) << (lo - start) } else { (vm >> (start - lo)) as u64 };
+        }
+        hi = lo;
+    }
+    mask
+}}
+
+/// AVX2 SIMD-optimized chaining.
+/// Phase 1: Batch-compute scores with SIMD. Phase 2: Scalar skip/visited logic.
+/// Produces bit-exact output matching `chain_anchors_scalar` (with `CDNA`, the scalar spliced
+/// chainer).
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+pub(crate) unsafe fn chain_anchors_avx2<const CDNA: bool>(
     opt: &ChainingParams,
     max_dist_x: i32,
     max_dist_y: i32,
@@ -440,12 +533,14 @@ pub(crate) unsafe fn chain_anchors_avx2(
     if max_dist_x < bw {
         max_dist_x = bw;
     }
-    if max_dist_y < bw {
+    if max_dist_y < bw && !CDNA {
         max_dist_y = bw;
     }
 
-    let real_max_drop = bw; // non-cdna path
-    let no_chain_skip = opt.max_chain_skip <= 0;
+    let real_max_drop = if CDNA { i32::MAX } else { bw };
+    // Genomic chaining without the skip heuristic takes a fast path; the spliced chainer always
+    // applies it, as the scalar chainer does.
+    let no_chain_skip = !CDNA && opt.max_chain_skip <= 0;
 
     // --- Extract SoA fields from AoS Minimizer array ---
     let mut soa_ref_pos = std::mem::take(&mut ctx.soa_ref_pos);
@@ -462,12 +557,17 @@ pub(crate) unsafe fn chain_anchors_avx2(
     soa_rid_strand.resize(n, 0);
     soa_sc_buf.resize(n, 0);
 
+    // The spliced scan scores top-aligned eight-lane groups (see chain_scores_spliced_avx2), which
+    // read neither targets nor diagonals.
+    let spliced_groups = CDNA && n >= 8;
     for j in 0..n {
         soa_ref_pos[j] = a[j].ref_pos();
         soa_query_pos[j] = a[j].query_pos();
         soa_query_span[j] = a[j].query_span();
-        soa_rid_strand[j] = (a[j].x >> 32) as u32;
-        soa_diag[j] = soa_ref_pos[j].wrapping_sub(soa_query_pos[j]);
+        if !spliced_groups {
+            soa_rid_strand[j] = (a[j].x >> 32) as u32;
+            soa_diag[j] = soa_ref_pos[j].wrapping_sub(soa_query_pos[j]);
+        }
     }
 
     // --- DP buffers ---
@@ -486,7 +586,10 @@ pub(crate) unsafe fn chain_anchors_avx2(
     let mut best_anchor_idx: i64 = -1;
 
     let mut bk = std::mem::take(&mut ctx.diag_buckets);
-    let use_buckets = !no_chain_skip && n >= DIAG_BUCKET_MIN_N && {
+    // The spliced chainer's bandwidth (200 kb) keeps nearly every window candidate in band, where
+    // the bucket merge only adds work (chaining 1.5x slower on direct RNA, 2.5x on cDNA): it uses
+    // the contiguous scan only.
+    let use_buckets = !CDNA && !no_chain_skip && n >= DIAG_BUCKET_MIN_N && {
         let (lo, hi) = soa_query_pos.iter().fold((i32::MAX, i32::MIN), |(l, h), &q| (l.min(q), h.max(q)));
         n >= DIAG_BUCKET_MIN_DENSITY * (hi - lo + 1).max(1) as usize
     };
@@ -517,7 +620,7 @@ pub(crate) unsafe fn chain_anchors_avx2(
         if no_chain_skip {
             // No early termination — compute all scores, then scan
             if i > window_start {
-                compute_chain_scores_batch_avx2(
+                compute_chain_scores_batch_avx2::<CDNA>(
                     soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
                     &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
                     max_dist_x, max_dist_y, bw,
@@ -569,7 +672,7 @@ pub(crate) unsafe fn chain_anchors_avx2(
                     bk.g_span.push(soa_query_span[j]); bk.g_rid.push(soa_rid_strand[j]);
                 }
                 bk.g_sc.resize(m, 0);
-                compute_chain_scores_batch_avx2(
+                compute_chain_scores_batch_avx2::<CDNA>(
                     soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
                     &bk.g_ref, &bk.g_qry, &bk.g_span, &bk.g_rid,
                     max_dist_x, max_dist_y, bw,
@@ -605,7 +708,7 @@ pub(crate) unsafe fn chain_anchors_avx2(
             }
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
-                let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
+                let sc = chain_score::<CDNA>(&a[i], &a[best_anchor_idx as usize],
                     max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
@@ -626,13 +729,23 @@ pub(crate) unsafe fn chain_anchors_avx2(
 
                 // Bit b set: candidate chunk_start + b scored (invalid ones, mostly off the band,
                 // are no-ops below), so only those are visited, in the same descending order.
-                let mut valid = chain_scores_masked_avx2(
-                    soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i], soa_diag[i],
-                    &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand, &soa_diag,
-                    max_dist_x, max_dist_y, bw,
-                    opt.chn_pen_gap, opt.chn_pen_skip,
-                    &mut soa_sc_buf, chunk_start, chunk_end,
-                );
+                let mut valid = if spliced_groups {
+                    chain_scores_spliced_avx2(
+                        soa_query_pos[i], soa_ref_pos[i],
+                        &soa_ref_pos, &soa_query_pos, &soa_query_span,
+                        max_dist_x, max_dist_y, bw,
+                        opt.chn_pen_gap, opt.chn_pen_skip,
+                        &mut soa_sc_buf, chunk_start, chunk_end,
+                    )
+                } else {
+                    chain_scores_masked_avx2::<CDNA>(
+                        soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i], soa_diag[i],
+                        &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand, &soa_diag,
+                        max_dist_x, max_dist_y, bw,
+                        opt.chn_pen_gap, opt.chn_pen_skip,
+                        &mut soa_sc_buf, chunk_start, chunk_end,
+                    )
+                };
                 // SAFETY: j < i < n and predecessors[j] < j, all within the n-sized buffers.
                 let (scb, scr, vis, pre) = (soa_sc_buf.as_ptr(), scores.as_ptr(), visited.as_mut_ptr(), predecessors.as_ptr());
                 while valid != 0 {
@@ -667,7 +780,7 @@ pub(crate) unsafe fn chain_anchors_avx2(
             }
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
-                let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
+                let sc = chain_score::<CDNA>(&a[i], &a[best_anchor_idx as usize],
                     max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
@@ -833,7 +946,7 @@ unsafe fn sse2_min_epi32(a: __m128i, b: __m128i) -> __m128i {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
 #[allow(clippy::too_many_arguments)]
-unsafe fn compute_chain_scores_batch_sse(
+unsafe fn compute_chain_scores_batch_sse<const CDNA: bool>(
     qi: i32, ri: i32, rid_strand_i: u32,
     soa_ref_pos: &[i32], soa_query_pos: &[i32],
     soa_query_span: &[i32], soa_rid_strand: &[u32],
@@ -895,7 +1008,14 @@ unsafe fn compute_chain_scores_batch_sse(
         let log2_val = simd_fast_log2_sse(gw_plus1_f);
         let log_pen = _mm_and_ps(_mm_castsi128_ps(gw_gt_zero), log2_val);
 
-        let total_pen = _mm_add_ps(lin_pen, _mm_mul_ps(half_v, log_pen));
+        let mut total_pen = _mm_add_ps(lin_pen, _mm_mul_ps(half_v, log_pen));
+        if CDNA {
+            // min(lin_pen, log_pen) where the reference gap is the longer (`_mm_min_ps(a, b)` is
+            // `a < b ? a : b`, as in the scalar)
+            let longer_ref = _mm_castsi128_ps(_mm_cmpgt_epi32(rdiff, qdiff));
+            total_pen = _mm_or_ps(_mm_and_ps(longer_ref, _mm_min_ps(lin_pen, log_pen)),
+                                  _mm_andnot_ps(longer_ref, total_pen));
+        }
         let pen_i32 = _mm_cvttps_epi32(total_pen);
 
         let pen_masked = _mm_and_si128(needs_pen, pen_i32);
@@ -932,7 +1052,12 @@ unsafe fn compute_chain_scores_batch_sse(
         if gap_width > 0 || min_diff > span_j {
             let lin_pen = chn_pen_gap * (gap_width as f32) + chn_pen_skip * (min_diff as f32);
             let log_pen = if gap_width >= 1 { fast_log2((gap_width + 1) as f32) } else { 0.0f32 };
-            sc -= (lin_pen + 0.5f32 * log_pen) as i32;
+            let pen = if CDNA && ref_diff > query_diff {
+                if lin_pen < log_pen { lin_pen } else { log_pen }
+            } else {
+                lin_pen + 0.5f32 * log_pen
+            };
+            sc -= pen as i32;
         }
         sc_buf[j] = sc;
         j += 1;
@@ -942,7 +1067,7 @@ unsafe fn compute_chain_scores_batch_sse(
 /// SSE2 SIMD-optimized chaining — 4-wide, for x86_64 CPUs without AVX2.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "sse2")]
-pub(crate) unsafe fn chain_anchors_sse(
+pub(crate) unsafe fn chain_anchors_sse<const CDNA: bool>(
     opt: &ChainingParams,
     max_dist_x: i32,
     max_dist_y: i32,
@@ -956,10 +1081,10 @@ pub(crate) unsafe fn chain_anchors_sse(
     let mut max_dist_x = max_dist_x;
     let mut max_dist_y = max_dist_y;
     if max_dist_x < bw { max_dist_x = bw; }
-    if max_dist_y < bw { max_dist_y = bw; }
+    if max_dist_y < bw && !CDNA { max_dist_y = bw; }
 
-    let real_max_drop = bw;
-    let no_chain_skip = opt.max_chain_skip <= 0;
+    let real_max_drop = if CDNA { i32::MAX } else { bw };
+    let no_chain_skip = !CDNA && opt.max_chain_skip <= 0;
 
     let mut soa_ref_pos = std::mem::take(&mut ctx.soa_ref_pos);
     let mut soa_query_pos = std::mem::take(&mut ctx.soa_query_pos);
@@ -1008,7 +1133,7 @@ pub(crate) unsafe fn chain_anchors_sse(
         if no_chain_skip {
             // No early termination possible — compute all scores, then scan
             if i > window_start {
-                compute_chain_scores_batch_sse(
+                compute_chain_scores_batch_sse::<CDNA>(
                     soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
                     &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
                     max_dist_x, max_dist_y, bw,
@@ -1037,7 +1162,7 @@ pub(crate) unsafe fn chain_anchors_sse(
                     window_start
                 };
 
-                compute_chain_scores_batch_sse(
+                compute_chain_scores_batch_sse::<CDNA>(
                     soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
                     &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
                     max_dist_x, max_dist_y, bw,
@@ -1075,7 +1200,7 @@ pub(crate) unsafe fn chain_anchors_sse(
             }
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
-                let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
+                let sc = chain_score::<CDNA>(&a[i], &a[best_anchor_idx as usize],
                     max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
@@ -1175,7 +1300,7 @@ unsafe fn simd_fast_log2_avx512(x: __m512) -> __m512 {
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f", enable = "avx512bw")]
 #[allow(clippy::too_many_arguments)]
-unsafe fn compute_chain_scores_batch_avx512(
+unsafe fn compute_chain_scores_batch_avx512<const CDNA: bool>(
     qi: i32, ri: i32, rid_strand_i: u32,
     soa_ref_pos: &[i32], soa_query_pos: &[i32],
     soa_query_span: &[i32], soa_rid_strand: &[u32],
@@ -1248,7 +1373,12 @@ unsafe fn compute_chain_scores_batch_avx512(
         let gw_gt_zero = _mm512_cmpgt_epi32_mask(gap_w, zero_v);
         let log_pen = _mm512_maskz_mov_ps(gw_gt_zero, log2_val);
 
-        let total_pen = _mm512_add_ps(lin_pen, _mm512_mul_ps(half_v, log_pen));
+        let mut total_pen = _mm512_add_ps(lin_pen, _mm512_mul_ps(half_v, log_pen));
+        if CDNA {
+            // min(lin_pen, log_pen) where the reference gap is the longer (`vminps` is
+            // `a < b ? a : b`, as in the scalar)
+            total_pen = _mm512_mask_min_ps(total_pen, _mm512_cmpgt_epi32_mask(rdiff, qdiff), lin_pen, log_pen);
+        }
         let pen_i32 = _mm512_cvttps_epi32(total_pen);
 
         // Apply penalty only where needs_pen
@@ -1264,7 +1394,7 @@ unsafe fn compute_chain_scores_batch_avx512(
 
     // Tails go through the AVX2 kernel, so its eight-lane/scalar boundaries are reproduced.
     if j < end {
-        compute_chain_scores_batch_avx2(qi, ri, rid_strand_i,
+        compute_chain_scores_batch_avx2::<CDNA>(qi, ri, rid_strand_i,
             soa_ref_pos, soa_query_pos, soa_query_span, soa_rid_strand,
             max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip, sc_buf, j, end);
     }
@@ -1355,7 +1485,7 @@ unsafe fn chain_scores_bucket_direct_avx512<const UNIFORM: bool>(
             tail_ref[t] = ri.wrapping_sub(qi.wrapping_sub(qk).wrapping_add(delta));
             tail_span[t] = if UNIFORM { uniform_span } else { *span.get_unchecked(k) };
         }
-        compute_chain_scores_batch_avx2(qi, ri, rid,
+        compute_chain_scores_batch_avx2::<false>(qi, ri, rid,
             &tail_ref[..m], &tail_qry[..m], &tail_span[..m], &tail_rid[..m],
             max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip, &mut sc_buf[j..], 0, m);
     }
@@ -1516,7 +1646,7 @@ unsafe fn bucket_merge_filter16_diag32(
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx2")]
 #[allow(clippy::too_many_arguments)]
-unsafe fn chain_scores_masked_avx512(
+unsafe fn chain_scores_masked_avx512<const CDNA: bool>(
     qi: i32, ri: i32, rid_strand_i: u32, diag_i: i32,
     soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32], soa_rid_strand: &[u32], soa_diag: &[i32],
     max_dist_x: i32, max_dist_y: i32, bw: i32, chn_pen_gap: f32, chn_pen_skip: f32,
@@ -1572,7 +1702,12 @@ unsafe fn chain_scores_masked_avx512(
                                     _mm512_mul_ps(pen_skip_v, _mm512_cvtepi32_ps(min_diff)));
         let log2_val = simd_fast_log2_avx512(_mm512_cvtepi32_ps(_mm512_add_epi32(gap_w, one_v)));
         let log_pen = _mm512_maskz_mov_ps(gw_gt_zero, log2_val);
-        let total_pen = _mm512_add_ps(lin_pen, _mm512_mul_ps(half_v, log_pen));
+        let mut total_pen = _mm512_add_ps(lin_pen, _mm512_mul_ps(half_v, log_pen));
+        if CDNA {
+            // min(lin_pen, log_pen) where the reference gap is the longer (`vminps` is
+            // `a < b ? a : b`, as in the scalar)
+            total_pen = _mm512_mask_min_ps(total_pen, _mm512_cmpgt_epi32_mask(rdiff, qdiff), lin_pen, log_pen);
+        }
         let pen_i32 = _mm512_cvttps_epi32(total_pen);
         score = _mm512_sub_epi32(score, _mm512_maskz_mov_epi32(needs_pen, pen_i32));
         score = _mm512_mask_blend_epi32(valid, min_val_v, score);
@@ -1582,10 +1717,78 @@ unsafe fn chain_scores_masked_avx512(
     }
     // Tails go through the AVX2 kernel, so its eight-lane/scalar boundaries are reproduced.
     if j < end {
-        mask |= chain_scores_masked_avx2(qi, ri, rid_strand_i, diag_i,
+        mask |= chain_scores_masked_avx2::<CDNA>(qi, ri, rid_strand_i, diag_i,
             soa_ref_pos, soa_query_pos, soa_query_span, soa_rid_strand, soa_diag,
             max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip, sc_buf, j, end)
             << (j - start);
+    }
+    mask
+}}
+
+/// `chain_scores_spliced_avx2` with sixteen-lane groups: spliced (CDNA) scoring of one scan
+/// chunk `[start, end)` of at most 64 candidates on anchor i's target and strand, groups aligned
+/// to the top of the chunk, lanes outside `[start, end)` masked off. Scores of candidates outside
+/// the chunk may be stored (see the AVX2 kernel). Needs `sc_buf.len() >= 16` and the SoA arrays
+/// as long.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f", enable = "avx512bw")]
+#[allow(clippy::too_many_arguments)]
+unsafe fn chain_scores_spliced_avx512(
+    qi: i32, ri: i32,
+    soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32],
+    max_dist_x: i32, max_dist_y: i32, bw: i32, chn_pen_gap: f32, chn_pen_skip: f32,
+    sc_buf: &mut [i32], start: usize, end: usize,
+) -> u64 { unsafe {
+    debug_assert!(end - start <= 64 && end <= sc_buf.len() && sc_buf.len() >= 16);
+    debug_assert!(soa_ref_pos.len() >= sc_buf.len() && soa_query_pos.len() >= sc_buf.len()
+        && soa_query_span.len() >= sc_buf.len());
+    let qi_v = _mm512_set1_epi32(qi);
+    let ri_v = _mm512_set1_epi32(ri);
+    let max_dx_v = _mm512_set1_epi32(max_dist_x);
+    let max_dy_v = _mm512_set1_epi32(max_dist_y);
+    let bw_v = _mm512_set1_epi32(bw);
+    let zero_v = _mm512_setzero_si512();
+    let one_v = _mm512_set1_epi32(1);
+    let pen_gap_v = _mm512_set1_ps(chn_pen_gap);
+    let pen_skip_v = _mm512_set1_ps(chn_pen_skip);
+    let half_v = _mm512_set1_ps(0.5f32);
+    let mut mask = 0u64;
+    let mut hi = end;
+    while hi > start {
+        let lo = hi.max(16) - 16;
+        // Lanes of candidates lo..lo + 16 inside [start, hi).
+        let lanes = ((0xffffu32 << start.saturating_sub(lo)) & (0xffffu32 >> (lo + 16 - hi))) as __mmask16;
+        let qj_v = _mm512_loadu_si512(soa_query_pos.as_ptr().add(lo) as *const __m512i);
+        let rj_v = _mm512_loadu_si512(soa_ref_pos.as_ptr().add(lo) as *const __m512i);
+        let span_v = _mm512_loadu_si512(soa_query_span.as_ptr().add(lo) as *const __m512i);
+        let qdiff = _mm512_sub_epi32(qi_v, qj_v);
+        let rdiff = _mm512_sub_epi32(ri_v, rj_v);
+        let gap_w = _mm512_abs_epi32(_mm512_sub_epi32(rdiff, qdiff));
+        let mut valid = lanes & _mm512_cmpgt_epi32_mask(qdiff, zero_v);
+        valid &= !_mm512_cmpgt_epi32_mask(qdiff, max_dx_v);
+        valid &= !_mm512_cmpeq_epi32_mask(rdiff, zero_v);
+        valid &= !_mm512_cmpgt_epi32_mask(qdiff, max_dy_v);
+        valid &= !_mm512_cmpgt_epi32_mask(gap_w, bw_v);
+        if valid != 0 {
+            let min_diff = _mm512_min_epi32(rdiff, qdiff);
+            let mut score = _mm512_min_epi32(span_v, min_diff);
+            let gw_gt_zero = _mm512_cmpgt_epi32_mask(gap_w, zero_v);
+            let needs_pen = gw_gt_zero | _mm512_cmpgt_epi32_mask(min_diff, span_v);
+            let lin_pen = _mm512_add_ps(_mm512_mul_ps(pen_gap_v, _mm512_cvtepi32_ps(gap_w)),
+                                        _mm512_mul_ps(pen_skip_v, _mm512_cvtepi32_ps(min_diff)));
+            let log2_val = simd_fast_log2_avx512(_mm512_cvtepi32_ps(_mm512_add_epi32(gap_w, one_v)));
+            let log_pen = _mm512_maskz_mov_ps(gw_gt_zero, log2_val);
+            // min(lin_pen, log_pen) where the reference gap is the longer, else lin_pen + log_pen / 2
+            // (`vminps` is `a < b ? a : b`, as in the scalar)
+            let total_pen = _mm512_mask_min_ps(_mm512_add_ps(lin_pen, _mm512_mul_ps(half_v, log_pen)),
+                _mm512_cmpgt_epi32_mask(rdiff, qdiff), lin_pen, log_pen);
+            let pen_i32 = _mm512_cvttps_epi32(total_pen);
+            score = _mm512_sub_epi32(score, _mm512_maskz_mov_epi32(needs_pen, pen_i32));
+            _mm512_storeu_si512(sc_buf.as_mut_ptr().add(lo) as *mut __m512i, score);
+            let vm = valid as u32;
+            mask |= if lo >= start { (vm as u64) << (lo - start) } else { (vm >> (start - lo)) as u64 };
+        }
+        hi = lo;
     }
     mask
 }}
@@ -1661,7 +1864,7 @@ unsafe fn advance_nonimproving_block16(
 /// without them, or an input too large for i32 gather indices, uses the AVX2 chainer instead.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512bw,avx2")]
-pub(crate) unsafe fn chain_anchors_avx512(
+pub(crate) unsafe fn chain_anchors_avx512<const CDNA: bool>(
     opt: &ChainingParams,
     max_dist_x: i32,
     max_dist_y: i32,
@@ -1673,9 +1876,9 @@ pub(crate) unsafe fn chain_anchors_avx512(
             && is_x86_feature_detected!("popcnt")
             && a.len() <= i32::MAX as usize
         {
-            chain_anchors_avx512_impl(opt, max_dist_x, max_dist_y, a, ctx)
+            chain_anchors_avx512_impl::<CDNA>(opt, max_dist_x, max_dist_y, a, ctx)
         } else {
-            chain_anchors_avx2(opt, max_dist_x, max_dist_y, a, ctx)
+            chain_anchors_avx2::<CDNA>(opt, max_dist_x, max_dist_y, a, ctx)
         }
     }
 }
@@ -1685,7 +1888,7 @@ pub(crate) unsafe fn chain_anchors_avx512(
 /// candidates. Requires `a.len() <= i32::MAX`.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512bw,avx2,bmi2,popcnt")]
-unsafe fn chain_anchors_avx512_impl(
+unsafe fn chain_anchors_avx512_impl<const CDNA: bool>(
     opt: &ChainingParams,
     max_dist_x: i32,
     max_dist_y: i32,
@@ -1704,12 +1907,12 @@ unsafe fn chain_anchors_avx512_impl(
     if max_dist_x < bw {
         max_dist_x = bw;
     }
-    if max_dist_y < bw {
+    if max_dist_y < bw && !CDNA {
         max_dist_y = bw;
     }
 
-    let real_max_drop = bw;
-    let no_chain_skip = opt.max_chain_skip <= 0;
+    let real_max_drop = if CDNA { i32::MAX } else { bw };
+    let no_chain_skip = !CDNA && opt.max_chain_skip <= 0;
 
     // --- Extract SoA fields from AoS Minimizer array ---
     let mut soa_ref_pos = std::mem::take(&mut ctx.soa_ref_pos);
@@ -1724,7 +1927,11 @@ unsafe fn chain_anchors_avx512_impl(
     soa_query_span.resize(n, 0);
     soa_rid_strand.resize(n, 0);
     soa_sc_buf.resize(n, 0);
-    if !no_chain_skip {
+    // The spliced scan scores top-aligned groups (see chain_scores_spliced_avx512), which read
+    // neither targets nor diagonals.
+    let spliced_groups = CDNA && n >= 16;
+    let need_diag = !no_chain_skip && !spliced_groups;
+    if need_diag {
         soa_diag.resize(n, 0);
     }
 
@@ -1732,8 +1939,10 @@ unsafe fn chain_anchors_avx512_impl(
         soa_ref_pos[j] = a[j].ref_pos();
         soa_query_pos[j] = a[j].query_pos();
         soa_query_span[j] = a[j].query_span();
-        soa_rid_strand[j] = (a[j].x >> 32) as u32;
-        if !no_chain_skip {
+        if !spliced_groups {
+            soa_rid_strand[j] = (a[j].x >> 32) as u32;
+        }
+        if need_diag {
             soa_diag[j] = soa_ref_pos[j].wrapping_sub(soa_query_pos[j]);
         }
     }
@@ -1755,7 +1964,8 @@ unsafe fn chain_anchors_avx512_impl(
     let mut best_anchor_idx: i64 = -1;
 
     let mut bk = std::mem::take(&mut ctx.diag_buckets);
-    let use_buckets = !no_chain_skip && n >= DIAG_BUCKET_MIN_N && {
+    // The spliced chainer uses the contiguous scan only (see the AVX2 chainer).
+    let use_buckets = !CDNA && !no_chain_skip && n >= DIAG_BUCKET_MIN_N && {
         let (lo, hi) = soa_query_pos.iter().fold((i32::MAX, i32::MIN), |(l, h), &q| (l.min(q), h.max(q)));
         // The score kernels use wrapping i32 position differences, which the i64 bucket
         // diagonals match only without a signed-coordinate wrap; otherwise use the contiguous
@@ -1773,8 +1983,9 @@ unsafe fn chain_anchors_avx512_impl(
         bk.g_idx.reserve(64usize.saturating_sub(bk.g_idx.len()));
         uniform_span = bucket_uniform_span(&soa_query_span);
     }
-    // advance_nonimproving_block16 needs the skip count to stay 16 below i32::MAX.
-    let block_walk = opt.max_chain_skip <= i32::MAX - 16;
+    // advance_nonimproving_block16 needs 0 <= skip limit <= i32::MAX - 16 (a negative limit only
+    // reaches the scan in the spliced chainer, which has no no-skip fast path).
+    let block_walk = (0..=i32::MAX - 16).contains(&opt.max_chain_skip);
 
     for i in 0..n {
         let mut best_predecessor: i64 = -1;
@@ -1800,7 +2011,7 @@ unsafe fn chain_anchors_avx512_impl(
 
         if no_chain_skip {
             if i > window_start {
-                compute_chain_scores_batch_avx512(
+                compute_chain_scores_batch_avx512::<CDNA>(
                     soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
                     &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
                     max_dist_x, max_dist_y, bw,
@@ -1925,12 +2136,21 @@ unsafe fn chain_anchors_avx512_impl(
                 let chunk_start = if chunk_end >= window_start + csize { chunk_end - csize } else { window_start };
                 csize = CHUNK_SIZE;
 
-                let mut valid = chain_scores_masked_avx512(
-                    soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i], soa_diag[i],
-                    &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand, &soa_diag,
-                    max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
-                    &mut soa_sc_buf, chunk_start, chunk_end,
-                );
+                let mut valid = if spliced_groups {
+                    chain_scores_spliced_avx512(
+                        soa_query_pos[i], soa_ref_pos[i],
+                        &soa_ref_pos, &soa_query_pos, &soa_query_span,
+                        max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
+                        &mut soa_sc_buf, chunk_start, chunk_end,
+                    )
+                } else {
+                    chain_scores_masked_avx512::<CDNA>(
+                        soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i], soa_diag[i],
+                        &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand, &soa_diag,
+                        max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
+                        &mut soa_sc_buf, chunk_start, chunk_end,
+                    )
+                };
 
                 // SAFETY: every mask bit indexes chunk_start..chunk_end <= i < n;
                 // predecessors were assigned only to earlier anchors. All four buffers have
@@ -1988,7 +2208,7 @@ unsafe fn chain_anchors_avx512_impl(
             }
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
-                let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
+                let sc = chain_score::<CDNA>(&a[i], &a[best_anchor_idx as usize],
                     max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
@@ -2144,7 +2364,7 @@ unsafe fn simd_fast_log2_neon(x: float32x4_t) -> float32x4_t {
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
 #[inline]
-unsafe fn compute_chain_scores_batch_neon(
+unsafe fn compute_chain_scores_batch_neon<const CDNA: bool>(
     qi: i32,
     ri: i32,
     rid_strand_i: u32,
@@ -2162,7 +2382,7 @@ unsafe fn compute_chain_scores_batch_neon(
     end: usize,
 ) {
     unsafe {
-        compute_chain_scores_batch_neon_impl::<false>(
+        compute_chain_scores_batch_neon_impl::<false, CDNA>(
             qi, ri, rid_strand_i, soa_ref_pos, soa_query_pos, soa_query_span,
             soa_rid_strand, max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip,
             sc_buf, start, end, 0, &[],
@@ -2176,7 +2396,7 @@ unsafe fn compute_chain_scores_batch_neon(
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
 #[inline]
-unsafe fn chain_scores_masked_neon(
+unsafe fn chain_scores_masked_neon<const CDNA: bool>(
     qi: i32, ri: i32, rid_strand_i: u32, diag_i: i32,
     soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32],
     soa_rid_strand: &[u32], soa_diag: &[i32],
@@ -2184,7 +2404,7 @@ unsafe fn chain_scores_masked_neon(
     sc_buf: &mut [i32], start: usize, end: usize,
 ) -> u64 {
     unsafe {
-        compute_chain_scores_batch_neon_impl::<true>(
+        compute_chain_scores_batch_neon_impl::<true, CDNA>(
             qi, ri, rid_strand_i, soa_ref_pos, soa_query_pos, soa_query_span,
             soa_rid_strand, max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip,
             sc_buf, start, end, diag_i, soa_diag,
@@ -2192,12 +2412,82 @@ unsafe fn chain_scores_masked_neon(
     }
 }
 
+/// `chain_scores_spliced_avx2` for NEON, with four-lane groups: spliced (CDNA) scoring of one
+/// scan chunk `[start, end)` of at most 64 candidates on anchor i's target and strand, groups
+/// aligned to the top of the chunk, lanes outside `[start, end)` masked off. Scores of candidates
+/// outside the chunk may be stored (see the AVX2 kernel). Needs `sc_buf.len() >= 4` and the SoA
+/// arrays as long.
+#[cfg(target_arch = "aarch64")]
+#[target_feature(enable = "neon")]
+#[allow(clippy::too_many_arguments)]
+unsafe fn chain_scores_spliced_neon(
+    qi: i32, ri: i32,
+    soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32],
+    max_dist_x: i32, max_dist_y: i32, bw: i32, chn_pen_gap: f32, chn_pen_skip: f32,
+    sc_buf: &mut [i32], start: usize, end: usize,
+) -> u64 { unsafe {
+    debug_assert!(end - start <= 64 && end <= sc_buf.len() && sc_buf.len() >= 4);
+    debug_assert!(soa_ref_pos.len() >= sc_buf.len() && soa_query_pos.len() >= sc_buf.len()
+        && soa_query_span.len() >= sc_buf.len());
+    let qi_v = vdupq_n_s32(qi);
+    let ri_v = vdupq_n_s32(ri);
+    let max_dx_v = vdupq_n_s32(max_dist_x);
+    let max_dy_v = vdupq_n_s32(max_dist_y);
+    let bw_v = vdupq_n_s32(bw);
+    let zero_v = vdupq_n_s32(0);
+    let one_v = vdupq_n_s32(1);
+    let pen_gap_v = vdupq_n_f32(chn_pen_gap);
+    let pen_skip_v = vdupq_n_f32(chn_pen_skip);
+    let half_v = vdupq_n_f32(0.5f32);
+    let lane_bits = vld1q_u32([1u32, 2, 4, 8].as_ptr());
+    let mut mask = 0u64;
+    let mut hi = end;
+    while hi > start {
+        let lo = hi.max(4) - 4;
+        // Lanes of candidates lo..lo + 4 inside [start, hi).
+        let lanes = (0xfu32 << start.saturating_sub(lo)) & (0xfu32 >> (lo + 4 - hi));
+        let qj_v = vld1q_s32(soa_query_pos.as_ptr().add(lo));
+        let rj_v = vld1q_s32(soa_ref_pos.as_ptr().add(lo));
+        let span_v = vld1q_s32(soa_query_span.as_ptr().add(lo));
+        let qdiff = vsubq_s32(qi_v, qj_v);
+        let rdiff = vsubq_s32(ri_v, rj_v);
+        let gap_w = vabsq_s32(vsubq_s32(rdiff, qdiff));
+        let mut valid = vcgtq_s32(qdiff, zero_v);
+        valid = vbicq_u32(valid, vcgtq_s32(qdiff, max_dx_v));
+        valid = vbicq_u32(valid, vceqq_s32(rdiff, zero_v));
+        valid = vbicq_u32(valid, vcgtq_s32(qdiff, max_dy_v));
+        valid = vbicq_u32(valid, vcgtq_s32(gap_w, bw_v));
+        let vm = vaddvq_u32(vandq_u32(valid, lane_bits)) & lanes;
+        if vm != 0 {
+            let min_diff = vminq_s32(rdiff, qdiff);
+            let mut score = vminq_s32(span_v, min_diff);
+            let gw_gt_zero = vcgtq_s32(gap_w, zero_v);
+            let needs_pen = vorrq_u32(gw_gt_zero, vcgtq_s32(min_diff, span_v));
+            let lin_pen = vaddq_f32(vmulq_f32(pen_gap_v, vcvtq_f32_s32(gap_w)),
+                                    vmulq_f32(pen_skip_v, vcvtq_f32_s32(min_diff)));
+            let log2_val = simd_fast_log2_neon(vcvtq_f32_s32(vaddq_s32(gap_w, one_v)));
+            let log_pen = vreinterpretq_f32_u32(vandq_u32(gw_gt_zero, vreinterpretq_u32_f32(log2_val)));
+            // min(lin_pen, log_pen) where the reference gap is the longer, else lin_pen + log_pen / 2
+            // (selected as `a < b ? a : b`, as in the scalar)
+            let shorter = vbslq_f32(vcltq_f32(lin_pen, log_pen), lin_pen, log_pen);
+            let total_pen = vbslq_f32(vcgtq_s32(rdiff, qdiff), shorter,
+                                      vaddq_f32(lin_pen, vmulq_f32(half_v, log_pen)));
+            let pen_i32 = vcvtq_s32_f32(total_pen);
+            score = vsubq_s32(score, vandq_s32(vreinterpretq_s32_u32(needs_pen), pen_i32));
+            vst1q_s32(sc_buf.as_mut_ptr().add(lo), score);
+            mask |= if lo >= start { (vm as u64) << (lo - start) } else { (vm >> (start - lo)) as u64 };
+        }
+        hi = lo;
+    }
+    mask
+}}
+
 // Share the score arithmetic so masked and contiguous scans cannot drift.
 // The const flag removes mask/diagonal work from the existing contiguous kernel.
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
 #[inline]
-unsafe fn compute_chain_scores_batch_neon_impl<const MASKED: bool>(
+unsafe fn compute_chain_scores_batch_neon_impl<const MASKED: bool, const CDNA: bool>(
     qi: i32, ri: i32, rid_strand_i: u32,
     soa_ref_pos: &[i32], soa_query_pos: &[i32], soa_query_span: &[i32],
     soa_rid_strand: &[u32],
@@ -2310,9 +2600,14 @@ unsafe fn compute_chain_scores_batch_neon_impl<const MASKED: bool>(
         // Mask: zero out log_pen where gap_width == 0
         let log_pen = vreinterpretq_f32_u32(vandq_u32(gw_gt_zero, vreinterpretq_u32_f32(log2_val)));
 
-        // total_pen = lin_pen + 0.5 * log_pen
+        // total_pen = lin_pen + 0.5 * log_pen; with CDNA, min(lin_pen, log_pen) where the
+        // reference gap is the longer (selected as `a < b ? a : b`, as in the scalar)
         let half_log = vmulq_f32(half_v, log_pen);
-        let total_pen = vaddq_f32(lin_pen, half_log);
+        let mut total_pen = vaddq_f32(lin_pen, half_log);
+        if CDNA {
+            let shorter = vbslq_f32(vcltq_f32(lin_pen, log_pen), lin_pen, log_pen);
+            total_pen = vbslq_f32(vcgtq_s32(rdiff, qdiff), shorter, total_pen);
+        }
 
         // Convert to i32 (truncation toward zero, matches Rust `as i32`)
         let pen_i32 = vcvtq_s32_f32(total_pen);
@@ -2369,7 +2664,12 @@ unsafe fn compute_chain_scores_batch_neon_impl<const MASKED: bool>(
             } else {
                 0.0f32
             };
-            sc -= (lin_pen + 0.5f32 * log_pen) as i32;
+            let pen = if CDNA && ref_diff > query_diff {
+                if lin_pen < log_pen { lin_pen } else { log_pen }
+            } else {
+                lin_pen + 0.5f32 * log_pen
+            };
+            sc -= pen as i32;
         }
 
         sc_buf[j] = sc;
@@ -2381,24 +2681,25 @@ unsafe fn compute_chain_scores_batch_neon_impl<const MASKED: bool>(
 
 /// NEON SIMD-optimized chaining for aarch64.
 /// Phase 1: Batch-compute scores with NEON (4-wide). Phase 2: Scalar skip/visited logic.
-/// Produces bit-exact output matching `chain_anchors_scalar`.
+/// Produces bit-exact output matching `chain_anchors_scalar` (with `CDNA`, the scalar spliced
+/// chainer).
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-pub(crate) unsafe fn chain_anchors_neon(
+pub(crate) unsafe fn chain_anchors_neon<const CDNA: bool>(
     opt: &ChainingParams,
     max_dist_x: i32,
     max_dist_y: i32,
     a: &mut [Minimizer],
     ctx: &mut ChainingBuffers,
 ) -> (Vec<u64>, Vec<Minimizer>) {
-    unsafe { chain_anchors_neon_impl::<true, true>(opt, max_dist_x, max_dist_y, a, ctx) }
+    unsafe { chain_anchors_neon_impl::<true, true, CDNA>(opt, max_dist_x, max_dist_y, a, ctx) }
 }
 
 // Const switches let differential tests disable either optimization while sharing the
 // score arithmetic and backtracking. Production enables both at compile time.
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool>(
+unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool, const USE_MASKED_SCAN: bool, const CDNA: bool>(
     opt: &ChainingParams,
     max_dist_x: i32,
     max_dist_y: i32,
@@ -2416,12 +2717,12 @@ unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool, const USE_MASKED
     if max_dist_x < bw {
         max_dist_x = bw;
     }
-    if max_dist_y < bw {
+    if max_dist_y < bw && !CDNA {
         max_dist_y = bw;
     }
 
-    let real_max_drop = bw;
-    let no_chain_skip = opt.max_chain_skip <= 0;
+    let real_max_drop = if CDNA { i32::MAX } else { bw };
+    let no_chain_skip = !CDNA && opt.max_chain_skip <= 0;
 
     // --- Extract SoA fields from AoS Minimizer array ---
     let mut soa_ref_pos = std::mem::take(&mut ctx.soa_ref_pos);
@@ -2436,14 +2737,20 @@ unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool, const USE_MASKED
     soa_query_span.resize(n, 0);
     soa_rid_strand.resize(n, 0);
     soa_sc_buf.resize(n, 0);
-    if USE_MASKED_SCAN && !no_chain_skip { soa_diag.resize(n, 0); }
+    // The spliced masked scan scores top-aligned groups (see chain_scores_spliced_neon), which
+    // read neither targets nor diagonals.
+    let spliced_groups = CDNA && USE_MASKED_SCAN && n >= 4;
+    let need_diag = USE_MASKED_SCAN && !no_chain_skip && !spliced_groups;
+    if need_diag { soa_diag.resize(n, 0); }
 
     for j in 0..n {
         soa_ref_pos[j] = a[j].ref_pos();
         soa_query_pos[j] = a[j].query_pos();
         soa_query_span[j] = a[j].query_span();
-        soa_rid_strand[j] = (a[j].x >> 32) as u32;
-        if USE_MASKED_SCAN && !no_chain_skip {
+        if !spliced_groups {
+            soa_rid_strand[j] = (a[j].x >> 32) as u32;
+        }
+        if need_diag {
             soa_diag[j] = soa_ref_pos[j].wrapping_sub(soa_query_pos[j]);
         }
     }
@@ -2464,7 +2771,8 @@ unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool, const USE_MASKED
     let mut best_anchor_idx: i64 = -1;
 
     let mut bk = std::mem::take(&mut ctx.diag_buckets);
-    let use_buckets = USE_DIAG_BUCKETS && !no_chain_skip && n >= DIAG_BUCKET_MIN_N && {
+    // The spliced chainer uses the contiguous scan only (see the AVX2 chainer).
+    let use_buckets = USE_DIAG_BUCKETS && !CDNA && !no_chain_skip && n >= DIAG_BUCKET_MIN_N && {
         let (lo, hi) = soa_query_pos.iter().fold((i32::MAX, i32::MIN), |(l, h), &q| (l.min(q), h.max(q)));
         // The score kernel uses wrapping i32 position differences. The i64 bucket
         // diagonals are equivalent only without a signed-coordinate wrap; retain the
@@ -2499,7 +2807,7 @@ unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool, const USE_MASKED
 
         if no_chain_skip {
             if i > window_start {
-                compute_chain_scores_batch_neon(
+                compute_chain_scores_batch_neon::<CDNA>(
                     soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
                     &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
                     max_dist_x, max_dist_y, bw,
@@ -2561,7 +2869,7 @@ unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool, const USE_MASKED
                     bk.g_span.push(soa_query_span[j]); bk.g_rid.push(soa_rid_strand[j]);
                 }
                 bk.g_sc.resize(m, 0);
-                compute_chain_scores_batch_neon(
+                compute_chain_scores_batch_neon::<CDNA>(
                     soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
                     &bk.g_ref, &bk.g_qry, &bk.g_span, &bk.g_rid,
                     max_dist_x, max_dist_y, bw,
@@ -2594,15 +2902,22 @@ unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool, const USE_MASKED
                 let chunk_start = if chunk_end >= window_start + csize { chunk_end - csize } else { window_start };
                 csize = CHUNK_SIZE;
 
-                let mut valid = if USE_MASKED_SCAN {
-                    chain_scores_masked_neon(
+                let mut valid = if spliced_groups {
+                    chain_scores_spliced_neon(
+                        soa_query_pos[i], soa_ref_pos[i],
+                        &soa_ref_pos, &soa_query_pos, &soa_query_span,
+                        max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
+                        &mut soa_sc_buf, chunk_start, chunk_end,
+                    )
+                } else if USE_MASKED_SCAN {
+                    chain_scores_masked_neon::<CDNA>(
                         soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i], soa_diag[i],
                         &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand, &soa_diag,
                         max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
                         &mut soa_sc_buf, chunk_start, chunk_end,
                     )
                 } else {
-                    compute_chain_scores_batch_neon(
+                    compute_chain_scores_batch_neon::<CDNA>(
                         soa_query_pos[i], soa_ref_pos[i], soa_rid_strand[i],
                         &soa_ref_pos, &soa_query_pos, &soa_query_span, &soa_rid_strand,
                         max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip,
@@ -2644,7 +2959,7 @@ unsafe fn chain_anchors_neon_impl<const USE_DIAG_BUCKETS: bool, const USE_MASKED
             }
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
-                let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
+                let sc = chain_score::<CDNA>(&a[i], &a[best_anchor_idx as usize],
                     max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
@@ -3048,7 +3363,7 @@ pub(crate) unsafe fn chain_anchors_wasm(
             }
 
             if best_anchor_idx >= 0 && best_anchor_idx < end_j {
-                let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize],
+                let sc = chain_score::<false>(&a[i], &a[best_anchor_idx as usize],
                     max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
                 if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                     best_score = sc + scores[best_anchor_idx as usize];
@@ -3133,6 +3448,10 @@ mod masked_tests;
 #[cfg(all(test, target_arch = "x86_64"))]
 #[path = "chain_simd_avx512_tests.rs"]
 mod avx512_tests;
+
+#[cfg(all(test, any(target_arch = "aarch64", target_arch = "x86_64")))]
+#[path = "chain_simd_cdna_tests.rs"]
+mod cdna_tests;
 
 #[cfg(all(test, target_arch = "aarch64"))]
 #[path = "chain_simd_neon_tests.rs"]
@@ -3253,7 +3572,7 @@ mod tests {
         let mut ctx_scalar = ChainingBuffers::new();
 
         let (u_simd, chains_simd) = unsafe {
-            chain_anchors_avx2(&opt, 500, 500, &mut anchors_simd, &mut ctx_simd)
+            chain_anchors_avx2::<false>(&opt, 500, 500, &mut anchors_simd, &mut ctx_simd)
         };
         let (u_scalar, chains_scalar) =
             chain_anchors_scalar(&opt, 500, 500, &mut anchors_scalar, &mut ctx_scalar);
@@ -3325,7 +3644,7 @@ mod tests {
         let mut ctx_scalar = ChainingBuffers::new();
 
         let (u_simd, chains_simd) = unsafe {
-            chain_anchors_avx2(&opt, 5000, 5000, &mut anchors_simd, &mut ctx_simd)
+            chain_anchors_avx2::<false>(&opt, 5000, 5000, &mut anchors_simd, &mut ctx_simd)
         };
         let (u_scalar, chains_scalar) =
             chain_anchors_scalar(&opt, 5000, 5000, &mut anchors_scalar, &mut ctx_scalar);
@@ -3380,7 +3699,7 @@ mod tests {
             };
             let (mut a1, mut a2) = (anchors.clone(), anchors.clone());
             let (mut c1, mut c2) = (ChainingBuffers::new(), ChainingBuffers::new());
-            let (u1, ch1) = unsafe { chain_anchors_avx2(&opt, 5000, 5000, &mut a1, &mut c1) };
+            let (u1, ch1) = unsafe { chain_anchors_avx2::<false>(&opt, 5000, 5000, &mut a1, &mut c1) };
             let (u2, ch2) = chain_anchors_scalar(&opt, 5000, 5000, &mut a2, &mut c2);
             assert_eq!(u1, u2, "bw {bw}: chains differ");
             assert!(ch1.iter().zip(&ch2).all(|(x, y)| x.x == y.x && x.y == y.y) && ch1.len() == ch2.len(), "bw {bw}: anchors differ");
@@ -3448,10 +3767,10 @@ mod tests {
         let mut ctx_noskip = ChainingBuffers::new();
 
         let (u_skip, chains_skip) = unsafe {
-            chain_anchors_avx2(&opt_skip, 5000, 5000, &mut anchors_skip, &mut ctx_skip)
+            chain_anchors_avx2::<false>(&opt_skip, 5000, 5000, &mut anchors_skip, &mut ctx_skip)
         };
         let (u_noskip, chains_noskip) = unsafe {
-            chain_anchors_avx2(&opt_noskip, 5000, 5000, &mut anchors_noskip, &mut ctx_noskip)
+            chain_anchors_avx2::<false>(&opt_noskip, 5000, 5000, &mut anchors_noskip, &mut ctx_noskip)
         };
 
         // Both should produce valid output (non-empty for this input)

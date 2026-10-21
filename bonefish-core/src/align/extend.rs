@@ -51,7 +51,7 @@ pub fn rev_comp_nt4(seq: &[u8]) -> Vec<u8> {
 /// Convert ASCII sequence to nt4 + reverse complement in one pass.
 pub fn encode_nt4_rc(ascii_seq: &[u8]) -> Vec<u8> {
     ascii_seq.iter().rev().map(|&b| {
-        let nt4 = match b { b'A'|b'a'=>0, b'C'|b'c'=>1, b'G'|b'g'=>2, b'T'|b't'=>3, _=>4 };
+        let nt4 = match b { b'A'|b'a'=>0, b'C'|b'c'=>1, b'G'|b'g'=>2, b'T'|b't'|b'U'|b'u'=>3, _=>4 };
         if nt4 < 4 { 3 - nt4 } else { 4 }
     }).collect()
 }
@@ -70,7 +70,7 @@ pub use crate::align::sketch::{SEED_IGNORE, SEED_LONG_JOIN, SEED_TANDEM};
 /// Encode a single ASCII base to nt4.
 #[inline]
 pub fn encode_nt4_byte(b: u8) -> u8 {
-    match b { b'A'|b'a'=>0, b'C'|b'c'=>1, b'G'|b'g'=>2, b'T'|b't'=>3, _=>4 }
+    match b { b'A'|b'a'=>0, b'C'|b'c'=>1, b'G'|b'g'=>2, b'T'|b't'|b'U'|b'u'=>3, _=>4 }
 }
 
 /// Find the longest stretch of consecutively matching anchors.
@@ -214,7 +214,7 @@ fn collect_long_gaps(anchors: &[Minimizer], min_gap: i32) -> Vec<usize> {
 
 /// Filter bad seeds between anchors.
 /// Marks seeds with SEED_IGNORE flag.
-fn filter_bad_seeds(anchors: &mut [Minimizer], min_gap: i32, diff_thres: i32, max_ext_len: i32, max_ext_cnt: usize) {
+pub(crate) fn filter_bad_seeds(anchors: &mut [Minimizer], min_gap: i32, diff_thres: i32, max_ext_len: i32, max_ext_cnt: usize) {
     let k_vec = collect_long_gaps(anchors, min_gap);
     let n = k_vec.len();
     if n <= 1 { return; }
@@ -267,7 +267,7 @@ fn filter_bad_seeds(anchors: &mut [Minimizer], min_gap: i32, diff_thres: i32, ma
 
 /// Alternative bad seed filtering.
 /// Marks seeds with SEED_IGNORE and SEED_LONG_JOIN flags.
-fn filter_bad_seeds_alt(anchors: &mut [Minimizer], min_gap: i32, max_ext: i32) {
+pub(crate) fn filter_bad_seeds_alt(anchors: &mut [Minimizer], min_gap: i32, max_ext: i32) {
     let k_vec = collect_long_gaps(anchors, min_gap);
     let n = k_vec.len();
     if n == 0 { return; }
@@ -489,7 +489,7 @@ fn fix_cigar(cigar: &mut Vec<u32>, qseq: &[u8], tseq: &[u8], qs: i32, rs: i32) -
 
 /// Test z-drop on a CIGAR string.
 /// Returns 0 if no zdrop, 1 if zdrop detected, 2 if inversion zdrop detected
-fn test_zdrop(
+pub(crate) fn test_zdrop(
     qseq: &[u8], tseq: &[u8], cigar: &[u32], mat: &[i8; 25],
     opt: &MapOptions,
 ) -> i32 {
@@ -618,7 +618,7 @@ fn test_zdrop(
     // Test if there is an inversion in the most dropped region
     let q_len = pos[1][1] - pos[1][0];
     let t_len = pos[0][1] - pos[0][0];
-    if !flags.intersects(AlignFlags::FOR_ONLY | AlignFlags::REV_ONLY)
+    if !flags.intersects(AlignFlags::SPLICE | AlignFlags::FOR_ONLY | AlignFlags::REV_ONLY)
         && max_zdrop > zdrop_inv
         && q_len < max_gap
         && t_len < max_gap
@@ -640,7 +640,7 @@ fn test_zdrop(
 }
 
 /// Append CIGAR operations with merging.
-fn append_cigar(cigar: &mut Vec<u32>, new_ops: &[u32]) {
+pub(crate) fn append_cigar(cigar: &mut Vec<u32>, new_ops: &[u32]) {
     if new_ops.is_empty() { return; }
     if !cigar.is_empty() && (cigar.last().unwrap() & 0xf) == (new_ops[0] & 0xf) {
         // Same op at boundary — merge
@@ -1600,7 +1600,7 @@ fn tail_indel_shift(q: &[u8], t: &[u8], qs: usize, ts: usize, min_shift: i32, ma
 /// `seed_r_bound`/`seed_q_bound`: rs1/qs1 from nearby-seed inspection.
 /// Returns (rs0, qs0).
 #[allow(clippy::too_many_arguments)]
-fn compute_left_boundary(
+pub(crate) fn compute_left_boundary(
     rs: i32, qs: i32,
     orig_anchor_rpos: i32, orig_anchor_qpos: i32, orig_q_span: i32,
     seed_r_bound: i32, seed_q_bound: i32,
@@ -1641,7 +1641,7 @@ fn compute_left_boundary(
 /// `seed_r_bound`/`seed_q_bound`: re1/qe1 from nearby-seed inspection.
 /// Returns (re0, qe0).
 #[allow(clippy::too_many_arguments)]
-fn compute_right_boundary(
+pub(crate) fn compute_right_boundary(
     re: i32, qe: i32,
     orig_anchor_rend: i32, orig_anchor_qend: i32,
     seed_r_bound: i32, seed_q_bound: i32,
@@ -1675,7 +1675,7 @@ fn compute_right_boundary(
 
 /// CIGAR post-processing: fix_cigar + convert M→=/X + condense adjacent ops.
 /// Returns (final_cigar_ops, adjusted_qs, adjusted_rs).
-fn finalize_cigar(
+pub(crate) fn finalize_cigar(
     mut raw_cigar: Vec<u32>,
     qseq: &[u8],
     tseq: &[u8],

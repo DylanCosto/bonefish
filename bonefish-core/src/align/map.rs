@@ -43,7 +43,7 @@ pub fn print_post_chain_breakdown() {
 }
 use crate::align::sketch::{sketch_sequence, Minimizer};
 use crate::align::index::Index;
-use crate::align::chain::chain_anchors;
+use crate::align::chain::{chain_anchors, chain_anchors_cdna};
 #[cfg(feature = "parallel")]
 use crate::align::chain::chain_anchors_partitioned;
 use crate::align::chain_rmq::chain_anchors_rmq;
@@ -60,11 +60,19 @@ bitflags! {
         const NO_DUAL          = 0x002;
         const NO_QUAL          = 0x010;
         const OUT_CIGAR        = 0x020;
+        /// Spliced alignment (RNA/cDNA presets): intron-aware chaining and DP.
+        const SPLICE           = 0x080;
+        /// Splice signals of the forward transcript strand (GT..AG on the read's strand).
+        const SPLICE_FOR       = 0x100;
+        /// Splice signals of the reverse transcript strand (CT..AC).
+        const SPLICE_REV       = 0x200;
         const NO_LJOIN         = 0x400;
         const NO_PRINT_2ND     = 0x4000;
         const EQX              = 0x8000;
         const LONG_CIGAR       = 0x10000;
         const SOFTCLIP         = 0x20000;
+        /// Score splice-site flanking bases (`--splice-flank`).
+        const SPLICE_FLANK     = 0x40000;
         const FOR_ONLY         = 0x100000;
         const REV_ONLY         = 0x200000;
         const ALL_CHAINS       = 0x800000;
@@ -77,6 +85,8 @@ bitflags! {
         const QSTRAND          = 0x100000000;
         const NO_INV           = 0x200000000;
         const SECONDARY_SEQ    = 0x800000000;
+        /// Write introns of spliced alignments as BED instead of SAM/PAF (`--write-junc`).
+        const OUT_JUNC         = 0x10000000000;
         /// Partition anchors by ref_id and chain partitions in parallel.
         /// Beneficial for assembly-to-assembly (asm2asm) workloads where a
         /// single query has millions of anchors across many references.
@@ -143,6 +153,12 @@ pub struct ScoringParams {
     pub gap_extend2: i32,
     pub transition: i32,
     pub ambig_penalty: i32,
+    /// Spliced alignment: cost of a non-canonical splice site (`-C`).
+    pub noncanon_penalty: i32,
+    /// Spliced alignment: bonus for an annotated junction (`--junc-bonus`).
+    pub junc_bonus: i32,
+    /// Spliced alignment: penalty for an unannotated junction when annotations are loaded (`--junc-pen`).
+    pub junc_pen: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -206,6 +222,9 @@ pub struct MapOptions {
     pub filtering: FilteringParams,
     pub flags: AlignFlags,
     pub mini_batch_size: i64,
+    /// Annotated splice junctions (`--junc-bed`) for the spliced presets, resolved against
+    /// the reference names of the loaded index.
+    pub junctions: Option<std::sync::Arc<crate::align::junc::JunctionDb>>,
 }
 
 impl Default for MapOptions {
@@ -252,6 +271,9 @@ impl Default for MapOptions {
                 gap_extend2: 1,
                 transition: 0,
                 ambig_penalty: 1,
+                noncanon_penalty: 0,
+                junc_bonus: 0,
+                junc_pen: 0,
             },
             alignment: AlignmentParams {
                 zdrop: 400,
@@ -288,6 +310,7 @@ impl Default for MapOptions {
             flags: AlignFlags::empty(),
             // 100 Mbp: as fast as 500 Mbp at 16 threads on a human genome, 2.7 GB less memory.
             mini_batch_size: 100_000_000,
+            junctions: None,
         }
     }
 }
@@ -812,9 +835,13 @@ pub fn map_query(
         opt.chaining.max_gap
     };
 
-    // Primary chaining: use RMQ when RMQ_CHAIN is set (asm presets), otherwise DP
+    // Primary chaining: cDNA-mode DP for spliced presets, RMQ when RMQ_CHAIN is set (asm
+    // presets), otherwise DP
+    let is_splice = opt.flags.contains(AlignFlags::SPLICE);
     let mut anchors = std::mem::take(&mut ctx.anchors);
-    let (mut u, mut chains) = if opt.flags.contains(AlignFlags::RMQ_CHAIN) {
+    let (mut u, mut chains) = if is_splice {
+        chain_anchors_cdna(&opt.chaining, max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs)
+    } else if opt.flags.contains(AlignFlags::RMQ_CHAIN) {
         chain_anchors_rmq(&opt.chaining, &mut anchors, &mut ctx.chain_bufs)
     } else {
         // Use partitioned parallel chaining when there are enough anchors
@@ -834,7 +861,7 @@ pub fn map_query(
     // A reference gap limit below -g (--max-gap-ref) can leave a read with sparse anchors
     // without any chain: chain it again with -g.
     if u.is_empty() && !anchors.is_empty() && opt.chaining.max_gap_ref > 0 && max_chain_gap_ref < opt.chaining.max_gap
-        && !opt.flags.contains(AlignFlags::RMQ_CHAIN) {
+        && !opt.flags.contains(AlignFlags::RMQ_CHAIN) && !is_splice {
         (u, chains) = chain_anchors(&opt.chaining, opt.chaining.max_gap, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs);
     }
     ctx.anchors = anchors;
@@ -846,9 +873,9 @@ pub fn map_query(
     let pc0 = Instant::now();
 
     // RMQ rescue re-chaining
-    // Only when: bw_long > bw, not no_ljoin, multiple chains
+    // Only when: bw_long > bw, not no_ljoin or splice, multiple chains
     // Does NOT exclude RMQ_CHAIN
-    let skip_rescue = opt.flags.contains(AlignFlags::NO_LJOIN);
+    let skip_rescue = opt.flags.intersects(AlignFlags::NO_LJOIN | AlignFlags::SPLICE);
     if opt.chaining.bandwidth_long > opt.chaining.bandwidth && u.len() > 1 && !skip_rescue {
         let first_chain_cnt = (u[0] & 0xFFFFFFFF) as usize;
         if first_chain_cnt > 0 {
@@ -901,10 +928,11 @@ pub fn map_query(
             rep_len = collect_seed_hits_with_occ(opt, mi, qlen, &ctx.minimizers, &mut ctx.anchors, &mut ctx.mini_pos, opt.seeding.max_occ, qn_opt, &mut ctx.seed_scratch);
 
             let mut anchors = std::mem::take(&mut ctx.anchors);
-            let (u2, chains2) = chain_anchors(
-                &opt.chaining,
-                max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs,
-            );
+            let (u2, chains2) = if is_splice {
+                chain_anchors_cdna(&opt.chaining, max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs)
+            } else {
+                chain_anchors(&opt.chaining, max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs)
+            };
             ctx.anchors = anchors;
             u = u2;
             chains = chains2;
