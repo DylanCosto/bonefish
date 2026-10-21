@@ -29,8 +29,6 @@ pub(crate) use splice::{site_z, splice_site_penalties};
 mod lw;
 #[cfg(feature = "census")]
 pub mod census;
-#[cfg(feature = "gpu")]
-pub mod gpu;
 
 use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 
@@ -179,33 +177,12 @@ pub use single::{extend_single_affine, extend_single_affine_scalar};
 // Re-export public API from dual-affine
 pub use dual::{extend_dual_affine, extend_dual_affine_adaptive, extend_dual_affine_diag_range, extend_dual_affine_scalar};
 
-/// Whether the current read is a speculative dry run (GPU path; always false otherwise).
-#[inline]
-pub fn speculating() -> bool {
-    #[cfg(feature = "gpu")]
-    { gpu::speculating() }
-    #[cfg(not(feature = "gpu"))]
-    { false }
-}
-
-/// `extend_dual_affine`, or the GPU when built with `--features gpu`, enabled by `BONEFISH_GPU`,
-/// and the call is eligible (see `gpu.rs`). Results are identical either way.
+/// Dual-affine extension entry point used by the alignment code (`extend_dual_affine`).
 #[inline]
 #[allow(clippy::too_many_arguments)]
 pub fn extend_dual_affine_dispatch(qseq: &[u8], tseq: &[u8], alphabet_size: i8, score_matrix: &[i8],
                                    gap_open: i8, gap_extend: i8, gap_open2: i8, gap_extend2: i8, bandwidth: i32,
                                    z_drop: i32, end_bonus: i32, flags: i32, result: &mut DpResult) {
-    #[cfg(feature = "gpu")]
-    {
-        if gpu::try_offload(qseq, tseq, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2, bandwidth, z_drop,
-                            end_bonus, flags, result) {
-            return;
-        }
-        if gpu::speculating() {   // dry run: this read's output will be discarded
-            gpu::placeholder(qseq.len(), tseq.len(), flags, result);
-            return;
-        }
-    }
     extend_dual_affine(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2,
                        bandwidth, z_drop, end_bonus, flags, result);
 }

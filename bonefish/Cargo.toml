@@ -15,7 +15,6 @@ path = "src/main.rs"
 default = ["parallel"]
 parallel = ["bonefish-core/parallel", "dep:rayon"]
 census = ["bonefish-core/census"]
-gpu = ["bonefish-core/gpu"]
 
 # Allocator opt-ins (need a C toolchain at build time; mimalloc wins if both set):
 #   cargo build --release                       → Rust system allocator (default)
