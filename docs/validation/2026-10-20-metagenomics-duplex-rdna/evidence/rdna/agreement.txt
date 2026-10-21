@@ -1,0 +1,6 @@
+Per-read primary placement of the 530 rDNA reads, bonefish v0.1.7 vs minimap2 2.31 lr:hq
+(same contig, strand and start within 1 kb; computed from the BAMs of rdna_check.sh):
+grch38: 530 reads, same placement 522 (98.5%), same MAPQ 503 (94.9%)
+hs1:    530 reads, same placement 524 (98.9%), same MAPQ 522 (98.5%)
+hs1 primaries by array (minimap2, Mb bins): chr13 9 Mb 78, chr14 2 Mb 94, chr15 4 Mb 66, chr21 3-5 Mb 119, chr22 4-5 Mb 76
+Unmapped on hs1 (39 by both aligners) are reads of 280-560 bp.

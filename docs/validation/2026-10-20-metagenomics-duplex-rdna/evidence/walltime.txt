@@ -1,0 +1,6 @@
+meta bonefish: 169.17 s wall, 1934.38+73.18 CPU-s
+meta minimap2: 372.11 s wall, 5066.97+65.93 CPU-s
+duplex bonefish: 186.06 s wall, 2323.89+45.32 CPU-s
+gunzip -c fecal reads: 216.62 s wall, 210.22+3.83 CPU-s
+gunzip -c duplex reads: 106.55 s wall, 103.22+2.28 CPU-s
+DONE

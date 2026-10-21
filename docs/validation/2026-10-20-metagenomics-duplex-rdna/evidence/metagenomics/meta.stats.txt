@@ -1,0 +1,12 @@
+== meta bf (745.45 s wall, 1879.19+98.60 CPU-s, 9679696 KB)
+reads 1,701,552  mapped 1,665,113 (97.86%)  MAPQ0 114,252  MAPQ>=20 1,476,707 (86.79%)
+supplementary 256,382  aligned bases (primary) 8.530 Gb
+identity BLAST-like 0.98336  gap-compressed 0.99216
+primaries with MM tag 1,665,113 (100.00% of mapped)
+origin-spanning reads on circular contigs (primary + supplementary on same contig): 8,032
+== meta mm (768.60 s wall, 4993.79+67.98 CPU-s, 13013392 KB)
+reads 1,701,552  mapped 1,665,114 (97.86%)  MAPQ0 114,235  MAPQ>=20 1,476,612 (86.78%)
+supplementary 255,769  aligned bases (primary) 8.533 Gb
+identity BLAST-like 0.98317  gap-compressed 0.99210
+primaries with MM tag 1,665,114 (100.00% of mapped)
+origin-spanning reads on circular contigs (primary + supplementary on same contig): 8,015

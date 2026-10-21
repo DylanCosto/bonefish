@@ -1,0 +1,10 @@
+== duplex bf (357.18 s wall, 2257.10+52.90 CPU-s, 14665924 KB)
+reads 356,457  mapped 350,859 (98.43%)  MAPQ0 355  MAPQ>=20 333,869 (93.66%)
+supplementary 51,249  aligned bases (primary) 9.168 Gb
+identity BLAST-like 0.98736  gap-compressed 0.99417
+primaries with MM tag 0 (0.00% of mapped)
+== duplex mm (715.26 s wall, 9397.47+259.63 CPU-s, 19866948 KB)
+reads 356,457  mapped 350,859 (98.43%)  MAPQ0 356  MAPQ>=20 333,034 (93.43%)
+supplementary 49,526  aligned bases (primary) 9.199 Gb
+identity BLAST-like 0.98547  gap-compressed 0.99385
+primaries with MM tag 0 (0.00% of mapped)
