@@ -16,6 +16,7 @@ minimap2 in a pipeline in two ways:
 | `minimap2 -ax splice -uf -k14 ref.fa drna.fq` | `bonefish -x rna -a ref.fa drna.fq` |
 | `minimap2 -ax splice ref.fa cdna.fq` | `bonefish -x cdna -a ref.fa cdna.fq` |
 | `minimap2 -ax splice --junc-bed anno.bed ...` | `bonefish -x cdna -a --junc-bed anno.bed ...` |
+| `minimap2 -ax map-ont -N 100 transcripts.fa reads.fq` (for quantification) | `bonefish -x tx -a transcripts.fa reads.fq` |
 
 Notes:
 
@@ -74,6 +75,22 @@ minimap2 does.
 **Not yet validated:** the presets are checked against minimap2, GENCODE junctions and simulated
 reads ([report](validation/2026-10-21-rna-cdna/README.md)), but not yet against these downstream
 tools.
+
+## Transcript quantification
+
+oarfish, NanoCount and similar quantifiers take reads aligned to the transcriptome with many
+secondary alignments. `-x tx` writes up to 100 secondaries per read, as `minimap2 -N 100` does:
+
+```bash
+bonefish -t 16 -x tx -a --eqx transcripts.fa reads.fq | samtools view -b -o tx.bam -
+```
+
+- **Agreement with minimap2:** on HG002 direct RNA and cDNA, oarfish gene counts from these
+  alignments agree with counts from minimap2's at r = 0.9995-0.99997. Simulated reads land on
+  their true transcript at least as often as with minimap2
+  ([report](validation/2026-10-21-transcriptome/README.md)).
+- **oarfish needs a workaround for now:** it only accepts BAMs whose `@PG` header names an
+  aligner it has validated, and bonefish is not yet on its list.
 
 ## Containers
 

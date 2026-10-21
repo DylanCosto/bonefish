@@ -96,6 +96,20 @@ the reference near the chain's anchors with a 10-mer search for unanchored exons
 aligned once for both transcript strands. Details:
 [validation/2026-10-21-rna-cdna](validation/2026-10-21-rna-cdna/README.md).
 
+## Transcriptome quantification
+
+`-x tx` against minimap2 `-ax map-ont -N 100` on GENCODE v49 transcripts (HG002, 200k reads each):
+
+| | minimap2 | bonefish `-x tx` |
+|---|---:|---:|
+| cDNA, wall | 185 s | 81 s |
+| direct RNA, wall | 106 s | 37 s |
+| reads mapped | | the same as minimap2 |
+| oarfish gene counts vs minimap2's: Pearson r | | 0.9995 (cDNA), 0.99997 (direct RNA) |
+
+On simulated reads, the primary lands on the true transcript at least as often as with minimap2.
+Details: [validation/2026-10-21-transcriptome](validation/2026-10-21-transcriptome/README.md).
+
 ## Metagenomes, duplex reads and rDNA
 
 Against minimap2 `lr:hq` on the same reads (v0.1.7): ONT's Zymo fecal reference (1.70 M R10.4.1 sup

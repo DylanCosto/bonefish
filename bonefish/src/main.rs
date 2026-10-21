@@ -52,11 +52,13 @@ struct AlignArgs {
     ///   rna              — direct RNA vs a reference genome (spliced; minimap2 -x splice -uf -k14)
     ///   cdna             — cDNA vs a reference genome (spliced; minimap2 -x splice); alias: splice
     ///   splice:hq        — accurate cDNA (minimap2 -x splice:hq)
+    ///   tx               — RNA/cDNA vs a transcriptome, for quantification (minimap2 -x map-ont -N 100)
     /// dna = minimap2 lr:hq seeding and scoring plus --ext-bw 200 --ext-adaptive 64 --ext-rescue
     /// --ext-probe 2000,1000 --gap-bw-margin 500 --gap-bw-narrow 32 --ungapped-fill --max-gap-ref 5000
     /// --seg-rmq --clean-dp --rescue-join --rescue-max-density 2 --gap-subanchor-tr 150
     /// cdna = -k15 -w5 -g2k -G200k -A1 -B2 -O2,32 -E1,0 -C9 -z200,100 -ub --junc-bonus 9
     /// --junc-pen 5 --splice-flank yes; rna = cdna with -k14 -uf
+    /// tx = dna with -k15 -w10 -g5000 -U10,1000000 -N100
     #[arg(short = 'x', long, verbatim_doc_comment)]
     pub preset: Option<String>,
 

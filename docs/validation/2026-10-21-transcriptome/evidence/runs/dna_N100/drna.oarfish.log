@@ -1,0 +1,37 @@
+[2m2026-10-21T22:20:58.905339Z[0m [32m INFO[0m [2moarfish[0m[2m:[0m setting filters to nanocount defaults.
+[2m2026-10-21T22:20:59.455788Z[0m [32m INFO[0m [2moarfish::alignment_parser[0m[2m:[0m read header from BAM file drna.q.bam, contains 533,740 reference sequences.
+[2m2026-10-21T22:20:59.456015Z[0m [32m INFO[0m [2moarfish::alignment_parser[0m[2m:[0m saw supported mapper rammap as a program in the header; proceeding.
+[2m2026-10-21T22:20:59.456099Z[0m [32m INFO[0m [2moarfish::util::digest_utils[0m[2m:[0m calculating seqcol digest
+[2m2026-10-21T22:21:01.037731Z[0m [32m INFO[0m [2moarfish::util::digest_utils[0m[2m:[0m done calculating seqcol digest
+[2m2026-10-21T22:21:01.087342Z[0m [32m INFO[0m [2moarfish[0m[2m:[0m parsed reference information for 533,740 transcripts.
+[2m2026-10-21T22:21:02.783703Z[0m [32m INFO[0m [2moarfish::alignment_parser[0m[2m:[0m the alignment file contained 39,115 unmapped read records.
+[2m2026-10-21T22:21:02.784604Z[0m [32m INFO[0m [2moarfish::bulk[0m[2m:[0m Parsing of alignments from input took: 1s 697ms 51us 619ns
+[2m2026-10-21T22:21:02.784683Z[0m [32m INFO[0m [2moarfish::bulk[0m[2m:[0m 
+discard_table: 
+╭─────────────────────────────────┬────────╮
+│ reason                          │ count  │
+├─────────────────────────────────┼────────┤
+│ too far from 5' end             │ 0      │
+│ too far from 3' end             │ 447021 │
+│ score too low                   │ 617833 │
+│ aligned fraction too low        │ 3667   │
+│ aligned length too short        │ 429    │
+│ inconsistent orientation        │ 19775  │
+│ supplementary alignment         │ 8963   │
+│ read had no mapping             │ 0      │
+│ read had no valid alignment     │ 15287  │
+│ reads with valid best alignment │ 141931 │
+╰─────────────────────────────────┴────────╯
+
+[2m2026-10-21T22:21:02.784719Z[0m [32m INFO[0m [2moarfish::bulk[0m[2m:[0m Total number of alignment records : 902,842
+[2m2026-10-21T22:21:02.784743Z[0m [32m INFO[0m [2moarfish::bulk[0m[2m:[0m number of aligned reads : 141,931
+[2m2026-10-21T22:21:02.784764Z[0m [32m INFO[0m [2moarfish::bulk[0m[2m:[0m number of unique alignments : 33,138
+[2m2026-10-21T22:21:03.051876Z[0m [32m INFO[0m [2moarfish::em[0m[2m:[0m iteration 100; rel diff 0.010536816603753867
+[2m2026-10-21T22:21:03.319086Z[0m [32m INFO[0m [2moarfish::em[0m[2m:[0m iteration 200; rel diff 0.004419448920463556
+[2m2026-10-21T22:21:03.603201Z[0m [32m INFO[0m [2moarfish::em[0m[2m:[0m iteration 300; rel diff 0.0031571401822824063
+[2m2026-10-21T22:21:03.896206Z[0m [32m INFO[0m [2moarfish::em[0m[2m:[0m iteration 400; rel diff 0.0021467043918845007
+[2m2026-10-21T22:21:04.185293Z[0m [32m INFO[0m [2moarfish::em[0m[2m:[0m iteration 500; rel diff 0.0017786512610291755
+[2m2026-10-21T22:21:04.478971Z[0m [32m INFO[0m [2moarfish::em[0m[2m:[0m iteration 600; rel diff 0.0015069623348835158
+[2m2026-10-21T22:21:04.758486Z[0m [32m INFO[0m [2moarfish::em[0m[2m:[0m iteration 700; rel diff 0.0012990544237337647
+[2m2026-10-21T22:21:05.030935Z[0m [32m INFO[0m [2moarfish::em[0m[2m:[0m iteration 800; rel diff 0.0011007552935052263
+[2m2026-10-21T22:21:05.526318Z[0m [32m INFO[0m [2moarfish[0m[2m:[0m oarfish completed successfully.

@@ -8,6 +8,7 @@
 | `rna` | direct RNA (RNA004), spliced to a genome | `-x splice -uf -k14` |
 | `cdna` | cDNA, spliced to a genome, transcript strand from splice signals | `-x splice` |
 | `splice:hq` | accurate cDNA | `-x splice:hq` |
+| `tx` | direct RNA or cDNA to a transcriptome, for quantification (oarfish, NanoCount) | `-x map-ont -N 100` |
 
 The minimap2 names `lr:hq`, `lr:hq-fast`, `map-ont` and `lr` are accepted for `dna`, and `splice`
 for `cdna`. PacBio, short-read and assembly presets are not supported.
@@ -21,6 +22,7 @@ build an index once:
 bonefish -d ref.raw --idx-raw ref.fa              # dna; loads in under a second (8.5 GB for GRCh38)
 bonefish -x cdna -d cdna.raw --idx-raw ref.fa     # spliced presets need their own index (k/w differ)
 bonefish -x rna  -d rna.raw  --idx-raw ref.fa
+bonefish -x tx   -d tx.raw   --idx-raw transcripts.fa
 ```
 
 Without `--idx-raw`, `-d` writes a smaller index that takes a few seconds to load. Indexes are

@@ -135,6 +135,10 @@ pub struct Index {
     /// computed on first use for the ava self-skip fast path. See [`name_rank`].
     #[serde(skip)]
     name_rank: std::sync::OnceLock<NameRankData>,
+    /// Derived (not serialized): number of ALT contigs, counted on first use (after `--alt` has
+    /// marked them), so per-read code does not scan every target (500k+ for a transcriptome).
+    #[serde(skip)]
+    n_alt: std::sync::OnceLock<usize>,
 }
 
 /// Dense lexicographic ranking of target-sequence names, used to turn the
@@ -211,6 +215,7 @@ impl IndexBuilder {
                 backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
                 packed_seqs: Default::default(),
                 name_rank: Default::default(),
+                n_alt: Default::default(),
             },
             w, k, max_occ,
             bucket_bits,
@@ -304,6 +309,11 @@ impl IndexBuilder {
 }
 
 impl Index {
+    /// Number of ALT contigs (computed once).
+    pub fn n_alt(&self) -> usize {
+        *self.n_alt.get_or_init(|| self.seqs.iter().filter(|s| s.is_alt).count())
+    }
+
     /// Dense lexicographic ranking of the target names, computed once on first use and cached
     pub fn name_rank(&self) -> &NameRankData {
         self.name_rank.get_or_init(|| {
@@ -538,6 +548,7 @@ impl Index {
                 backend: LookupBackend::BucketHash(lookup),
                 packed_seqs: Storage::mapped(map.clone(), qo, qn),
                 name_rank: Default::default(),
+                n_alt: Default::default(),
             });
             pos += hdr.part_len;
             pos += pad_to(pos, RAW_ALIGN);
@@ -707,6 +718,7 @@ impl Index {
             backend,
             packed_seqs: packed_seqs.into(),
             name_rank: Default::default(),
+            n_alt: Default::default(),
         };
 
         eprintln!("[*] Index loaded: {} seqs, {}M bases in {:.1}s",
@@ -727,6 +739,7 @@ impl Index {
             backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
             packed_seqs: Default::default(),
             name_rank: Default::default(),
+            n_alt: Default::default(),
         }
     }
 
@@ -740,6 +753,7 @@ impl Index {
             backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
             packed_seqs: Default::default(),
             name_rank: Default::default(),
+            n_alt: Default::default(),
         }
     }
 
@@ -769,6 +783,7 @@ impl Index {
             backend: LookupBackend::BucketHash(super::index_bucket::BucketHashLookup::empty()),
             packed_seqs: Default::default(),
             name_rank: Default::default(),
+            n_alt: Default::default(),
         };
 
         let mut offset = 0usize;
