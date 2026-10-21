@@ -1,9 +1,9 @@
 //! Dynamic-programming kernels
 //!
-//! Provides two kernel types — single-affine and dual-affine — each
-//! with SIMD specializations for SSE2, AVX2, AVX512BW, NEON, WASM SIMD128, and a
-//! scalar fallback. The public entry points are `extend_single_affine`,
-//! and `extend_dual_affine`; each dispatches to the best available
+//! Provides three kernel types — single-affine, dual-affine, and splice-aware (RNA/cDNA
+//! presets only) — each with SIMD specializations for SSE2, AVX2, AVX512BW, NEON, WASM
+//! SIMD128, and a scalar fallback. The public entry points are `extend_single_affine`,
+//! `extend_dual_affine`, and `extend_splice`; each dispatches to the best available
 //! SIMD variant at runtime, optionally capped per-preset (e.g., `sr`/`ava-*` cap
 //! at AVX2 to avoid AVX-512 license throttling). Override-able via env vars:
 //! `BONEFISH_FORCE_SCALAR`, `BONEFISH_FORCE_SSE`, `BONEFISH_FORCE_AVX2`, `BONEFISH_FORCE_AVX512`.
@@ -24,6 +24,7 @@ mod dual_clean_reg64;
 mod dual_clean_reg32vl;
 mod dual_clean16;
 pub use dual_clean::{clean_dual, set_clean_dual};
+mod splice;
 mod lw;
 #[cfg(feature = "census")]
 pub mod census;
@@ -167,6 +168,7 @@ pub use common::{
     DpResult, NEG_INF,
     SCORE_ONLY, RIGHT_ALIGN, GENERIC_SCORING, APPROX_MAX, APPROX_DROP,
     EXTENSION_ONLY, REV_CIGAR,
+    SPLICE_FORWARD, SPLICE_REVERSE, SPLICE_FLANK, SPLICE_COMPLEX,
     CIGAR_MATCH, CIGAR_INS, CIGAR_DEL, CIGAR_N_SKIP,
 };
 
@@ -206,6 +208,9 @@ pub fn extend_dual_affine_dispatch(qseq: &[u8], tseq: &[u8], alphabet_size: i8, 
     extend_dual_affine(qseq, tseq, alphabet_size, score_matrix, gap_open, gap_extend, gap_open2, gap_extend2,
                        bandwidth, z_drop, end_bonus, flags, result);
 }
+
+// Re-export public API from splice (spliced alignment, RNA/cDNA presets)
+pub use splice::{extend_splice, extend_splice_scalar};
 
 // Re-export public API from lightweight/global
 pub use lw::{

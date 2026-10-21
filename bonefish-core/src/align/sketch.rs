@@ -121,7 +121,7 @@ pub trait Sketcher {
     fn sketch(&self, seq: &[u8], len: usize, rid: usize, out: &mut Vec<Minimizer>);
 }
 
-/// Lookup table for base encoding: A=0, C=1, G=2, T=3, other=4
+/// Lookup table for base encoding: A=0, C=1, G=2, T/U=3, other=4
 /// Using a 256-byte table for branchless lookup (cache-friendly)
 static BASE_ENCODING: [u8; 256] = {
     let mut table = [4u8; 256];
@@ -133,6 +133,8 @@ static BASE_ENCODING: [u8; 256] = {
     table[b'g' as usize] = 2;
     table[b'T' as usize] = 3;
     table[b't' as usize] = 3;
+    table[b'U' as usize] = 3; // RNA reads: U as T
+    table[b'u' as usize] = 3;
     table
 };
 
@@ -443,6 +445,26 @@ mod tests {
             sketch_sequence(&seq, len, w, k, (case % 3) as usize, &mut a);
             sketch_sequence_reference(&seq, len, w, k, (case % 3) as usize, &mut b);
             assert_eq!(a, b, "case {case}: len {len} k {k} w {w}");
+        }
+    }
+
+    /// RNA reads: U/u sketch exactly as T/t, on every sketching path.
+    #[test]
+    fn u_sketches_as_t() {
+        let mut x = 0x9e37_79b9_7f4a_7c15u64;
+        let seq: Vec<u8> = (0..5000).map(|i| {
+            x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+            let b = b"ACGT"[(x & 3) as usize];
+            if i % 5 == 0 { b.to_ascii_lowercase() } else { b }
+        }).collect();
+        let rna: Vec<u8> = seq.iter().map(|&b| match b { b'T' => b'U', b't' => b'u', _ => b }).collect();
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        for (w, k) in [(5usize, 15usize), (5, 14), (19, 19)] {
+            sketch_sequence(&seq, seq.len(), w, k, 0, &mut a);
+            sketch_sequence(&rna, rna.len(), w, k, 0, &mut b);
+            assert_eq!(a, b, "w {w} k {k}");
+            sketch_sequence_reference(&rna, rna.len(), w, k, 0, &mut b);
+            assert_eq!(a, b, "one-pass, w {w} k {k}");
         }
     }
 

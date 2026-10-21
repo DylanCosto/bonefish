@@ -10,7 +10,7 @@
 //!   → seed   (seed.rs)          — index lookup, seed collection
 //!   → chain  (chain.rs/rmq)     — anchor chaining (DP or RMQ)
 //!   → filter (filter.rs)        — chain filtering, parent assignment
-//!   → align  (extend.rs+dp.rs)  — DP extension alignment per chain
+//!   → align  (extend.rs+dp.rs)  — DP extension alignment per chain (splice.rs: spliced)
 //!   → output (pipeline.rs)      — MAPQ, PAF/SAM formatting
 //! ```
 //!
@@ -36,11 +36,13 @@ pub mod filter;
 pub mod index_bucket;
 pub mod index_storage;
 pub mod index;
+pub mod junc;
 pub mod map;
 pub mod pipeline;
 pub mod seed;
 pub mod sketch;
 pub mod sort;
+pub mod splice;
 pub mod split;
 pub mod strobemer;
 pub mod syncmer;

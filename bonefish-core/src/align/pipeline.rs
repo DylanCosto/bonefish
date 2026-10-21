@@ -15,6 +15,7 @@ use crate::align::extend::{AlignmentContext, AlignAnchorContext, align_anchors, 
 use crate::align::filter::{FilterParams, ParentState, FilterableItem, check_secondary_filter, scale_alt_score};
 use crate::align::sort::radix_sort_128x_pair;
 use crate::align::extend::{rev_comp_nt4, encode_nt4_rc};
+use crate::align::splice::align_anchors_splice;
 use std::fmt::Write;
 use crate::align::stats::AlignmentStats;
 use serde::{Serialize, Deserialize};
@@ -23,14 +24,14 @@ use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
-/// Encode ASCII base to 0-4 (A=0,C=1,G=2,T=3,N=4)
+/// Encode ASCII base to 0-4 (A=0,C=1,G=2,T/U=3,N=4)
 #[inline]
 fn encode_nt4(b: u8) -> u8 {
     match b {
         b'A' | b'a' => 0,
         b'C' | b'c' => 1,
         b'G' | b'g' => 2,
-        b'T' | b't' => 3,
+        b'T' | b't' | b'U' | b'u' => 3,
         _ => 4,
     }
 }
@@ -448,6 +449,8 @@ pub struct AlnResult {
     pub div: f32,            // estimated divergence (for dv:f: tag in non-CIGAR PAF)
     pub is_alt: bool,        // true if mapped to an ALT contig
     pub is_root_chain: bool, // true if from a root chain (parent==id), for align1_inv parent check
+    pub is_spliced: bool,    // the CIGAR has introns (N operations)
+    pub trans_strand: u8,    // spliced presets: transcript strand vs the read, 0 unknown, 1 +, 2 -, 3 ambiguous
 }
 
 /// Compute fuzzy mlen/blen from anchor array.
@@ -480,6 +483,7 @@ fn align_single_mapping(
     _map_ctx: &mut MapContext,
     out: &OutputConfig,
     squeezed: &[Minimizer],
+    splice_strand: AlignFlags,
 ) -> (AlnResult, DpRecalcInfo, Option<Mapping>) {
     let mut align_score = mapping.score;
     let mut dp_max = mapping.score;
@@ -495,6 +499,7 @@ fn align_single_mapping(
     let mut nm: u32 = 0;
     let mut nn: usize = 0;
     let mut de: f64 = 0.0;
+    let mut has_n_skip = false;
     let mut qs = mapping.query_start;
     let mut qe = mapping.query_end;
     // Query interval including extension windows the low-identity probe left unaligned.
@@ -532,6 +537,7 @@ fn align_single_mapping(
         let q = opt.scoring.gap_open;
         let e = opt.scoring.gap_extend;
         let no_end_flt = opt.flags.contains(AlignFlags::NO_END_FLT);
+        let is_splice = opt.flags.contains(AlignFlags::SPLICE);
         let qlen_i32 = qlen as i32;
         let tlen_i32 = tlen as i32;
         let k_half = (mi.kmer_size as i32) >> 1;
@@ -576,7 +582,7 @@ fn align_single_mapping(
                 qe0_pre - end_shift,
             )
         } else {
-            let (trim_first_idx, trim_last_idx) = if !no_end_flt {
+            let (trim_first_idx, trim_last_idx) = if !no_end_flt && !is_splice {
                 let (off, cnt) = crate::align::extend::fix_bad_ends(
                     &mapping.anchors,
                     opt.chaining.bandwidth,
@@ -731,7 +737,16 @@ fn align_single_mapping(
         // fills). For the common path, the buffer is uninitialized and
         // `align_anchors` fills segments on demand.
         let region_size = if use_qstrand_rev { qstrand_owned.len() } else { rgn_end - rgn_start };
-        let aln_result = if use_qstrand_rev {
+        let aln_result = if is_splice {
+            let junc = opt.junctions.as_deref();
+            if use_qstrand_rev {
+                align_anchors_splice(&mut mapping.anchors, query_seq_for_aln, &mut qstrand_owned, None,
+                    opt, &call_ctx, splice_strand, junc)
+            } else {
+                align_anchors_splice(&mut mapping.anchors, query_seq_for_aln, &mut ctx.target_buf[..region_size],
+                    Some((mi, rid, rgn_start)), opt, &call_ctx, splice_strand, junc)
+            }
+        } else if use_qstrand_rev {
             align_anchors(
                 &mut mapping.anchors,
                 query_seq_for_aln,
@@ -871,6 +886,7 @@ fn align_single_mapping(
         block_len = stats.block_len;
         nn = stats.num_ambiguous;
         de = stats.divergence;
+        has_n_skip = stats.has_n_skip;
 
         cigar_str = fmt_cigar(&ops, out.eqx);
         if out.do_cs {
@@ -918,11 +934,64 @@ fn align_single_mapping(
         div: mapping.div,
         is_alt: false,
         is_root_chain: !mapping.is_secondary,
+        is_spliced: has_n_skip,
+        trans_strand: 0,
     };
 
     (result, recalc_info, new_split)
 }
 
+
+/// Spliced alignment of a chain (minimap2's `mm_align_skeleton` splice branch). With both
+/// `SPLICE_FOR` and `SPLICE_REV` (`-ub`), align with the splice signals of each transcript
+/// strand and keep the higher-scoring one (ties: either, marked ambiguous); a spliced result
+/// with a known strand gains (a+b)*1.5 in dp_max, an ambiguous one loses a+b. Otherwise one
+/// pass with the configured strand.
+#[allow(clippy::too_many_arguments)]
+fn align_spliced_mapping(
+    mapping: &mut Mapping,
+    opt: &MapOptions,
+    mi: &Index,
+    qseq: &[u8],
+    qseq_fwd_nt4: &[u8],
+    qseq_rc_nt4: &[u8],
+    qlen: usize,
+    ctx: &mut AlignmentContext,
+    map_ctx: &mut MapContext,
+    out: &OutputConfig,
+    squeezed: &[Minimizer],
+) -> (AlnResult, DpRecalcInfo, Option<Mapping>) {
+    let both = AlignFlags::SPLICE_FOR | AlignFlags::SPLICE_REV;
+    if !opt.flags.contains(both) {
+        let strand = opt.flags & both;
+        let (mut res, rec, split) = align_single_mapping(mapping, opt, mi, qseq, qseq_fwd_nt4, qseq_rc_nt4, qlen,
+            ctx, map_ctx, out, squeezed, strand);
+        res.trans_strand = if strand.contains(AlignFlags::SPLICE_FOR) { 1 } else { 2 };
+        return (res, rec, split);
+    }
+    let mut r_rev = mapping.clone();
+    let (res_for, rec_for, split_for) = align_single_mapping(mapping, opt, mi, qseq, qseq_fwd_nt4, qseq_rc_nt4, qlen,
+        ctx, map_ctx, out, squeezed, AlignFlags::SPLICE_FOR);
+    let (res_rev, rec_rev, split_rev) = align_single_mapping(&mut r_rev, opt, mi, qseq, qseq_fwd_nt4, qseq_rc_nt4, qlen,
+        ctx, map_ctx, out, squeezed, AlignFlags::SPLICE_REV);
+    let (trans_strand, take_rev) = match res_for.align_score.cmp(&res_rev.align_score) {
+        std::cmp::Ordering::Greater => (1u8, false),
+        std::cmp::Ordering::Less => (2u8, true),
+        std::cmp::Ordering::Equal => (3u8, (qlen as i32 + res_for.align_score) & 1 != 0),
+    };
+    let (mut res, rec, split) = if take_rev {
+        *mapping = r_rev;
+        (res_rev, rec_rev, split_rev)
+    } else {
+        (res_for, rec_for, split_for)
+    };
+    res.trans_strand = trans_strand;
+    if res.is_spliced {
+        let bonus = opt.scoring.match_score + opt.scoring.mismatch_penalty;
+        if trans_strand == 3 { res.dp_score -= bonus; } else { res.dp_score += bonus + (bonus >> 1); }
+    }
+    (res, rec, split)
+}
 
 /// Attempt inversion alignment from z-drop split positions.
 /// Returns Some(AlnResult) if an inversion alignment was produced.
@@ -1130,6 +1199,8 @@ fn try_align_inversion(
         div: -1.0,  // inversions don't have estimated divergence
         is_alt: false,
         is_root_chain: true, // inversions only produced from root chains (checked in preconditions)
+        is_spliced: false,
+        trans_strand: 0,
     })
 }
 
@@ -1680,11 +1751,16 @@ fn process_query_core(
     let qseq_fwd_nt4: Vec<u8> = qseq.iter().map(|&b| encode_nt4(b)).collect();
     let qseq_rc_nt4: Vec<u8> = encode_nt4_rc(qseq);
 
+    let is_splice = opt.flags.contains(AlignFlags::SPLICE);
     while let Some((mut r, parent_depth)) = work_queue.pop_front() {
         let is_split_part = parent_depth > 0;
-        let (mut result, recalc_info, new_split) = align_single_mapping(
-            &mut r, opt, mi, qseq, &qseq_fwd_nt4, &qseq_rc_nt4, qlen, ctx, map_ctx, out, &squeezed,
-        );
+        let (mut result, recalc_info, new_split) = if is_splice {
+            align_spliced_mapping(&mut r, opt, mi, qseq, &qseq_fwd_nt4, &qseq_rc_nt4, qlen, ctx, map_ctx, out, &squeezed)
+        } else {
+            align_single_mapping(
+                &mut r, opt, mi, qseq, &qseq_fwd_nt4, &qseq_rc_nt4, qlen, ctx, map_ctx, out, &squeezed, AlignFlags::empty(),
+            )
+        };
 
         // Mark split parts; split_depth carries the chain's nesting level.
         if is_split_part {
@@ -2188,6 +2264,9 @@ fn format_sam_record(
     write!(output_buffer, "\tms:i:{}", r.dp_score_original).ok();
     write!(output_buffer, "\tAS:i:{}", r.align_score).ok();
     write!(output_buffer, "\tnn:i:{}", r.num_ambiguous).ok();
+    if r.trans_strand == 1 || r.trans_strand == 2 {
+        write!(output_buffer, "\tts:A:{}", if r.trans_strand == 1 { '+' } else { '-' }).ok();
+    }
     write!(output_buffer, "\ttp:A:{}", tp_tag).ok();
     write!(output_buffer, "\tcm:i:{}", cm_val).ok();
     write!(output_buffer, "\ts1:i:{}", s1_val).ok();
@@ -2299,6 +2378,9 @@ fn format_paf_record(
         write!(output_buffer, "\tms:i:{}", r.dp_score_original).ok();
         write!(output_buffer, "\tAS:i:{}", r.align_score).ok();
         write!(output_buffer, "\tnn:i:{}", r.num_ambiguous).ok();
+        if r.trans_strand == 1 || r.trans_strand == 2 {
+            write!(output_buffer, "\tts:A:{}", if r.trans_strand == 1 { '+' } else { '-' }).ok();
+        }
     }
     write!(output_buffer, "\ttp:A:{}", tp_tag).ok();
     write!(output_buffer, "\tcm:i:{}", cm_val).ok();
@@ -2335,6 +2417,41 @@ fn format_paf_record(
     writeln!(output_buffer).ok();
 }
 
+/// BED lines (chrom, start, end, read, splice-site score, strand) for the introns of a spliced
+/// alignment with a known transcript strand. The score adds the donor (GT 3, GC 2, AT 1) and
+/// acceptor (AG 3, AC 1) motif scores on the transcript strand, as minimap2 `--write-junc`.
+fn write_junction_bed(output_buffer: &mut String, mi: &Index, qname: &str, r: &AlnResult) {
+    if !r.is_spliced || (r.trans_strand != 1 && r.trans_strand != 2) { return; }
+    let rid = r.ref_id;
+    let rev = (r.trans_strand == 2) ^ r.is_reverse;
+    let comp = |c: u8| if c < 4 { 3 - c } else { 4 };
+    let mut t_off = r.ref_start;
+    let mut len = 0usize;
+    for &b in r.cigar_str.as_bytes() {
+        if b.is_ascii_digit() {
+            len = len * 10 + (b - b'0') as usize;
+            continue;
+        }
+        match b {
+            b'M' | b'=' | b'X' | b'D' => t_off += len,
+            b'N' => {
+                if len >= 2 {
+                    let (s0, s1) = (mi.get_nt4(rid, t_off), mi.get_nt4(rid, t_off + 1));
+                    let (e0, e1) = (mi.get_nt4(rid, t_off + len - 2), mi.get_nt4(rid, t_off + len - 1));
+                    let (d0, d1, a0, a1) = if !rev { (s0, s1, e0, e1) } else { (comp(e1), comp(e0), comp(s1), comp(s0)) };
+                    let donor = match (d0, d1) { (2, 3) => 3, (2, 1) => 2, (0, 3) => 1, _ => 0 };
+                    let acceptor = match (a0, a1) { (0, 2) => 3, (0, 1) => 1, _ => 0 };
+                    writeln!(output_buffer, "{}\t{}\t{}\t{}\t{}\t{}", mi.seqs[rid].name, t_off, t_off + len, qname,
+                        donor + acceptor, if rev { '-' } else { '+' }).ok();
+                }
+                t_off += len;
+            }
+            _ => {}
+        }
+        len = 0;
+    }
+}
+
 /// Format SAM/PAF output for one read.
 pub fn format_output(
     output_buffer: &mut String,
@@ -2354,6 +2471,15 @@ pub fn format_output(
     let sam_pri = &pq.sam_pri;
     let rep_len = pq.rep_len;
     let qlen = qseq.len();
+    // --write-junc: introns of primary spliced alignments (MAPQ >= 10) as BED, instead of SAM/PAF.
+    if opt.flags.contains(AlignFlags::OUT_JUNC) {
+        for (i, r) in results.iter().enumerate() {
+            if pq.parent_indices[i] == i && mapqs[i] >= 10 {
+                write_junction_bed(output_buffer, mi, qname, r);
+            }
+        }
+        return;
+    }
     // Output unmapped record if no results
     if results.is_empty() {
         format_unmapped_record(output_buffer, opt, out, read, rep_len);

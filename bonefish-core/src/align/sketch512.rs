@@ -41,7 +41,7 @@ fn emit(mut lanes: u8, x: [u64; 8], y: [u64; 8], output: &mut [Vec<Minimizer>; 8
     }
 }
 
-/// nt4-encodes `seq` into `nt`, followed by 64 padding bytes of 4 (as for an ambiguous base).
+/// nt4-encodes `seq` into `nt` (U as T), followed by 64 padding bytes of 4 (as for an ambiguous base).
 #[target_feature(enable = "avx512f,avx512bw")]
 unsafe fn encode(seq: &[u8], nt: &mut Vec<u8>) {
     unsafe {
@@ -69,7 +69,8 @@ unsafe fn encode(seq: &[u8], nt: &mut Vec<u8>) {
             );
             c = _mm512_mask_mov_epi8(
                 c,
-                _mm512_cmpeq_epi8_mask(v, _mm512_set1_epi8(b't' as i8)),
+                _mm512_cmpeq_epi8_mask(v, _mm512_set1_epi8(b't' as i8))
+                    | _mm512_cmpeq_epi8_mask(v, _mm512_set1_epi8(b'u' as i8)),
                 _mm512_set1_epi8(3),
             );
             _mm512_storeu_si512(nt.as_mut_ptr().add(i).cast(), c);

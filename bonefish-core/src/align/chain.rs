@@ -38,6 +38,22 @@ pub(crate) fn compute_chain_score(
     chn_pen_gap: f32,
     chn_pen_skip: f32,
 ) -> i32 {
+    chain_score::<false>(ai, aj, max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip)
+}
+
+/// Gap score of chaining `aj` to `ai`. With `CDNA` (spliced presets; minimap2's `is_cdna`), a
+/// reference gap longer than the query gap (a possible intron) costs min(linear, log) instead
+/// of linear + log/2.
+#[inline(always)]
+fn chain_score<const CDNA: bool>(
+    ai: &Minimizer,
+    aj: &Minimizer,
+    max_dist_x: i32,
+    max_dist_y: i32,
+    bw: i32,
+    chn_pen_gap: f32,
+    chn_pen_skip: f32,
+) -> i32 {
     let query_diff = ai.query_pos().wrapping_sub(aj.query_pos()); // q_pos diff
 
     if query_diff <= 0 || query_diff > max_dist_x {
@@ -63,7 +79,11 @@ pub(crate) fn compute_chain_score(
     if gap_width > 0 || min_diff > q_span {
         let lin_pen = chn_pen_gap * (gap_width as f32) + chn_pen_skip * (min_diff as f32);
         let log_pen = if gap_width >= 1 { fast_log2((gap_width + 1) as f32) } else { 0.0f32 };
-        score -= (lin_pen + 0.5f32 * log_pen) as i32;
+        if CDNA && ref_diff > query_diff {
+            score -= (if lin_pen < log_pen { lin_pen } else { log_pen }) as i32;
+        } else {
+            score -= (lin_pen + 0.5f32 * log_pen) as i32;
+        }
     }
 
     score
@@ -342,6 +362,29 @@ pub(crate) fn chain_anchors_scalar(
     a: &mut [Minimizer], // Input anchors
     ctx: &mut ChainingBuffers,
 ) -> (Vec<u64>, Vec<Minimizer>) { // Returns (u, a_new)
+    chain_anchors_scalar_impl::<false>(opt, max_dist_x, max_dist_y, a, ctx)
+}
+
+/// DP chaining for spliced (RNA/cDNA) alignment, minimap2's `is_cdna` mode: intron-friendly
+/// gap score, the query-gap limit `max_dist_y` not raised to the bandwidth, and no z-drop
+/// cut in the backtrack. Scalar only (the SIMD chainers are genomic-only).
+pub fn chain_anchors_cdna(
+    opt: &ChainingParams,
+    max_dist_x: i32,
+    max_dist_y: i32,
+    a: &mut [Minimizer],
+    ctx: &mut ChainingBuffers,
+) -> (Vec<u64>, Vec<Minimizer>) {
+    chain_anchors_scalar_impl::<true>(opt, max_dist_x, max_dist_y, a, ctx)
+}
+
+fn chain_anchors_scalar_impl<const CDNA: bool>(
+    opt: &ChainingParams,
+    max_dist_x: i32,
+    max_dist_y: i32,
+    a: &mut [Minimizer],
+    ctx: &mut ChainingBuffers,
+) -> (Vec<u64>, Vec<Minimizer>) {
     let n = a.len();
     if n == 0 {
         return (Vec::new(), Vec::new());
@@ -351,9 +394,9 @@ pub(crate) fn chain_anchors_scalar(
     let mut max_dist_x = max_dist_x;
     let mut max_dist_y = max_dist_y;
     if max_dist_x < bw { max_dist_x = bw; }
-    if max_dist_y < bw { max_dist_y = bw; }
+    if max_dist_y < bw && !CDNA { max_dist_y = bw; }
 
-    let real_max_drop = bw;
+    let real_max_drop = if CDNA { i32::MAX } else { bw };
 
     let mut predecessors = std::mem::take(&mut ctx.predecessors);
     let mut scores = std::mem::take(&mut ctx.scores);
@@ -387,7 +430,7 @@ pub(crate) fn chain_anchors_scalar(
         let mut end_j = if window_start > 0 { window_start as i64 - 1 } else { -1 };
 
         for j in (window_start..i).rev() {
-            let sc = compute_chain_score(&a[i], &a[j], max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
+            let sc = chain_score::<CDNA>(&a[i], &a[j], max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
 
             if sc == i32::MIN { continue; }
 
@@ -423,7 +466,7 @@ pub(crate) fn chain_anchors_scalar(
 
         // Check if best_anchor_idx provides a better path than what main loop found
         if best_anchor_idx >= 0 && best_anchor_idx < end_j {
-            let sc = compute_chain_score(&a[i], &a[best_anchor_idx as usize], max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
+            let sc = chain_score::<CDNA>(&a[i], &a[best_anchor_idx as usize], max_dist_x, max_dist_y, bw, opt.chn_pen_gap, opt.chn_pen_skip);
             if sc != i32::MIN && best_score < sc + scores[best_anchor_idx as usize] {
                 best_score = sc + scores[best_anchor_idx as usize];
                 best_predecessor = best_anchor_idx;

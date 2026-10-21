@@ -35,8 +35,14 @@ use crate::align::pipeline::{self, OutputConfig};
 /// Alignment preset (selected via the `-x` flag).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Preset {
-    /// ONT genomic DNA (the only preset).
+    /// ONT genomic DNA (the default).
     Dna,
+    /// Direct RNA, spliced (minimap2 `-x splice -uf -k14`).
+    Rna,
+    /// cDNA, spliced, transcript strand from splice signals (minimap2 `-x splice`).
+    Cdna,
+    /// Accurate cDNA, spliced (minimap2 `-x splice:hq`).
+    SpliceHq,
 }
 
 impl Preset {
@@ -44,6 +50,9 @@ impl Preset {
     pub fn as_str(&self) -> &'static str {
         match self {
             Preset::Dna => "dna",
+            Preset::Rna => "rna",
+            Preset::Cdna => "cdna",
+            Preset::SpliceHq => "splice:hq",
         }
     }
 }
@@ -106,6 +115,10 @@ pub struct Mapping {
     pub is_primary: bool,
     /// Whether this is a supplementary alignment.
     pub is_supplementary: bool,
+    /// Whether this alignment contains splice junctions (N operations).
+    pub is_spliced: bool,
+    /// Transcript strand of a spliced-preset alignment relative to the read (None: unknown).
+    pub trans_strand: Option<Strand>,
     /// Number of matching bases.
     pub matches: usize,
     /// Alignment block length.
@@ -339,8 +352,12 @@ impl AlignerBuilder {
 impl Aligner {
     // --- Preset convenience methods ---
 
-    /// ONT genomic DNA preset (the only preset).
+    /// ONT genomic DNA preset (the default).
     pub fn dna() -> Preset { Preset::Dna }
+    /// Direct RNA preset (spliced).
+    pub fn rna() -> Preset { Preset::Rna }
+    /// cDNA preset (spliced).
+    pub fn cdna() -> Preset { Preset::Cdna }
     /// Alias of [`Aligner::dna`] for minimap2-rs compatibility.
     pub fn map_ont() -> Preset { Preset::Dna }
 
@@ -415,6 +432,15 @@ impl Aligner {
             &mut ctx, &mut map_ctx, &out,
         );
         to_map_result(&pq, &self.index, &out)
+    }
+
+    /// Load annotated splice junctions from a BED file (BED12 transcripts or BED6 introns),
+    /// as `--junc-bed`: subsequent `map_seq` calls of a spliced preset favour them. Reference
+    /// names are resolved against the index.
+    pub fn load_junctions_bed(&mut self, path: &str) -> io::Result<()> {
+        let db = crate::align::junc::JunctionDb::load_bed_for_index(path, &self.index)?;
+        self.options.junctions = Some(Arc::new(db));
+        Ok(())
     }
 
     // --- Output ---
@@ -498,6 +524,12 @@ fn to_map_result(
             mapq,
             is_primary: !r.is_secondary,
             is_supplementary: r.split != 0,
+            is_spliced: r.is_spliced,
+            trans_strand: match r.trans_strand {
+                1 => Some(Strand::Forward),
+                2 => Some(Strand::Reverse),
+                _ => None,
+            },
             matches: r.matches,
             block_len: r.block_len,
             edit_distance: r.edit_distance,
@@ -535,7 +567,8 @@ fn parse_cigar_string(s: &str) -> Vec<CigarOp> {
 // Preset application (moved from main.rs)
 // ---------------------------------------------------------------------------
 
-/// Apply a preset by string name ("dna", or one of its minimap2-name aliases).
+/// Apply a preset by string name ("dna" or one of its minimap2-name aliases, "rna", "cdna",
+/// "splice" (= cdna) or "splice:hq").
 ///
 /// This is the same function used by the CLI's `-x` flag. Modifies `opt`,
 /// `k` and `w` in place. Returns an error if the preset name
@@ -580,8 +613,37 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, pres
             opt.alignment.gap_subanchor = true;
             opt.alignment.gap_subanchor_tr = 150;
         },
+        // Spliced alignment of transcripts, as minimap2 2.30/2.31 `-x splice` (options.c): k15 w5,
+        // both transcript strands tried (-ub) with splice-site flank scoring, introns up to 200 kb
+        // (-G: chaining reference gap and bandwidth), cDNA-mode chaining, 2 kb query gap limit,
+        // scoring -A1 -B2 -O2,32 -E1,0 -C9, junction bonus 9 / penalty 5, z-drop 200/100 and no
+        // DP matrix size cap. rna = minimap2 -x splice -uf -k14 (direct RNA is sequenced from the
+        // transcript strand); splice:hq = -C5 -B4 -O6,24. The dna preset's speed heuristics are
+        // not used (see align::splice).
+        "rna" | "cdna" | "splice" | "splice:hq" => {
+            *k = 15; *w = 5;
+            opt.flags.insert(AlignFlags::SPLICE | AlignFlags::SPLICE_FOR | AlignFlags::SPLICE_REV | AlignFlags::SPLICE_FLANK);
+            opt.alignment.max_sw_mat = 0;
+            opt.chaining.max_gap = 2000;
+            opt.chaining.max_gap_ref = 200_000;
+            opt.chaining.bandwidth = 200_000;
+            opt.chaining.bandwidth_long = 200_000;
+            let sc = &mut opt.scoring;
+            (sc.match_score, sc.mismatch_penalty, sc.gap_open, sc.gap_extend, sc.gap_open2, sc.gap_extend2) = (1, 2, 2, 1, 32, 0);
+            sc.noncanon_penalty = 9;
+            sc.junc_bonus = 9;
+            sc.junc_pen = 5;
+            opt.alignment.zdrop = 200;
+            opt.alignment.zdrop_inv = 100;
+            if preset == "rna" {
+                *k = 14;
+                opt.flags.remove(AlignFlags::SPLICE_REV);
+            } else if preset == "splice:hq" {
+                (sc.noncanon_penalty, sc.mismatch_penalty, sc.gap_open, sc.gap_open2) = (5, 4, 6, 24);
+            }
+        },
         _ => {
-            return Err(format!("unrecognized preset '{}' (ONT genomic DNA only: dna, the default)", preset));
+            return Err(format!("unrecognized preset '{}' (dna, the default; rna; cdna)", preset));
         }
     }
     finalize_options(opt, *k);
@@ -1026,10 +1088,13 @@ mod tests {
 
     #[test]
     fn test_preset_as_str_roundtrip() {
-        let presets = [Preset::Dna];
+        let presets = [Preset::Dna, Preset::Rna, Preset::Cdna, Preset::SpliceHq];
         for p in &presets {
             let s = p.as_str();
             assert!(!s.is_empty(), "preset {:?} should have a string form", p);
+            let mut opt = MapOptions::default();
+            let (mut k, mut w) = (15, 10);
+            assert!(apply_preset_str(&mut opt, &mut k, &mut w, s).is_ok(), "preset {:?} should apply", p);
         }
     }
 
@@ -1047,9 +1112,24 @@ mod tests {
         for alias in ["lr:hq", "lr:hq-fast", "map-ont", "lr"] {
             assert_eq!(apply(alias).unwrap(), dna, "{alias} should be the dna preset");
         }
-        for gone in ["lr:hq-turbo", "sr", "splice", "map-pb", "asm5"] {
+        for gone in ["lr:hq-turbo", "sr", "splice:sr", "map-pb", "asm5"] {
             assert!(apply(gone).is_err(), "{gone} should be rejected");
         }
+        // Spliced presets (minimap2 -x splice; rna adds -uf -k14), with splice as a cdna alias.
+        let cdna = apply("cdna").unwrap();
+        assert_eq!((cdna.1, cdna.2), (15, 5));
+        assert_eq!(apply("splice").unwrap(), cdna);
+        assert_eq!((apply("rna").unwrap().1, apply("splice:hq").unwrap().1), (14, 15));
+        let mut opt = MapOptions::default();
+        let (mut k, mut w) = (15, 10);
+        apply_preset_str(&mut opt, &mut k, &mut w, "rna").unwrap();
+        assert!(opt.flags.contains(AlignFlags::SPLICE | AlignFlags::SPLICE_FOR | AlignFlags::SPLICE_FLANK));
+        assert!(!opt.flags.contains(AlignFlags::SPLICE_REV));
+        assert_eq!((opt.chaining.max_gap, opt.chaining.max_gap_ref, opt.chaining.bandwidth), (2000, 200_000, 200_000));
+        let sc = &opt.scoring;
+        assert_eq!((sc.match_score, sc.mismatch_penalty, sc.gap_open, sc.gap_extend, sc.gap_open2, sc.gap_extend2,
+            sc.noncanon_penalty, sc.junc_bonus, sc.junc_pen), (1, 2, 2, 1, 32, 0, 9, 9, 5));
+        assert!(!apply("dna").unwrap().0.contains("SPLICE"));
     }
 
     #[test]
@@ -1151,5 +1231,76 @@ mod tests {
     fn test_encode_nt4() {
         let encoded = encode_nt4(b"ACGTNacgtn");
         assert_eq!(encoded, vec![0, 1, 2, 3, 4, 0, 1, 2, 3, 4]);
+        assert_eq!(encode_nt4(b"Uu"), vec![3, 3]);
+    }
+
+    /// Random 40 kb reference with a two-exon gene on the + strand: exons [10000, 10400) and
+    /// [16400, 16800) around a 6 kb GT..AG intron. Returns (reference, spliced transcript).
+    fn spliced_gene() -> (Vec<u8>, Vec<u8>) {
+        let mut x: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut g: Vec<u8> = (0..40_000).map(|_| {
+            x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+            b"ACGT"[(x >> 62) as usize]
+        }).collect();
+        g[10_400..10_402].copy_from_slice(b"GT");
+        g[16_398..16_400].copy_from_slice(b"AG");
+        let tx = [&g[10_000..10_400], &g[16_400..16_800]].concat();
+        (g, tx)
+    }
+
+    #[test]
+    fn test_spliced_presets_align_through_intron() {
+        let (g, tx) = spliced_gene();
+        let rc = crate::align::extend::rev_comp(&tx);
+        let as_rna: Vec<u8> = tx.iter().map(|&b| if b == b'T' { b'U' } else { b }).collect();
+        for (preset, read, strand, ts) in [
+            (Preset::Cdna, &tx, Strand::Forward, Strand::Forward),
+            (Preset::Cdna, &rc, Strand::Reverse, Strand::Reverse), // read = reverse complement of the transcript
+            (Preset::SpliceHq, &tx, Strand::Forward, Strand::Forward),
+            (Preset::Rna, &tx, Strand::Forward, Strand::Forward),
+            (Preset::Rna, &as_rna, Strand::Forward, Strand::Forward), // U read as T
+        ] {
+            let a = Aligner::builder(preset).cigar(true).from_seqs(vec![("chr".to_string(), g.clone())]).unwrap();
+            let res = a.map_seq("r", read);
+            let m = &res.mappings[0];
+            assert_eq!((m.target_start, m.target_end, m.strand), (10_000, 16_800, strand), "{preset:?}");
+            assert_eq!(m.cigar.as_deref(), Some("400M6000N400M"), "{preset:?}");
+            assert!(m.is_spliced && m.trans_strand == Some(ts), "{preset:?}");
+        }
+        // The genomic preset does not splice.
+        let a = Aligner::builder(Preset::Dna).cigar(true).from_seqs(vec![("chr".to_string(), g)]).unwrap();
+        assert!(a.map_seq("r", &tx).mappings.iter().all(|m| !m.is_spliced && m.trans_strand.is_none()));
+    }
+
+    #[test]
+    fn test_junction_bed_moves_ambiguous_junction() {
+        // The intron starts and ends with GTAG, so the same transcript splits as GT..AG at
+        // [10400,16400) or [10404,16404). Without annotation the DP picks one; an annotated
+        // junction at the other position must win.
+        let (mut g, _) = spliced_gene();
+        g[10_400..10_406].copy_from_slice(b"GTAGGT");
+        g[16_398..16_404].copy_from_slice(b"AGGTAG");
+        let tx = [&g[10_000..10_400], &g[16_400..16_800]].concat();
+        let mut a = Aligner::builder(Preset::Cdna).cigar(true).from_seqs(vec![("chr".to_string(), g)]).unwrap();
+        let intron = |a: &Aligner| {
+            let m = &a.map_seq("r", &tx).mappings[0];
+            let ops = m.cigar_ops.as_ref().unwrap();
+            let mut t = m.target_start;
+            for op in ops {
+                if op.op == 3 { return (t, t + op.len as usize); }
+                if matches!(op.op, 0 | 2 | 7 | 8) { t += op.len as usize; }
+            }
+            panic!("no intron");
+        };
+        let unannotated = intron(&a);
+        assert!(unannotated == (10_400, 16_400) || unannotated == (10_404, 16_404), "{unannotated:?}");
+        let other = if unannotated == (10_400, 16_400) { (10_404, 16_404) } else { (10_400, 16_400) };
+        let dir = std::env::temp_dir().join(format!("bonefish_api_junc_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bed = dir.join("j.bed");
+        std::fs::write(&bed, format!("chr\t{}\t{}\tj\t0\t+\n", other.0, other.1)).unwrap();
+        a.load_junctions_bed(bed.to_str().unwrap()).unwrap();
+        assert_eq!(intron(&a), other);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

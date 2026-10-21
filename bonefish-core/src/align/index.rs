@@ -162,13 +162,14 @@ impl NameRankData {
     }
 }
 
-/// nt4 encoding lookup: A→0, C→1, G→2, T→3, anything else (including N) →4.
+/// nt4 encoding lookup: A→0, C→1, G→2, T/U→3, anything else (including N) →4.
 static NT4_TABLE: [u32; 256] = {
     let mut t = [4u32; 256];
     t[b'A' as usize] = 0; t[b'a' as usize] = 0;
     t[b'C' as usize] = 1; t[b'c' as usize] = 1;
     t[b'G' as usize] = 2; t[b'g' as usize] = 2;
     t[b'T' as usize] = 3; t[b't' as usize] = 3;
+    t[b'U' as usize] = 3; t[b'u' as usize] = 3;
     t
 };
 
