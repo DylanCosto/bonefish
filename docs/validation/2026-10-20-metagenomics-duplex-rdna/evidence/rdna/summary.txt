@@ -1,0 +1,4 @@
+bf grch38 primary=530 unmapped=0 mapq0=105 mapq>=20=162 contigs: chr21=255 chr22_KI270733v1_random=129 chrUn_GL000220v1=136
+mm grch38 primary=530 unmapped=0 mapq0=105 mapq>=20=164 contigs: chr21=256 chr22_KI270733v1_random=129 chrUn_GL000220v1=136
+bf hs1 primary=530 unmapped=39 mapq0=224 mapq>=20=20 contigs: chr21=117 chr22=76 chr13=93 chr14=96 chr15=103
+mm hs1 primary=530 unmapped=39 mapq0=224 mapq>=20=20 contigs: chr21=119 chr22=76 chr13=93 chr14=96 chr15=101

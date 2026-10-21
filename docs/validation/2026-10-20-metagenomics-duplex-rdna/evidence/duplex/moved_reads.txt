@@ -1,0 +1,5 @@
+Duplex primaries at a different locus in bonefish and minimap2 (other contig/strand or start > 20 kb apart): 6,225
+  both MAPQ < 5 (repeat copies):  4,988 (80%)
+  minimap2 MAPQ >= 20:              469
+  bonefish MAPQ >= 20:              804
+  both MAPQ >= 20:                  332 (0.09% of reads)

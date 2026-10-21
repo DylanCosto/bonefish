@@ -85,6 +85,16 @@ Same genome-wide HG001 sample, bonefish vs minimap2: on T2T-CHM13 41 s vs 166 s 
 with the same number of primaries on ALT contigs (155 vs 154) and the same MHC mapping quality.
 Details: [validation/2026-10-14-other-references](validation/2026-10-14-other-references/README.md).
 
+## Metagenomes, duplex reads and rDNA
+
+Against minimap2 `lr:hq` on the same reads (v0.1.7): ONT's Zymo fecal reference (1.70 M R10.4.1 sup
+reads with 4mC/5mC/6mA tags) against its 29,984-contig metagenome assembly, 169 s vs 372 s (2.6x less
+CPU), 99.75% of primaries identical, per-contig read counts r = 1.000000 and 0.012% of reads in a
+different bin; HG002 stereo duplex reads (9.4 Gbp) on GRCh38, 186 s vs 715 s, the same 98.43% mapped
+and 96.3% of primaries identical; rDNA reads on GRCh38 and T2T-CHM13, 98.5-98.9% placed as by
+minimap2 with the same MAPQ profile.
+Details: [validation/2026-10-20-metagenomics-duplex-rdna](validation/2026-10-20-metagenomics-duplex-rdna/README.md).
+
 ## Simulated reads with known origin
 
 Badread reads from every GRCh38 chromosome; a primary alignment is wrong if it misses the read's true
