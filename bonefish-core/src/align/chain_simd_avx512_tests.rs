@@ -79,7 +79,7 @@ fn avx512_bucket_direct_scores_match_batch_kernel() {
         let mut expected = vec![1234567; m + 8];
         let mut actual = expected.clone();
         unsafe {
-            compute_chain_scores_batch_avx512(qi, ri, rid, &gr, &gq, &gs, &gids,
+            compute_chain_scores_batch_avx512::<false>(qi, ri, rid, &gr, &gq, &gs, &gids,
                 dx, dy, bw, gap, skip, &mut expected, 0, m);
             chain_scores_bucket_direct_avx512::<false>(qi, ri, rid, &q, &span, &diag, &idx,
                 dx, dy, bw, gap, skip, &mut actual, -1);
@@ -117,11 +117,11 @@ fn avx512_zero_diagonal_penalties_match_avx2() {
                         let mut full = expected.clone();
                         let mut masked = expected.clone();
                         let bits = unsafe {
-                            compute_chain_scores_batch_avx2(10000, 80000, 0, &r, &q, &span, &rid,
+                            compute_chain_scores_batch_avx2::<false>(10000, 80000, 0, &r, &q, &span, &rid,
                                 5000, 5000, 100, gap, skip, &mut expected, start, end);
-                            compute_chain_scores_batch_avx512(10000, 80000, 0, &r, &q, &span, &rid,
+                            compute_chain_scores_batch_avx512::<false>(10000, 80000, 0, &r, &q, &span, &rid,
                                 5000, 5000, 100, gap, skip, &mut full, start, end);
-                            chain_scores_masked_avx512(10000, 80000, 0, 70000, &r, &q, &span, &rid, &diag,
+                            chain_scores_masked_avx512::<false>(10000, 80000, 0, 70000, &r, &q, &span, &rid, &diag,
                                 5000, 5000, 100, gap, skip, &mut masked, start, end)
                         };
                         assert_eq!(full, expected, "gap={gap} skip={skip} start={start} len={len}");
@@ -376,12 +376,12 @@ fn avx512_bucket_merge16_matches_scalar_merge() {
 fn assert_matches_reference(anchors: &[Minimizer], opt: &ChainingParams, ctx: &mut ChainingBuffers) {
     let n = anchors.len();
     let mut input = anchors.to_vec();
-    let (u, ch) = unsafe { chain_anchors_avx512_impl(opt, opt.max_dist_x, opt.max_dist_y, &mut input, ctx) };
+    let (u, ch) = unsafe { chain_anchors_avx512_impl::<false>(opt, opt.max_dist_x, opt.max_dist_y, &mut input, ctx) };
     let mut checked = false;
     if anchors.iter().all(|a| a.ref_pos() >= 0 && a.query_pos() >= 0) {
         let mut input = anchors.to_vec();
         let mut avx2_ctx = ChainingBuffers::new();
-        let (u2, ch2) = unsafe { chain_anchors_avx2(opt, opt.max_dist_x, opt.max_dist_y, &mut input, &mut avx2_ctx) };
+        let (u2, ch2) = unsafe { chain_anchors_avx2::<false>(opt, opt.max_dist_x, opt.max_dist_y, &mut input, &mut avx2_ctx) };
         assert_eq!(u, u2, "AVX2 chain descriptors, bandwidth {}", opt.bandwidth);
         assert_eq!(ch, ch2, "AVX2 anchor order, bandwidth {}", opt.bandwidth);
         assert_eq!(&ctx.scores[..n], &avx2_ctx.scores[..n], "AVX2 DP scores");

@@ -12,9 +12,9 @@
 //!
 //! Output: a `Vec<u64>` of chain descriptors (upper 32 bits = score, lower 32
 //! bits = anchor count) plus a reordered anchor array. Chains are sorted by
-//! reference position of their first anchor. On x86_64 with AVX2, dispatches
-//! to a SIMD-accelerated implementation for genomic (non-cDNA) single-segment
-//! inputs with 32+ anchors.
+//! reference position of their first anchor. Inputs with 32+ anchors are
+//! dispatched to a SIMD implementation (x86_64 AVX-512/AVX2/SSE2, aarch64 NEON,
+//! and wasm32 SIMD128 for genomic chaining) with bit-identical output.
 
 use crate::align::sketch::Minimizer;
 use crate::align::sort::radix_sort_128x;
@@ -28,24 +28,11 @@ pub(crate) fn fast_log2(x: f32) -> f32 {
     log_2 + ((-0.34484843f32 * z_f + 2.024_665_8_f32) * z_f - 0.674_877_6_f32)
 }
 
-#[inline(always)]
-pub(crate) fn compute_chain_score(
-    ai: &Minimizer,
-    aj: &Minimizer,
-    max_dist_x: i32,
-    max_dist_y: i32,
-    bw: i32,
-    chn_pen_gap: f32,
-    chn_pen_skip: f32,
-) -> i32 {
-    chain_score::<false>(ai, aj, max_dist_x, max_dist_y, bw, chn_pen_gap, chn_pen_skip)
-}
-
 /// Gap score of chaining `aj` to `ai`. With `CDNA` (spliced presets; minimap2's `is_cdna`), a
 /// reference gap longer than the query gap (a possible intron) costs min(linear, log) instead
 /// of linear + log/2.
 #[inline(always)]
-fn chain_score<const CDNA: bool>(
+pub(crate) fn chain_score<const CDNA: bool>(
     ai: &Minimizer,
     aj: &Minimizer,
     max_dist_x: i32,
@@ -229,9 +216,34 @@ pub fn chain_anchors(
     a: &mut [Minimizer],
     ctx: &mut ChainingBuffers,
 ) -> (Vec<u64>, Vec<Minimizer>) {
+    chain_anchors_dispatch::<false>(opt, max_dist_x, max_dist_y, a, ctx)
+}
+
+/// DP chaining for spliced (RNA/cDNA) alignment, minimap2's `is_cdna` mode: intron-friendly
+/// gap score, the query-gap limit `max_dist_y` not raised to the bandwidth, and no z-drop
+/// cut in the backtrack. Dispatched like `chain_anchors` (the SIMD chainers' `CDNA`
+/// instantiations reproduce the scalar chainer exactly); wasm32 uses the scalar chainer.
+pub fn chain_anchors_cdna(
+    opt: &ChainingParams,
+    max_dist_x: i32,
+    max_dist_y: i32,
+    a: &mut [Minimizer],
+    ctx: &mut ChainingBuffers,
+) -> (Vec<u64>, Vec<Minimizer>) {
+    chain_anchors_dispatch::<true>(opt, max_dist_x, max_dist_y, a, ctx)
+}
+
+#[inline(always)]
+fn chain_anchors_dispatch<const CDNA: bool>(
+    opt: &ChainingParams,
+    max_dist_x: i32,
+    max_dist_y: i32,
+    a: &mut [Minimizer],
+    ctx: &mut ChainingBuffers,
+) -> (Vec<u64>, Vec<Minimizer>) {
     // Fall back to scalar for small inputs
     if a.len() < 32 {
-        return chain_anchors_scalar(opt, max_dist_x, max_dist_y, a, ctx);
+        return chain_anchors_scalar_impl::<CDNA>(opt, max_dist_x, max_dist_y, a, ctx);
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -239,17 +251,17 @@ pub fn chain_anchors(
         let force_scalar = *crate::align::env_flags::FORCE_SCALAR_CHAIN;
         if !force_scalar && crate::align::dp::use_avx512() && is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw") {
             return unsafe {
-                super::chain_simd::chain_anchors_avx512(opt, max_dist_x, max_dist_y, a, ctx)
+                super::chain_simd::chain_anchors_avx512::<CDNA>(opt, max_dist_x, max_dist_y, a, ctx)
             };
         }
         if !force_scalar && crate::align::dp::use_avx2() {
             return unsafe {
-                super::chain_simd::chain_anchors_avx2(opt, max_dist_x, max_dist_y, a, ctx)
+                super::chain_simd::chain_anchors_avx2::<CDNA>(opt, max_dist_x, max_dist_y, a, ctx)
             };
         }
         if !force_scalar {
             return unsafe {
-                super::chain_simd::chain_anchors_sse(opt, max_dist_x, max_dist_y, a, ctx)
+                super::chain_simd::chain_anchors_sse::<CDNA>(opt, max_dist_x, max_dist_y, a, ctx)
             };
         }
     }
@@ -259,21 +271,22 @@ pub fn chain_anchors(
         let force_scalar = *crate::align::env_flags::FORCE_SCALAR_CHAIN;
         if !force_scalar {
             return unsafe {
-                super::chain_simd::chain_anchors_neon(opt, max_dist_x, max_dist_y, a, ctx)
+                super::chain_simd::chain_anchors_neon::<CDNA>(opt, max_dist_x, max_dist_y, a, ctx)
             };
         }
     }
 
+    // The wasm32 chainer is genomic only.
     #[cfg(target_arch = "wasm32")]
     {
-        return unsafe {
-            super::chain_simd::chain_anchors_wasm(opt, max_dist_x, max_dist_y, a, ctx)
-        };
+        if !CDNA {
+            return unsafe {
+                super::chain_simd::chain_anchors_wasm(opt, max_dist_x, max_dist_y, a, ctx)
+            };
+        }
     }
 
-    // wasm32 the block above always returns, so this is unreachable for wasm32
-    #[cfg(not(target_arch = "wasm32"))]
-    return chain_anchors_scalar(opt, max_dist_x, max_dist_y, a, ctx);
+    chain_anchors_scalar_impl::<CDNA>(opt, max_dist_x, max_dist_y, a, ctx)
 }
 
 /// Partition anchors by (ref_id, strand) and chain each partition independently
@@ -354,7 +367,9 @@ pub fn chain_anchors_partitioned(
 
 // Scalar DP chaining over a reference-sorted anchor array. For each anchor i,
 // scan back within a distance window for the best-scoring predecessor; record
-// score + predecessor; then backtrack into compacted chains.
+// score + predecessor; then backtrack into compacted chains. The reference for the
+// genomic SIMD chainers' tests.
+#[cfg(test)]
 pub(crate) fn chain_anchors_scalar(
     opt: &ChainingParams,
     max_dist_x: i32,
@@ -365,20 +380,8 @@ pub(crate) fn chain_anchors_scalar(
     chain_anchors_scalar_impl::<false>(opt, max_dist_x, max_dist_y, a, ctx)
 }
 
-/// DP chaining for spliced (RNA/cDNA) alignment, minimap2's `is_cdna` mode: intron-friendly
-/// gap score, the query-gap limit `max_dist_y` not raised to the bandwidth, and no z-drop
-/// cut in the backtrack. Scalar only (the SIMD chainers are genomic-only).
-pub fn chain_anchors_cdna(
-    opt: &ChainingParams,
-    max_dist_x: i32,
-    max_dist_y: i32,
-    a: &mut [Minimizer],
-    ctx: &mut ChainingBuffers,
-) -> (Vec<u64>, Vec<Minimizer>) {
-    chain_anchors_scalar_impl::<true>(opt, max_dist_x, max_dist_y, a, ctx)
-}
-
-fn chain_anchors_scalar_impl<const CDNA: bool>(
+/// Scalar DP chaining; with `CDNA`, `chain_anchors_cdna`'s spliced mode.
+pub(crate) fn chain_anchors_scalar_impl<const CDNA: bool>(
     opt: &ChainingParams,
     max_dist_x: i32,
     max_dist_y: i32,
