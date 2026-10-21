@@ -4,6 +4,22 @@ Each release's binaries and full notes are on the
 [releases page](https://github.com/DylanCosto/bonefish/releases). "Output" means the alignment
 records. Each entry quotes the MD5 of the genome-wide HG001 sample's SAM output, `@PG` lines removed.
 
+## v0.3.0 (unreleased)
+
+**New: `-x tx`.** The preset maps direct RNA or cDNA to a transcriptome for quantifiers such as
+oarfish and NanoCount (minimap2 `-ax map-ont -N 100`).
+
+- **Speed:** on HG002 it is 2.3x (cDNA) and 2.8x (direct RNA) faster than minimap2.
+- **Accuracy:** it maps the same reads as minimap2. oarfish gene counts agree at r = 0.9995 or
+  higher. Report: `docs/validation/2026-10-21-transcriptome/`.
+
+**Faster with many reference sequences:** the ALT-contig count is computed once per index, not
+by scanning every target for every read. This matters for transcriptomes and metagenome
+assemblies.
+
+**Faster chaining:** isolated anchors are dropped before chaining. DNA uses 1.2% less CPU, with
+output unchanged (`9bc7ff3e…`).
+
 ## v0.2.0 (2026-10-21)
 
 **New: direct RNA and cDNA.** Spliced alignment to a genome is available through two presets:

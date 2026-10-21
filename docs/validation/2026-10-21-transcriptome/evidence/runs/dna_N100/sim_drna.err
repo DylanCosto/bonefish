@@ -1,0 +1,3 @@
+[*] Loading index from ${DATA}/rna/tx/tx.bonefish.raw...
+[*] Loaded part 1 in 0.056s — k: 19; w: 19; #seq: 533740; total len: 946309864
+[*] Mapped 44787 reads in 31.935s (1 index part)

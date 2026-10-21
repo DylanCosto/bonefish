@@ -1,0 +1,8 @@
+[M::main::1.568*0.90] loaded/built the index for 533740 target sequence(s)
+[M::mm_mapopt_update::1.864*0.92] mid_occ = 321
+[M::mm_idx_stat] kmer size: 15; skip: 10; is_hpc: 0; #seq: 533740
+[M::mm_idx_stat::2.033*0.92] distinct minimizers: 24494645 (35.25% are singletons); average occurrences: 7.157; average spacing: 5.398; total length: 946309864
+[M::worker_pipeline::105.558*9.72] mapped 200000 sequences
+[M::main] Version: 2.31-r1302
+[M::main] CMD: minimap2 -ax map-ont -N 100 --eqx -t 16 ${DATA}/rna/tx/tx.mm2.mmi ${DATA}/rna/drna_hg002_200k.fq.gz
+[M::main] Real time: 105.607 sec; CPU: 1026.178 sec; Peak RSS: 4.956 GB

@@ -6,7 +6,8 @@ RNA and cDNA reads to a reference genome. It writes SAM, PAF or a sorted, indexe
 - **Accurate.** On whole human genomes (GIAB HG002 and HG005), SNP, indel and structural-variant
   calls match minimap2's. Methylation calls agree at r = 0.999.
 - **Fast.**
-  - Aligner alone: 2.6-8x faster than minimap2 on DNA, 2.6x on direct RNA and 5.4x on cDNA.
+  - Aligner alone: 2.6-8x faster than minimap2 on DNA, 2.6x on direct RNA, 5.4x on cDNA and
+    2.3-2.8x for transcriptome quantification.
   - Reads to a sorted BAM: about 3x faster than `minimap2 | samtools sort`.
 - **Drop-in.** It reads dorado's BAM output, keeping methylation and other tags, and accepts
   minimap2's options and preset names.
@@ -53,6 +54,7 @@ in a few minutes.
 | `dna` (default) | genomic DNA: R10.4.1 or R9.4.1, sup or hac, ultra-long (minimap2 `lr:hq`) |
 | `rna` | direct RNA (minimap2 `splice -uf -k14`) |
 | `cdna` | cDNA (minimap2 `splice`) |
+| `tx` | RNA or cDNA to a transcriptome, for quantification with oarfish or NanoCount (minimap2 `map-ont -N 100`) |
 
 Input formats, output options, memory use and CPU support are covered in
 [docs/usage.md](docs/usage.md). To replace minimap2 in an existing pipeline, including ONT's
@@ -81,9 +83,11 @@ Sniffles2 against GIAB v5.0q.
 | DNA, HG002 R9.4.1 chr20 (4.6 Gbp) | 412 s | 103 s | 4.0x |
 | cDNA, HG002 PCS114 (809k reads) | 1,223 s | 227 s | 5.4x |
 | direct RNA, HG002 RNA004 (902k reads) | 456 s | 177 s | 2.6x |
+| direct RNA to the transcriptome (`-x tx`, 200k reads) | 106 s | 37 s | 2.8x |
 
 On RNA, 99.5-99.9% of primary alignments are identical to minimap2's, and junction accuracy
-against GENCODE is the same.
+against GENCODE is the same. Transcript quantification from `-x tx` alignments agrees with
+minimap2's at gene level at r = 0.9995-0.99997.
 
 bonefish is also faster than dorado's aligner (4.3x), mm2plus (5.1x), mm2-fast (14x) and
 Winnowmap2 (38x).

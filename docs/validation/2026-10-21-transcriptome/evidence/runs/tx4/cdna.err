@@ -1,0 +1,3 @@
+[*] Loading index from ${DATA}/rna/tx/tx.tx.raw...
+[*] Loaded part 1 in 0.054s — k: 15; w: 10; #seq: 533740; total len: 946309864
+[*] Mapped 200000 reads in 81.158s (1 index part)
