@@ -1769,7 +1769,7 @@ fn process_query_core(
     let squeezed = map_result.squeezed;
     let split_mode = out.split_mode;
     // Mark ALT contigs on chains before sorting
-    let n_alt = mi.seqs.iter().filter(|s| s.is_alt).count();
+    let n_alt = mi.n_alt();
     if n_alt > 0 {
         for r in regs.iter_mut() {
             if mi.seqs[r.ref_id].is_alt { r.is_alt = true; }

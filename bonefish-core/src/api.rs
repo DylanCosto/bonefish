@@ -43,6 +43,8 @@ pub enum Preset {
     Cdna,
     /// Accurate cDNA, spliced (minimap2 `-x splice:hq`).
     SpliceHq,
+    /// RNA or cDNA reads to a transcriptome, for quantification (minimap2 `-x map-ont -N 100`).
+    Tx,
 }
 
 impl Preset {
@@ -53,6 +55,7 @@ impl Preset {
             Preset::Rna => "rna",
             Preset::Cdna => "cdna",
             Preset::SpliceHq => "splice:hq",
+            Preset::Tx => "tx",
         }
     }
 }
@@ -568,7 +571,7 @@ fn parse_cigar_string(s: &str) -> Vec<CigarOp> {
 // ---------------------------------------------------------------------------
 
 /// Apply a preset by string name ("dna" or one of its minimap2-name aliases, "rna", "cdna",
-/// "splice" (= cdna) or "splice:hq").
+/// "splice" (= cdna), "splice:hq" or "tx").
 ///
 /// This is the same function used by the CLI's `-x` flag. Modifies `opt`,
 /// `k` and `w` in place. Returns an error if the preset name
@@ -612,6 +615,18 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, pres
             opt.alignment.ungapped_fill = true;
             opt.alignment.gap_subanchor = true;
             opt.alignment.gap_subanchor_tr = 150;
+        },
+        // Reads (direct RNA or cDNA) against a transcriptome, for quantifiers that take all
+        // alignments (oarfish, NanoCount, salmon): minimap2's map-ont seeding (k15 w10, no seed
+        // occurrence range, 5 kb query gap limit) for short and noisy RNA reads, up to 100
+        // secondary alignments per read (isoforms share most of their sequence), and otherwise
+        // the dna preset's cheaper chaining and DP (there are no introns to align).
+        "tx" => {
+            apply_preset_str(opt, k, w, "dna")?;
+            *k = 15; *w = 10;
+            opt.chaining.max_gap = 5000;
+            opt.seeding.min_mid_occ = 10; opt.seeding.max_mid_occ = 1_000_000;
+            opt.filtering.best_n = 100;
         },
         // Spliced alignment of transcripts, as minimap2 2.30/2.31 `-x splice` (options.c): k15 w5,
         // both transcript strands tried (-ub) with splice-site flank scoring, introns up to 200 kb
@@ -1088,7 +1103,7 @@ mod tests {
 
     #[test]
     fn test_preset_as_str_roundtrip() {
-        let presets = [Preset::Dna, Preset::Rna, Preset::Cdna, Preset::SpliceHq];
+        let presets = [Preset::Dna, Preset::Rna, Preset::Cdna, Preset::SpliceHq, Preset::Tx];
         for p in &presets {
             let s = p.as_str();
             assert!(!s.is_empty(), "preset {:?} should have a string form", p);

@@ -55,7 +55,8 @@ fn expected() -> Vec<(String, String, String, String)> {
 }
 
 /// Arguments for an expected.tsv case: its options (`{junc}` stands for the annotation BED), then
-/// the reference and reads. Cases named `rna_*` / `cdna_*` use the spliced dataset (made by
+/// the reference and reads (`tx_*` runs the transcriptome preset on the DNA dataset, for its
+/// seeding and secondary settings). Cases named `rna_*` / `cdna_*` use the spliced dataset (made by
 /// `scripts/make_regression_rna_data.py`): direct-RNA-like or cDNA-like reads on a genome of
 /// multi-exon genes.
 fn map_args(name: &str, case_args: &str) -> Vec<String> {

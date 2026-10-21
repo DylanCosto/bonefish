@@ -652,6 +652,36 @@ fn get_minimizer_index(qlen: usize, a: &Minimizer, mini_pos: &[u64]) -> Option<u
 }
 
 /// Estimate chain divergence from minimizer matching
+/// Remove anchors (sorted by `x`) with no other anchor of the same reference and strand within
+/// `max_dist` reference bases. Such an anchor is outside every other anchor's chaining window,
+/// so it can only form a one-anchor chain, which `min_cnt` (> 1) always drops: the chains are
+/// the same without it. A transcriptome yields many such scattered hits (a k-mer of the read
+/// on hundreds of short transcripts).
+fn drop_isolated_anchors(a: &mut Vec<Minimizer>, max_dist: i32, min_cnt: i32) {
+    let n = a.len();
+    if min_cnt <= 1 || n < 2 {
+        return;
+    }
+    let md = max_dist.max(0) as u64;
+    let near = |p: &Minimizer, q: &Minimizer| p.x >> 32 == q.x >> 32 && q.x.wrapping_sub(p.x) <= md;
+    let mut w = 0;
+    for i in 0..n {
+        if (i > 0 && near(&a[i - 1], &a[i])) || (i + 1 < n && near(&a[i], &a[i + 1])) {
+            a[w] = a[i];
+            w += 1;
+        }
+    }
+    a.truncate(w);
+}
+
+/// Copy each region's chain anchors (`anchor_count` from offset `original_as` of `chains`).
+fn fill_anchors(regs: &mut [Mapping], chains: &[Minimizer]) {
+    for r in regs.iter_mut() {
+        let (a, n) = (r.original_as, r.anchor_count as usize);
+        r.anchors = chains[a..a + n].to_vec();
+    }
+}
+
 fn estimate_divergence(regs: &mut [Mapping], _anchors: &[Minimizer], qlen: usize, mini_pos: &[u64], mi: &Index) {
     if mini_pos.is_empty() { return; }
 
@@ -839,6 +869,13 @@ pub fn map_query(
     // presets), otherwise DP
     let is_splice = opt.flags.contains(AlignFlags::SPLICE);
     let mut anchors = std::mem::take(&mut ctx.anchors);
+    // The rescue's density test below counts every anchor, isolated ones included.
+    let n_anchors = anchors.len();
+    if !is_splice && !opt.flags.intersects(AlignFlags::RMQ_CHAIN | AlignFlags::PAR_CHAIN) {
+        // Widest reference distance any chaining pass of this read uses (main, the -g re-chain).
+        let reach = opt.chaining.max_gap.max(max_chain_gap_ref).max(opt.chaining.bandwidth);
+        drop_isolated_anchors(&mut anchors, reach, opt.chaining.min_cnt);
+    }
     let (mut u, mut chains) = if is_splice {
         chain_anchors_cdna(&opt.chaining, max_chain_gap_ref, max_chain_gap_qry, &mut anchors, &mut ctx.chain_bufs)
     } else if opt.flags.contains(AlignFlags::RMQ_CHAIN) {
@@ -889,7 +926,7 @@ pub fn map_query(
             let needs_rescue = ((qlen.saturating_sub(coverage) > opt.chaining.rmq_rescue_size as usize)
                 || (coverage > (qlen as f32 * opt.chaining.rmq_rescue_ratio) as usize))
                 && crate::align::env_flags::EXP_RESCUE_COVER.is_none_or(|f| (coverage as f32) < f * qlen as f32)
-                && (opt.chaining.rescue_max_density == 0 || ctx.anchors.len() < opt.chaining.rescue_max_density as usize * qlen);
+                && (opt.chaining.rescue_max_density == 0 || n_anchors < opt.chaining.rescue_max_density as usize * qlen);
             let needs_rescue = needs_rescue && (!(opt.chaining.rescue_join || *crate::align::env_flags::EXP_RESCUE_JOIN) || {
                 let max_dist = opt.chaining.max_gap.max(opt.chaining.bandwidth_long);
                 let j = chains_joinable(&u, &chains, max_dist, opt.chaining.bandwidth_long);
@@ -952,12 +989,12 @@ pub fn map_query(
 
         if cnt == 0 { continue; }
 
-        // Collect chain anchors
-        let chain_anchors_vec = chains[k_offset..k_offset + cnt as usize].to_vec();
-
+        // The chain's anchors are copied into the region only if it survives the parent /
+        // secondary filtering below (`fill_anchors`): with many overlapping chains per read
+        // (repeats, transcript isoforms) most regions are dropped there.
         let is_qstrand = opt.flags.contains(AlignFlags::QSTRAND);
         let ChainCoords { rid, rev, rs, re, qs, qe, hash: chain_hash } =
-            chain_coords(&chain_anchors_vec, qseq.len(), is_qstrand, read_hash);
+            chain_coords(&chains[k_offset..k_offset + cnt as usize], qseq.len(), is_qstrand, read_hash);
 
         regs.push(Mapping {
             ref_id: rid,
@@ -968,7 +1005,7 @@ pub fn map_query(
             score: sc,
             initial_chain_score: sc,  // initially same as score
             anchor_count: cnt,
-            anchors: chain_anchors_vec,
+            anchors: Vec::new(),
             is_reverse: rev,
             s2_score: None,
             is_secondary: false,
@@ -1004,7 +1041,7 @@ pub fn map_query(
     }
 
     // Mark ALT-contig chains; then sort chains by descending score.
-    let n_alt = mi.seqs.iter().filter(|s| s.is_alt).count();
+    let n_alt = mi.n_alt();
     if n_alt > 0 {
         for r in regs.iter_mut() {
             if mi.seqs[r.ref_id].is_alt { r.is_alt = true; }
@@ -1027,6 +1064,7 @@ pub fn map_query(
 
     // Skip parent-based filtering when ALL_CHAINS is set (e.g. ava-ont, ava-pb)
     if opt.flags.contains(AlignFlags::ALL_CHAINS) {
+        fill_anchors(&mut regs, &chains);
         // Nearby-seed computation on post-filter chains
         // Build squeezed anchor array from surviving chains, sorted by position
         let mut pos_order: Vec<usize> = (0..regs.len()).collect();
@@ -1219,6 +1257,7 @@ pub fn map_query(
         compacted.push(r);
     }
     regs = compacted;
+    fill_anchors(&mut regs, &chains);
     let mut filtered_regs = regs;
     let pc3 = Instant::now();
     PC_PARENT_NS.fetch_add((pc3 - pc2).as_nanos() as u64, Relaxed);
