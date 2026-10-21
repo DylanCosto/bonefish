@@ -4,7 +4,7 @@ Each release's binaries and full notes are on the
 [releases page](https://github.com/DylanCosto/bonefish/releases). "Output" means the alignment
 records. Each entry quotes the MD5 of the genome-wide HG001 sample's SAM output, `@PG` lines removed.
 
-## v0.3.0 (unreleased)
+## v0.3.0 (2026-10-21)
 
 **New: `-x tx`.** The preset maps direct RNA or cDNA to a transcriptome for quantifiers such as
 oarfish and NanoCount (minimap2 `-ax map-ont -N 100`).
