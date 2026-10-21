@@ -113,7 +113,7 @@ checksum = "843867be96c8daad0d758b57df9392b6d8d271134fce549de6ce169ff98a92af"
 
 [[package]]
 name = "bonefish"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "bonefish-core",
@@ -128,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "bonefish-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "bincode",

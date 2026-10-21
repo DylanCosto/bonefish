@@ -5,8 +5,8 @@ type: software
 authors:
   - family-names: Costo
     given-names: Dylan
-version: 0.1.6
-date-released: 2026-10-16
+version: 0.1.7
+date-released: 2026-10-20
 license: MIT
 repository-code: "https://github.com/DylanCosto/bonefish"
 keywords:
