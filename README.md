@@ -26,7 +26,9 @@ docker build -t bonefish https://github.com/DylanCosto/bonefish.git
 
 The SIMD kernels are chosen at run time (AVX-512/AVX2 on x86_64, NEON on arm64), so one binary
 runs on any CPU of its architecture. The speed and accuracy figures below were measured on x86_64
-with AVX2. The release workflow builds each platform's binary only after that platform passes
+with AVX2. On AVX-512 CPUs, v0.1.7 needs 27% less CPU time than v0.1.6 (Xeon Gold 5418Y, 24
+threads, genome-wide sample: 526 against 721 CPU-s, identical output;
+[details](docs/validation/2026-10-17-avx512/README.md)). The release workflow builds each platform's binary only after that platform passes
 the golden-output regression tests.
 
 ## Quick start
