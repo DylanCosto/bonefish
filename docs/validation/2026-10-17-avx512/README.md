@@ -109,6 +109,15 @@ Genome-wide sample, three alternating runs each: v0.1.6 672.7-677.0 CPU-s (44.7-
 tidied build 650.8-653.1 CPU-s (45.7-48.0 s). The shared changes (RMQ ranks, radix sort,
 chaining buckets) save about 3% of CPU time on AVX2 machines too.
 
+On the same Xeon Gold 5418Y VM (24 threads), the tidied build (commit `ca4270d`) passed
+`simd_parity.sh` on 20 Oct: default (AVX-512), forced AVX2 and forced SSE4.1 all give
+`9bc7ff3e9f498cc1530b2b1d78c47e10`. Default used about 526 CPU-s (27.6-29.7 s wall), forced
+AVX2 about 647 and SSE4.1 about 855. On that VM v0.1.6 used 721-723 CPU-s by default (its
+AVX-512 path) and 671-685 with AVX2, so this series saves about 27% of CPU time on AVX-512
+machines. A whole-program `-C target-cpu=x86-64-v4` build saved only a further 5 CPU-s
+(520.3 against 525.1, three alternating rounds; wall time within noise), so release builds
+stay portable with runtime dispatch.
+
 ## Tests and reproduction
 
 The freshly built selected checkout passed **188 tests, zero failures, and seven
