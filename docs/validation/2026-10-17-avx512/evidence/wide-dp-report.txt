@@ -1,0 +1,53 @@
+AVX-512 wide DP: full 16-score tracking and guarded gap-state simplification
+
+Complete wide-kernel speedup versus AVX2: 1.895913x in the six-batch comparison.
+Actual-checkout confirmation: 1.882631x.
+These are complete function timings, including allocation, initialization, H tracking and CIGAR traceback.
+All 805 captured calls are included: 66 exact-tracking calls and 739 approximate-tracking calls.
+The six-batch experiment alternates frozen old/new implementations; each batch has three alternating AVX2/512 trials with eight corpus repetitions, pinned to CPU23.
+
+Changes:
+Wide exact tracking processes complete 16-score blocks with unmasked AVX-512, preserving the original 8/4/scalar tails, range guard and tie keys.
+For standard scoring and static bands, gap clipping uses max(a-(z+e),-(q+e)). This removes four vector subtracts per 64 cells. Other parameter combinations keep the original wrapping-byte expressions.
+The fast arithmetic guard requires alphabet 5, match 2, mismatch -4, N score in [-4, 2], gap parameters 4/2/24/1 in either order, and safe static-band boundary arithmetic.
+Eleven other selected source files are unchanged, including common traceback, narrow/register kernels, chaining, sorting and global SIMD caps.
+
+Correctness:
+183 tests passed, 0 failed, 6 ignored; no AVX-512 skips.
+The complete 805-call oracle checks every result/CIGAR field against AVX2. Additional active-lane assertions verify the state bounds, clipped values and all continuation masks against the original expressions. These assertions are disabled before timing.
+All three original-input modes (default, forced AVX2, forced SSE) match 161,762 reads and SAM MD5 9bc7ff3e9f498cc1530b2b1d78c47e10.
+Both full 10x modes (default, forced AVX2) match 1,849,881 reads and SAM MD5 b83f40cfc93284abbfed78bff76ca4e5.
+All mapping runs use 24 threads, the same reads/reference/prebuilt index, and remove only @PG when hashing SAM.
+The actual checkout executable is byte-identical to the full-input-tested private executable: SHA256 03682ddcdbd02e9bfbbf1718dbbfd9ee9717e67b6bbcbfed8a067a5a9d8bfb5d.
+
+Full 10x mapper observations (one run per mode):
+mode	elapsed_s	CPU_s	peak_RSS_GiB
+auto	317.60	6073.99	15.702
+avx2	358.04	7171.12	15.509
+
+Whole-mapper percentage reductions (negative means regression):
+{
+  "same_binary_forced_AVX2": {
+    "wall_s_reduction_percent": 11.294827393587303,
+    "cpu_s_reduction_percent": 15.299283793884355,
+    "peak_RSS_GiB_reduction_percent": -1.2409409930135062
+  },
+  "prior_mask_plane_default": {
+    "wall_s_reduction_percent": -1.70034263024752,
+    "cpu_s_reduction_percent": 0.49457912446881913,
+    "peak_RSS_GiB_reduction_percent": -1.604228706387878
+  }
+}
+These single whole-input observations do not establish a repeated throughput gain and are separate from the repeated kernel result.
+The 10x dataset contains 1,849,881 distinct reads and 31,082,538,663 bases (10.0269x raw coverage). It is not ten copies of the 1x data.
+Input SHA checks and warming occur outside aligner-only GNU time. Index construction, coordinate sorting and BAM compression are excluded.
+
+Reproduction and limits:
+Portable Rust 1.99.1 / GCC 15.3 release build, jemalloc, opt3, fat LTO, one codegen unit; no native/global AVX-512, PGO, tune or bootstrap flags.
+Source reproduction uses base 6e39b586a68439a8d176aafd68a87f0a05fd9b88 plus patches 01 through 08. All 13 selected source files and every reproduced repository file match the actual tested checkout.
+The theoretical 2x width ratio is not a whole-mapper guarantee. The measured approximately 1.9x result applies to the captured wide-DP workload on this VM.
+VMware does not expose usable physical-cycle/frequency counters. Nominal 2 GHz is not a measured clock; no downclock conclusion is drawn.
+The earlier CPU-IP profile is diagnostic sampled CPU time, not physical cycles or a primary timing result.
+No three-way-unrolled256-bit implementation was tested. No commit or push was made.
+
+Bounded-difference background: https://link.springer.com/article/10.1186/s12859-018-2014-8 . The implementation-specific guard and validation are documented in proof.txt.

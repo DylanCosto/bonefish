@@ -18,11 +18,14 @@ jobs:
       - uses: actions/checkout@v5
       - run: rustup toolchain install stable --profile minimal && rustup default stable
       - name: CPU (which SIMD kernels the tests exercise)
-        # Informational only: never fails the job.
+        # Lists the runner's x86 SIMD features in BONEFISH_REQUIRE_SIMD, so a kernel test that
+        # skips although the CPU has its feature fails instead of passing untested.
         run: |
           if [ -r /proc/cpuinfo ]; then
             grep -m1 -E 'model name|CPU part' /proc/cpuinfo || true
-            for f in avx2 avx512f avx512bw asimd; do if grep -qw "$f" /proc/cpuinfo; then echo "has $f"; fi; done
+            for f in avx2 avx512f avx512bw avx512vl avx512vbmi asimd; do if grep -qw "$f" /proc/cpuinfo; then echo "has $f"; fi; done
+            req=$(for f in avx2 avx512bw avx512vl avx512vbmi; do grep -qw "$f" /proc/cpuinfo && printf '%s,' "$f"; done || true)
+            echo "BONEFISH_REQUIRE_SIMD=${req%,}" >> "$GITHUB_ENV"
           else
             sysctl -n machdep.cpu.brand_string || true; echo "arm64 (NEON)"
           fi

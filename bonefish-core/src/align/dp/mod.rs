@@ -16,6 +16,12 @@ mod common;
 mod single;
 mod dual;
 mod dual_clean;
+#[cfg(target_arch = "x86_64")]
+mod dual_clean512;
+#[cfg(target_arch = "x86_64")]
+mod dual_clean_reg64;
+#[cfg(target_arch = "x86_64")]
+mod dual_clean_reg32vl;
 mod dual_clean16;
 pub use dual_clean::{clean_dual, set_clean_dual};
 mod lw;
@@ -102,6 +108,22 @@ pub(crate) fn dp_cache_cap_bytes() -> usize {
     let bytes = mb.saturating_mul(1 << 20).min(usize::MAX - 1);
     DP_CACHE_CAP_BYTES.store(bytes, Ordering::Relaxed);
     bytes
+}
+
+/// Tests of CPU-specific kernels skip when the CPU lacks `feature` (`has == false`). CI sets
+/// `BONEFISH_REQUIRE_SIMD` to the features its runner has (comma-separated, e.g.
+/// `avx512bw,avx512vbmi,avx512vl`), which turns such a skip into a failure, so the tests
+/// cannot pass without running on a machine that does have the feature.
+#[cfg(all(test, target_arch = "x86_64"))]
+pub(crate) fn simd_test_available(feature: &str, has: bool) -> bool {
+    if !has {
+        let required = std::env::var("BONEFISH_REQUIRE_SIMD").unwrap_or_default();
+        assert!(
+            !required.split(',').any(|f| f.trim() == feature),
+            "BONEFISH_REQUIRE_SIMD lists {feature}, but the CPU does not report it"
+        );
+    }
+    has
 }
 
 #[cfg(target_arch = "x86_64")]

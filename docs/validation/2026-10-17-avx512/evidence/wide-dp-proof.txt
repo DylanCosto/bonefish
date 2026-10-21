@@ -1,0 +1,9 @@
+Validated guarded rewrite: for the guarded scoring contract, the usual difference-state bounds imply short transformed gaps in[-10,4] and long gaps in[-9,24]. The published basis is Suzuki and Kasahara2018, https://link.springer.com/article/10.1186/s12859-018-2014-8 . Its general bounds motivate this implementation-specific derivation; the paper is not evidence that this code or its band boundaries are correct.
+
+Let an=a-(z-q), penalty=q+e, with wrapping-byte operations. The new raw value a-(z+e) is an-penalty modulo256. Within the guarded active ranges, that subtraction does not overflow; therefore max(an,0)-penalty equals max(an-penalty,-penalty). Strict/non-strict continuation comparisons against zero become the same comparisons against-negativepenalty. This saves the final four vector subtracts and preserves ties.
+
+The runtime guard requires alphabet5,match2,mismatch-4,Nscore[-4,2],gapsets4/2/24/1 in either order,static bands and safe i32 boundary arithmetic. Other scoring/band configurations keep the original expressions. Padding-lane changes are discarded by the existing right-band reset and never used by band-checked traceback.
+
+CHECK=true separately asserts active-byte bounds,state equality and all continuation masks against the old expressions. Correctness tests and the entire805-case oracle enableCHECK; primary timing disables it. Full-input24-threadcanonicalSAMvalidation is required before promotion.
+
+Final evidence: 183 tests, all 805 active-lane/result oracles, all three original-input and both 10x 24-thread canonical SAM receipts passed. The actual/private executable hashes match. The actual source and eight-patch reconstruction are independently verified.

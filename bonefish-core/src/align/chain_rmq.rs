@@ -539,6 +539,8 @@ impl RmqTree {
 /// choice among exactly equal priorities can differ.
 struct SegRmq {
     ys: Vec<i32>,       // query position by rank
+    ydense: Vec<u32>,   // if not empty: ydense[k] = first rank with query position >= ybase + k
+    ybase: i32,
     ybin: Vec<u32>,     // ybin[k] = first rank with query position >= k << YBIN_SHIFT
     is: Vec<u32>,       // anchor index by rank
     rank: Vec<u32>,     // rank by anchor index
@@ -551,28 +553,38 @@ struct SegRmq {
 impl SegRmq {
     fn new(a: &[Minimizer]) -> Self {
         let n = a.len();
-        let mut keys: Vec<u64> = (0..n).map(|j| ((a[j].query_pos() as u32 as u64) << 32) | j as u64).collect();
-        crate::align::sort::radix_sort_u64(&mut keys); // distinct keys (anchor index in the low bits)
-        let mut ys = Vec::with_capacity(n);
-        let mut is = Vec::with_capacity(n);
-        let mut rank = vec![0u32; n];
-        for (r, &k) in keys.iter().enumerate() {
-            ys.push((k >> 32) as u32 as i32);
-            is.push(k as u32);
-            rank[k as u32 as usize] = r as u32;
-        }
+        // Ranks by counting sort when the query positions span a small range (with an exact
+        // lower-bound table if it is not too large), otherwise by sorting (position, index) keys.
+        let (ys, is, rank, ydense, ybase) = match count_query_ranks(a) {
+            Some((ys, is, rank, dense, base)) if dense.len() <= 1 << 18 => (ys, is, rank, dense, base),
+            Some((ys, is, rank, _, _)) => (ys, is, rank, Vec::new(), 0),
+            None => {
+                let mut keys: Vec<u64> = (0..n).map(|j| ((a[j].query_pos() as u32 as u64) << 32) | j as u64).collect();
+                crate::align::sort::radix_sort_u64(&mut keys); // distinct keys (anchor index in the low bits)
+                let mut ys = Vec::with_capacity(n);
+                let mut is = Vec::with_capacity(n);
+                let mut rank = vec![0u32; n];
+                for (r, &k) in keys.iter().enumerate() {
+                    ys.push((k >> 32) as u32 as i32);
+                    is.push(k as u32);
+                    rank[k as u32 as usize] = r as u32;
+                }
+                (ys, is, rank, Vec::new(), 0)
+            }
+        };
         let cap = n.next_power_of_two().max(1);
         let ymax = ys.last().copied().unwrap_or(0).max(0) as usize;
-        let mut ybin = Vec::with_capacity((ymax >> YBIN_SHIFT) + 2);
+        // The coarse bin table is only needed without the dense one. (No table if a query
+        // position were negative: `bound` then searches all ranks.)
+        let nbins = if !ydense.is_empty() || ys.first().is_some_and(|&y| y < 0) { 0 } else { (ymax >> YBIN_SHIFT) + 2 };
+        let mut ybin = Vec::with_capacity(nbins);
         let mut r = 0usize;
-        // (No table if a query position were negative: `bound` then searches all ranks.)
-        let nbins = if ys.first().is_some_and(|&y| y < 0) { 0 } else { (ymax >> YBIN_SHIFT) + 2 };
         for k in 0..nbins {
             let t = (k << YBIN_SHIFT) as i64;
             while r < ys.len() && (ys[r] as i64) < t { r += 1; }
             ybin.push(r as u32);
         }
-        SegRmq { ys, ybin, is, rank, pri: vec![f64::INFINITY; 2 * cap], idx: vec![NIL; 2 * cap], cap, size: 0 }
+        SegRmq { ys, ybin, ydense, ybase, is, rank, pri: vec![f64::INFINITY; 2 * cap], idx: vec![NIL; 2 * cap], cap, size: 0 }
     }
 
     #[inline]
@@ -592,12 +604,19 @@ impl SegRmq {
         }
     }
 
-    /// First rank whose query position is > y (`le`) or >= y (`!le`): the coarse bin table
-    /// narrows it to the ranks of one 64-bp bin, then a short binary search finishes.
+    /// First rank whose query position is > y (`le`) or >= y (`!le`): read from the dense table
+    /// if there is one; otherwise the coarse bin table narrows it to the ranks of one 64-bp bin,
+    /// then a short binary search finishes.
     #[inline(always)]
     fn bound(&self, y: i32, le: bool) -> usize {
         let ys = &self.ys;
         let t = y as i64 + le as i64; // first rank with query position >= t
+        if !self.ydense.is_empty() {
+            let k = t - self.ybase as i64;
+            if k <= 0 { return 0; }
+            if k >= self.ydense.len() as i64 { return ys.len(); }
+            return self.ydense[k as usize] as usize;
+        }
         let (mut base, end) = if self.ybin.is_empty() {
             (0, ys.len())
         } else {
@@ -667,6 +686,51 @@ impl SegRmq {
         let j = best_i as usize;
         Some((self.ys[self.rank[j] as usize], j, best_p))
     }
+}
+
+/// Query positions by rank, anchor indices by rank, ranks by anchor index, lower-bound table and
+/// its base (see [`count_query_ranks`]).
+type QueryRanks = (Vec<i32>, Vec<u32>, Vec<u32>, Vec<u32>, i32);
+
+/// The `SegRmq` ranks by counting sort, for at least 256 anchors whose query positions are
+/// non-negative and span at most min(2^20, 8n) values. Counting is stable, so the ranks are the
+/// (position, anchor index) order of the sorted-key construction. The final prefix counts are an
+/// exact lower-bound table: `dense[k]` is the first rank with query position >= `min + k`.
+fn count_query_ranks(a: &[Minimizer]) -> Option<QueryRanks> {
+    if a.len() < 256 || a.len() > u32::MAX as usize {
+        return None;
+    }
+    let (min, max) = a.iter().fold((i32::MAX, i32::MIN), |(l, h), a| (l.min(a.query_pos()), h.max(a.query_pos())));
+    if min < 0 {
+        return None;
+    }
+    let range = (max as i64 - min as i64 + 1) as usize;
+    if range > (1 << 20) || range > a.len().saturating_mul(8) {
+        return None;
+    }
+    // counts[q + 1] = number of anchors at position min + q; prefix sums give bucket starts.
+    let mut counts = vec![0u32; range + 1];
+    for x in a {
+        counts[(x.query_pos() - min) as usize + 1] += 1;
+    }
+    for i in 1..counts.len() {
+        counts[i] += counts[i - 1];
+    }
+    let mut ys = vec![0i32; a.len()];
+    let mut is = vec![0u32; a.len()];
+    let mut rank = vec![0u32; a.len()];
+    for (j, x) in a.iter().enumerate() {
+        let q = (x.query_pos() - min) as usize;
+        let at = counts[q] as usize;
+        counts[q] += 1;
+        ys[at] = x.query_pos();
+        is[at] = j as u32;
+        rank[j] = at as u32;
+    }
+    // counts[q] is now the end of bucket q; shift by one to get bucket starts again.
+    counts.copy_within(0..range, 1);
+    counts[0] = 0;
+    Some((ys, is, rank, counts, min))
 }
 
 pub static RMQ_CHECK_DIFF: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -1033,5 +1097,48 @@ mod tests {
 
         // Should produce at least one chain
         assert!(!u.is_empty());
+    }
+
+    /// Counting-sort ranks equal the sorted (position, index) key ranks, and the dense table
+    /// answers `bound` like a binary search over the ranked positions.
+    #[test]
+    fn counted_query_ranks_and_dense_bounds_match_sorted_keys() {
+        let mut seed = 0x9271_ffc3_ab77_8371u64;
+        let mut rnd = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        for case in 0..300 {
+            let n = [256, 257, 511, 1024, 4097][case % 5];
+            let span = [1, 7, 63, 1000, 16000][case % 5];
+            let base = if case % 3 == 0 { i32::MAX - 20000 } else { 0 };
+            let a: Vec<_> = (0..n)
+                .map(|i| Minimizer { x: i as u64, y: (15u64 << 32) | (base + (rnd() % span) as i32) as u32 as u64 })
+                .collect();
+            let Some((ys, is, rank, dense, ybase)) = count_query_ranks(&a) else { continue };
+            let mut keys: Vec<_> = (0..n).map(|j| ((a[j].query_pos() as u32 as u64) << 32) | j as u64).collect();
+            keys.sort_unstable();
+            for (r, &key) in keys.iter().enumerate() {
+                assert_eq!(ys[r], (key >> 32) as i32);
+                assert_eq!(is[r], key as u32);
+                assert_eq!(rank[key as u32 as usize], r as u32);
+            }
+            let tree = SegRmq {
+                ys: ys.clone(), ybin: vec![], ydense: dense, ybase, is, rank,
+                pri: vec![], idx: vec![], cap: 0, size: 0,
+            };
+            for _ in 0..100 {
+                let y = base + (rnd() % 20001) as i32 - 1;
+                for le in [false, true] {
+                    let expected = ys.partition_point(|&v| (v as i64) < y as i64 + le as i64);
+                    assert_eq!(tree.bound(y, le), expected, "case={case} y={y} le={le}");
+                }
+            }
+            assert_eq!(tree.bound(i32::MAX, true), n);
+        }
+        let negative = vec![Minimizer { x: 0, y: u32::MAX as u64 }; 300];
+        assert!(count_query_ranks(&negative).is_none());
     }
 }

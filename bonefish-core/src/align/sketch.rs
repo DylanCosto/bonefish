@@ -191,6 +191,11 @@ fn sketch_sequence_impl(
 ) {
     #[cfg(target_arch = "x86_64")]
     if len > 0 && w > 0 && w < 256 && k > 0 && k <= 28 && is_x86_feature_detected!("avx2") && !*SKETCH_SCALAR {
+        // Eight lanes of AVX-512 for sequences long enough to fill them (odd k only).
+        if len >= 1024 && k % 2 == 1 && super::dp::use_avx512() {
+            unsafe { sketch512::sketch(seq, len, w, k, rid, p) };
+            return;
+        }
         unsafe { sketch_chunked_avx2(seq, len, w, k, rid, p) };
         return;
     }
@@ -198,8 +203,13 @@ fn sketch_sequence_impl(
 }
 
 /// BONEFISH_SKETCH_SCALAR=1: always use the one-pass sketcher (comparisons).
+#[cfg(target_arch = "x86_64")]
 static SKETCH_SCALAR: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| std::env::var("BONEFISH_SKETCH_SCALAR").is_ok_and(|v| v != "0"));
+
+#[cfg(target_arch = "x86_64")]
+#[path = "sketch512.rs"]
+mod sketch512;
 
 /// Sketching in chunks: (1) roll the k-mers and record, per position that the one-pass
 /// loop would process (symmetric k-mers are skipped there too), the canonical k-mer, strand,

@@ -1,0 +1,10 @@
+     Running unittests src/main.rs (target/release/deps/bonefish-cb1a6fb62057a121)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/regression.rs (target/release/deps/regression-601baf8e992d5411)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.45s
+     Running unittests src/lib.rs (target/release/deps/bonefish-1d06aab28bd5b227)
+test result: ok. 169 passed; 0 failed; 6 ignored; 0 measured; 0 filtered out; finished in 6.27s
+     Running tests/parser_stress.rs (target/release/deps/parser_stress-dd8d1b197b189d4a)
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.24s
+   Doc-tests bonefish
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
