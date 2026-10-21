@@ -167,11 +167,136 @@ const FLANK_MAX: i32 = 6;
 /// searched there, and a matching stretch is kept as a new point and the gap aligned again.
 /// Returns false (the caller runs the full DP) when nothing is cut, the alignment z-drops, or
 /// the path crosses a seam other than inside one intron clear of it.
+/// Reference `t` with the stretches between `keeps` (intervals, any order) longer than two
+/// seams replaced by SEAM N bases. Returns the compressed reference, its junction annotations,
+/// the seams (start in the compressed reference, bases replaced) and the cuts (start, end in
+/// `t`), or None when nothing is cut. With `truncate`, the reference after the last kept
+/// interval is dropped (for extensions, which need not reach the reference end).
+#[allow(clippy::type_complexity)]
+fn compress_ref(t: &[u8], junc: Option<&[u8]>, keeps: &mut [(i32, i32)], truncate: bool)
+                -> Option<(Vec<u8>, Option<Vec<u8>>, Vec<(usize, usize)>, Vec<(usize, usize)>)> {
+    let tl = t.len() as i32;
+    keeps.sort_unstable();
+    let mut cuts: Vec<(usize, usize)> = Vec::new();
+    let mut covered = 0i32;
+    for &(a, b) in keeps.iter() {
+        let a = a.clamp(0, tl);
+        if a - covered > 2 * SEAM as i32 {
+            cuts.push((covered as usize, a as usize));
+        }
+        covered = covered.max(b.clamp(0, tl));
+    }
+    let end = if truncate { covered as usize } else { t.len() };
+    if cuts.is_empty() && end == t.len() {
+        return None;
+    }
+    let mut tc = Vec::with_capacity(end.min(4096));
+    let mut jc = junc.map(|_| Vec::with_capacity(tc.capacity()));
+    let mut seams: Vec<(usize, usize)> = Vec::with_capacity(cuts.len());
+    let mut prev = 0;
+    for &(a, b) in &cuts {
+        tc.extend_from_slice(&t[prev..a]);
+        if let (Some(v), Some(j)) = (jc.as_mut(), junc) { v.extend_from_slice(&j[prev..a]); }
+        seams.push((tc.len(), b - a));
+        tc.resize(tc.len() + SEAM, 4);
+        if let Some(v) = jc.as_mut() { v.resize(v.len() + SEAM, 0); }
+        prev = b;
+    }
+    tc.extend_from_slice(&t[prev..end]);
+    if let (Some(v), Some(j)) = (jc.as_mut(), junc) { v.extend_from_slice(&j[prev..end]); }
+    Some((tc, jc, seams, cuts))
+}
+
+/// Widen every intron (N op) crossing a seam back to the bases the seam replaced. Each seam the
+/// path reaches must lie inside one N op, SEAM_CLEAR bases from both of its ends; with
+/// `all_crossed` every seam must be reached (gap fills, which end at the reference end). The
+/// ops are in reference order unless `rev` (REV_CIGAR alignments of reversed sequences).
+fn widen_seams(cigar: &mut [u32], seams: &[(usize, usize)], rev: bool, all_crossed: bool) -> bool {
+    let mut tpos = 0usize;
+    let mut si = 0usize;
+    let n = cigar.len();
+    for k in 0..n {
+        let c = &mut cigar[if rev { n - 1 - k } else { k }];
+        let (len, op) = ((*c >> 4) as usize, *c & 0xf);
+        if !matches!(op, 0 | 2 | 3 | 7 | 8) {
+            continue;
+        }
+        let end = tpos + len;
+        let mut extra = 0usize;
+        while si < seams.len() && seams[si].0 < end {
+            let (s0, cut) = seams[si];
+            if op != 3 || tpos + SEAM_CLEAR > s0 || end < s0 + SEAM + SEAM_CLEAR {
+                return false;
+            }
+            extra += cut - SEAM;
+            si += 1;
+        }
+        *c += (extra as u32) << 4;
+        tpos = end;
+    }
+    !all_crossed || si == seams.len()
+}
+
+/// Position `p` of the compressed reference in the original one, or None inside a seam.
+fn uncompress_pos(p: i32, seams: &[(usize, usize)]) -> Option<i32> {
+    let mut add = 0i32;
+    for &(s0, cut) in seams {
+        let s0 = s0 as i32;
+        if p < s0 {
+            break;
+        }
+        if p < s0 + SEAM as i32 {
+            return None;
+        }
+        add += (cut - SEAM) as i32;
+    }
+    Some(p + add)
+}
+
+/// Extension (left or right, EXTENSION_ONLY) through a reduced reference window. Without an
+/// intron, an extension of `q` stays within about `q.len()` reference bases of the anchor, so
+/// only that near window is kept, plus windows around exact 10-mer matches of `q` further out
+/// (a terminal exon behind an intron); the rest is cut by seams or dropped. Extensions cross
+/// introns rarely (~0.1% on cDNA) but fill query x reference matrices up to twice as wide as
+/// the near window. Returns false (the caller runs the full DP) when the window is not much
+/// larger than the near window or the path crosses a seam other than inside one intron.
+#[allow(clippy::too_many_arguments)]
+fn splice_ext_compressed(q: &[u8], t: &[u8], mat: &[i8; 25], opt: &MapOptions, zdrop: i32, end_bonus: i32,
+                         flags: i32, junc: Option<&[u8]>, ez: &mut DpResult) -> bool {
+    let (ql, tl) = (q.len() as i32, t.len() as i32);
+    let m = GAP_MARGIN as i32;
+    let near = ql + m;
+    if tl <= near + 2 * SEAM as i32 {
+        return false;
+    }
+    let mut keeps = vec![(0, near)];
+    let mut cand = find_exons(q, &t[near as usize..]);
+    cand.truncate(MAX_CAND);
+    for (xq, xt, _) in cand {
+        let (xq, xt) = (xq as i32, xt as i32 + near);
+        keeps.push((xt - xq.min(RESCUE_EXON_MAX) - m, xt + (ql - xq).min(RESCUE_EXON_MAX) + m));
+    }
+    let Some((tc, jc, seams, _)) = compress_ref(t, junc, &mut keeps, true) else { return false };
+    *ez = DpResult::default();
+    splice_dp(q, &tc, mat, opt, zdrop, end_bonus, flags, jc.as_deref(), ez);
+    if !widen_seams(&mut ez.cigar, &seams, (flags & REV_CIGAR) != 0, false) {
+        return false;
+    }
+    for p in [&mut ez.max_score_target_pos, &mut ez.max_query_end_target_pos] {
+        if *p >= 0 {
+            match uncompress_pos(*p, &seams) {
+                Some(v) => *p = v,
+                None => return false,
+            }
+        }
+    }
+    true
+}
+
 #[allow(clippy::too_many_arguments)]
 fn splice_gap_compressed(q: &[u8], t: &[u8], pts: &[(i32, i32)], mat: &[i8; 25], opt: &MapOptions, zdrop: i32,
                          flags: i32, junc: Option<&[u8]>, ez: &mut DpResult) -> bool {
     let m = GAP_MARGIN as i32;
-    let tl = t.len() as i32;
     // Reference intervals kept: around each anchor point, as far as the query distance to its
     // neighbours (plus a margin) could carry the alignment.
     let mut keeps: Vec<(i32, i32)> = Vec::with_capacity(2 * pts.len());
@@ -182,61 +307,10 @@ fn splice_gap_compressed(q: &[u8], t: &[u8], pts: &[(i32, i32)], mat: &[i8; 25],
         keeps.push((tb - dq - m, tb));
     }
     for round in 0..=MAX_RESCUE_ROUNDS {
-        keeps.sort_unstable();
-        let mut cuts: Vec<(usize, usize)> = Vec::new();
-        let mut covered = 0i32;
-        for &(a, b) in &keeps {
-            let a = a.clamp(0, tl);
-            if a - covered > 2 * SEAM as i32 {
-                cuts.push((covered as usize, a as usize));
-            }
-            covered = covered.max(b.clamp(0, tl));
-        }
-        if cuts.is_empty() {
-            return false;
-        }
-        // Compressed reference; `seams` holds each seam's start in `tc` and the bases it replaces.
-        let mut tc = Vec::with_capacity(t.len().min(q.len() * 4 + cuts.len() * (SEAM + 4 * GAP_MARGIN)));
-        let mut jc = junc.map(|_| Vec::with_capacity(tc.capacity()));
-        let mut seams: Vec<(usize, usize)> = Vec::with_capacity(cuts.len());
-        let mut prev = 0;
-        for &(a, b) in &cuts {
-            tc.extend_from_slice(&t[prev..a]);
-            if let (Some(v), Some(j)) = (jc.as_mut(), junc) { v.extend_from_slice(&j[prev..a]); }
-            seams.push((tc.len(), b - a));
-            tc.resize(tc.len() + SEAM, 4);
-            if let Some(v) = jc.as_mut() { v.resize(v.len() + SEAM, 0); }
-            prev = b;
-        }
-        tc.extend_from_slice(&t[prev..]);
-        if let (Some(v), Some(j)) = (jc.as_mut(), junc) { v.extend_from_slice(&j[prev..]); }
+        let Some((tc, jc, seams, cuts)) = compress_ref(t, junc, &mut keeps, false) else { return false };
         *ez = DpResult::default();
         splice_dp(q, &tc, mat, opt, zdrop, -1, flags, jc.as_deref(), ez);
-        if ez.zdropped != 0 || ez.cigar.is_empty() {
-            return false;
-        }
-        // Each seam must lie inside one N op, SEAM_CLEAR bases from both of its ends.
-        let mut tpos = 0usize;
-        let mut si = 0usize;
-        for c in ez.cigar.iter_mut() {
-            let (len, op) = ((*c >> 4) as usize, *c & 0xf);
-            if !matches!(op, 0 | 2 | 3 | 7 | 8) {
-                continue;
-            }
-            let end = tpos + len;
-            let mut extra = 0usize;
-            while si < seams.len() && seams[si].0 < end {
-                let (s0, cut) = seams[si];
-                if op != 3 || tpos + SEAM_CLEAR > s0 || end < s0 + SEAM + SEAM_CLEAR {
-                    return false;
-                }
-                extra += cut - SEAM;
-                si += 1;
-            }
-            *c += (extra as u32) << 4;
-            tpos = end;
-        }
-        if si != seams.len() {
+        if ez.zdropped != 0 || ez.cigar.is_empty() || !widen_seams(&mut ez.cigar, &seams, false, true) {
             return false;
         }
         if round == MAX_RESCUE_ROUNDS {
@@ -464,8 +538,11 @@ pub fn align_anchors_splice(
         let junc = junctions(junc_db, rid, ref_offset, rs0, rs).map(|mut j| { j.reverse(); j });
         let left_zdrop = if call.split_inv { zdrop_inv } else { zdrop };
         let mut ez = DpResult::default();
-        splice_dp(&q_rev, &t_rev, &mat, opt, left_zdrop, end_bonus,
-            splice_flag | EXTENSION_ONLY | RIGHT_ALIGN | REV_CIGAR | generic_sc_flag, junc.as_deref(), &mut ez);
+        let fl = splice_flag | EXTENSION_ONLY | RIGHT_ALIGN | REV_CIGAR | generic_sc_flag;
+        if !splice_ext_compressed(&q_rev, &t_rev, &mat, opt, left_zdrop, end_bonus, fl, junc.as_deref(), &mut ez) {
+            ez = DpResult::default();
+            splice_dp(&q_rev, &t_rev, &mat, opt, left_zdrop, end_bonus, fl, junc.as_deref(), &mut ez);
+        }
         if !ez.cigar.is_empty() {
             append_cigar(&mut raw_cigar, &ez.cigar);
             dp_score += ez.max;
@@ -561,8 +638,11 @@ pub fn align_anchors_splice(
             let t_sub = &tseq[re as usize..re0 as usize];
             let junc = junctions(junc_db, rid, ref_offset, re, re0);
             let mut ez = DpResult::default();
-            splice_dp(q_sub, t_sub, &mat, opt, zdrop, end_bonus, splice_flag | EXTENSION_ONLY | generic_sc_flag,
-                junc.as_deref(), &mut ez);
+            let fl = splice_flag | EXTENSION_ONLY | generic_sc_flag;
+            if !splice_ext_compressed(q_sub, t_sub, &mat, opt, zdrop, end_bonus, fl, junc.as_deref(), &mut ez) {
+                ez = DpResult::default();
+                splice_dp(q_sub, t_sub, &mat, opt, zdrop, end_bonus, fl, junc.as_deref(), &mut ez);
+            }
             if !ez.cigar.is_empty() {
                 append_cigar(&mut raw_cigar, &ez.cigar);
                 dp_score += ez.max;
@@ -810,6 +890,57 @@ mod tests {
         let (ok, full, _) = run(&q, &t, &pts, both(), None);
         assert_eq!(cigar_str(&full.cigar), "150M84N60M10000N150M");
         assert!(!ok, "a path through the seam must fall back to the full DP");
+    }
+
+    /// Extensions on the reduced window (near window + 10-mer candidate windows) give the full
+    /// DP's result: without an intron (and an unalignable tail, as adapters leave), with a
+    /// terminal exon behind a 1.5-20 kb intron found through its 10-mers, and for left
+    /// extensions (reversed sequences, REV_CIGAR).
+    #[test]
+    fn test_compressed_extension_matches_full_dp() {
+        let (opt, mat, _) = cdna(both());
+        let (zdrop, end_bonus) = (opt.alignment.zdrop, opt.alignment.end_bonus);
+        let base = splice_dp_flags(&opt, both(), false) | EXTENSION_ONLY;
+        let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+        let (mut tested, mut through_intron) = (0, 0);
+        for case in 0..24 {
+            let intron = case % 3 != 0;
+            let exons: Vec<usize> = if intron { vec![rng.range(150, 300), rng.range(60, 200)] } else { vec![rng.range(200, 500)] };
+            let lens: Vec<usize> = if intron { vec![rng.range(1_500, 20_000)] } else { vec![] };
+            let (mut t, iv) = gene(&mut rng, &exons, &lens);
+            let err = [[0, 0, 0], [15, 5, 5]][case % 2];
+            let (mut q, _) = transcribe(&mut rng, &t, &iv, err, &[]);
+            let tail = rng.range(0, 120);
+            q.extend(rng.seq(tail)); // adapter-like tail
+            let extra = rng.range(500, 3_000);
+            t.extend(rng.seq(extra));
+            for rev in [false, true] {
+                let (qq, tt, fl) = if rev {
+                    let (mut a, mut b) = (q.clone(), t.clone());
+                    a.reverse();
+                    b.reverse();
+                    (a, b, base | REV_CIGAR | RIGHT_ALIGN)
+                } else {
+                    (q.clone(), t.clone(), base)
+                };
+                let mut full = DpResult::default();
+                splice_dp(&qq, &tt, &mat, &opt, zdrop, end_bonus, fl, None, &mut full);
+                let mut comp = DpResult::default();
+                if !splice_ext_compressed(&qq, &tt, &mat, &opt, zdrop, end_bonus, fl, None, &mut comp) {
+                    continue;
+                }
+                tested += 1;
+                let what = format!("case {case} rev {rev}");
+                assert_eq!(cigar_str(&comp.cigar), cigar_str(&full.cigar), "{what}: CIGAR");
+                assert_eq!((comp.max, comp.max_score_query_pos, comp.max_score_target_pos),
+                           (full.max, full.max_score_query_pos, full.max_score_target_pos), "{what}: max");
+                assert_eq!((comp.reach_end, comp.max_query_end_target_pos),
+                           (full.reach_end, full.max_query_end_target_pos), "{what}: end");
+                if intron && introns(&comp.cigar) >= 1 { through_intron += 1; }
+            }
+        }
+        assert!(tested >= 40, "only {tested} of 48 extensions took the reduced window");
+        assert!(through_intron >= 24, "terminal exons reached in only {through_intron} of 32 intron cases");
     }
 
     #[test]
