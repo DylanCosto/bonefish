@@ -1,0 +1,16 @@
+name: Feature request
+description: A new option, preset, output or workflow
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What would you like bonefish to do?
+      description: The use case, and how you do it today (e.g. with minimap2 options).
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Data
+      description: Read type and a public dataset that shows the need, if any.

@@ -1,0 +1,43 @@
+name: Bug report
+description: Wrong output, a crash, or an error
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead (error message, wrong alignment, crash).
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: bonefish version
+      description: Output of `bonefish --version`, and how you installed it (release binary, source, Docker, conda).
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command line
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: OS and CPU (e.g. Ubuntu 22.04, AMD EPYC 7763 / Apple M2), memory, threads used.
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Data
+      description: Read type (DNA / direct RNA / cDNA, chemistry, basecaller), reference, and if possible a few reads that reproduce the problem (attach or link).
+  - type: textarea
+    id: log
+    attributes:
+      label: Log output
+      description: bonefish's stderr (add `-v` for stage timers).
+      render: text
