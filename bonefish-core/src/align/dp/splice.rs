@@ -92,6 +92,82 @@ pub fn extend_splice(
     }
 }
 
+/// Splice-site class of target position `tu`, as every kernel scores it: -1 (canonical with a
+/// favourable flank, no penalty) or 0..=3 (index into the penalty table, increasingly penalised).
+/// KIND: 0 donor, 1 acceptor in forward target order; 2 donor, 3 acceptor with REV_CIGAR (reversed
+/// target). With both SPLICE_FORWARD and SPLICE_REVERSE set, the better of the two transcript
+/// strands (an upper bound on either strand's score, used to align a cDNA chain once).
+#[inline(always)]
+pub(crate) fn site_z<const KIND: u8>(tseq: &[u8], tu: usize, flags: i32) -> i32 {
+    let one = |fwd: bool| -> i32 {
+        let mut z = 3i32;
+        match (KIND, fwd) {
+            (0, true) => {
+                if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 {
+                    z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
+                } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 1 { z = 1; }
+                else if tseq[tu + 1] == 0 && tseq[tu + 2] == 3 { z = 2; }
+            }
+            (0, false) => {
+                if tseq[tu + 1] == 1 && tseq[tu + 2] == 3 {
+                    z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
+                } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 { z = 2; }
+            }
+            (1, true) => {
+                if tseq[tu - 1] == 0 && tseq[tu] == 2 {
+                    z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
+                } else if tseq[tu - 1] == 0 && tseq[tu] == 1 { z = 2; }
+            }
+            (1, false) => {
+                if tseq[tu - 1] == 0 && tseq[tu] == 1 {
+                    z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
+                } else if tseq[tu - 1] == 2 && tseq[tu] == 1 { z = 1; }
+                else if tseq[tu - 1] == 0 && tseq[tu] == 3 { z = 2; }
+            }
+            (2, true) => {
+                if tseq[tu + 1] == 2 && tseq[tu + 2] == 0 {
+                    z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
+                } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 { z = 2; }
+            }
+            (2, false) => {
+                if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 {
+                    z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
+                } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 2 { z = 1; }
+                else if tseq[tu + 1] == 3 && tseq[tu + 2] == 0 { z = 2; }
+            }
+            (3, true) => {
+                if tseq[tu - 1] == 3 && tseq[tu] == 2 {
+                    z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
+                } else if tseq[tu - 1] == 1 && tseq[tu] == 2 { z = 1; }
+                else if tseq[tu - 1] == 3 && tseq[tu] == 0 { z = 2; }
+            }
+            _ => {
+                if tseq[tu - 1] == 3 && tseq[tu] == 1 {
+                    z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
+                } else if tseq[tu - 1] == 3 && tseq[tu] == 2 { z = 2; }
+            }
+        }
+        z
+    };
+    match ((flags & SPLICE_FORWARD) != 0, (flags & SPLICE_REVERSE) != 0) {
+        (true, true) => one(true).min(one(false)),
+        (true, false) => one(true),
+        (false, true) => one(false),
+        _ => 3,
+    }
+}
+
+/// Penalty table indexed by `site_z` (0..=3) for these flags.
+pub(crate) fn splice_site_penalties(flags: i32, noncanon_penalty: i32) -> [i32; 4] {
+    if (flags & SPLICE_COMPLEX) != 0 {
+        let sp0 = [8, 15, 21, 30];
+        sp0.map(|x| (x as f64 / 3.0 + 0.499) as i32)
+    } else {
+        let sp0 = if (flags & SPLICE_FLANK) != 0 { noncanon_penalty / 2 } else { 0 };
+        [sp0, noncanon_penalty, noncanon_penalty, noncanon_penalty]
+    }
+}
+
 // ============================================================================
 // SSE2/SSE4.1 Unified Implementation - Splice-Aware Alignment
 // ============================================================================
@@ -135,7 +211,6 @@ macro_rules! extend_splice_impl {
             if alphabet_size <= 1 || query_len == 0 || target_len == 0 || (gap_open2 as i32) <= qe {
                 return;
             }
-            assert!((flags & SPLICE_FORWARD) == 0 || (flags & SPLICE_REVERSE) == 0);
 
             // SIMD constants
             let zero_ = _mm_setzero_si128();
@@ -261,63 +336,23 @@ macro_rules! extend_splice_impl {
                 if (flags & REV_CIGAR) == 0 {
                     for t in 0..(target_len as i32 - 4) {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 {
-                                z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 1 { z = 1; }
-                            else if tseq[tu + 1] == 0 && tseq[tu + 2] == 3 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu + 1] == 1 && tseq[tu + 2] == 3 {
-                                z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 { z = 2; }
-                        }
+                        let z = site_z::<0>(tseq, tu, flags);
                         *donor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                     for t in 2..target_len as i32 {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu - 1] == 0 && tseq[tu] == 2 {
-                                z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 0 && tseq[tu] == 1 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu - 1] == 0 && tseq[tu] == 1 {
-                                z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 2 && tseq[tu] == 1 { z = 1; }
-                            else if tseq[tu - 1] == 0 && tseq[tu] == 3 { z = 2; }
-                        }
+                        let z = site_z::<1>(tseq, tu, flags);
                         *acceptor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                 } else {
                     for t in 0..(target_len as i32 - 4) {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu + 1] == 2 && tseq[tu + 2] == 0 {
-                                z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 {
-                                z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 2 { z = 1; }
-                            else if tseq[tu + 1] == 3 && tseq[tu + 2] == 0 { z = 2; }
-                        }
+                        let z = site_z::<2>(tseq, tu, flags);
                         *donor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                     for t in 2..target_len as i32 {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu - 1] == 3 && tseq[tu] == 2 {
-                                z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 1 && tseq[tu] == 2 { z = 1; }
-                            else if tseq[tu - 1] == 3 && tseq[tu] == 0 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu - 1] == 3 && tseq[tu] == 1 {
-                                z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 3 && tseq[tu] == 2 { z = 2; }
-                        }
+                        let z = site_z::<3>(tseq, tu, flags);
                         *acceptor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                 }
@@ -848,7 +883,6 @@ macro_rules! extend_splice_avx2_impl {
             if alphabet_size <= 1 || query_len == 0 || target_len == 0 || (gap_open2 as i32) <= qe {
                 return;
             }
-            assert!((flags & SPLICE_FORWARD) == 0 || (flags & SPLICE_REVERSE) == 0);
 
             // SIMD constants
             let zero_ = _mm256_setzero_si256();
@@ -974,63 +1008,23 @@ macro_rules! extend_splice_avx2_impl {
                 if (flags & REV_CIGAR) == 0 {
                     for t in 0..(target_len as i32 - 4) {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 {
-                                z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 1 { z = 1; }
-                            else if tseq[tu + 1] == 0 && tseq[tu + 2] == 3 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu + 1] == 1 && tseq[tu + 2] == 3 {
-                                z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 { z = 2; }
-                        }
+                        let z = site_z::<0>(tseq, tu, flags);
                         *donor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                     for t in 2..target_len as i32 {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu - 1] == 0 && tseq[tu] == 2 {
-                                z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 0 && tseq[tu] == 1 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu - 1] == 0 && tseq[tu] == 1 {
-                                z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 2 && tseq[tu] == 1 { z = 1; }
-                            else if tseq[tu - 1] == 0 && tseq[tu] == 3 { z = 2; }
-                        }
+                        let z = site_z::<1>(tseq, tu, flags);
                         *acceptor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                 } else {
                     for t in 0..(target_len as i32 - 4) {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu + 1] == 2 && tseq[tu + 2] == 0 {
-                                z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 {
-                                z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 2 { z = 1; }
-                            else if tseq[tu + 1] == 3 && tseq[tu + 2] == 0 { z = 2; }
-                        }
+                        let z = site_z::<2>(tseq, tu, flags);
                         *donor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                     for t in 2..target_len as i32 {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu - 1] == 3 && tseq[tu] == 2 {
-                                z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 1 && tseq[tu] == 2 { z = 1; }
-                            else if tseq[tu - 1] == 3 && tseq[tu] == 0 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu - 1] == 3 && tseq[tu] == 1 {
-                                z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 3 && tseq[tu] == 2 { z = 2; }
-                        }
+                        let z = site_z::<3>(tseq, tu, flags);
                         *acceptor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                 }
@@ -1544,7 +1538,6 @@ macro_rules! extend_splice_avx512_impl {
             if alphabet_size <= 1 || query_len == 0 || target_len == 0 || (gap_open2 as i32) <= qe {
                 return;
             }
-            assert!((flags & SPLICE_FORWARD) == 0 || (flags & SPLICE_REVERSE) == 0);
 
             // SIMD constants
             let zero_ = _mm512_setzero_si512();
@@ -1670,63 +1663,23 @@ macro_rules! extend_splice_avx512_impl {
                 if (flags & REV_CIGAR) == 0 {
                     for t in 0..(target_len as i32 - 4) {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 {
-                                z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 1 { z = 1; }
-                            else if tseq[tu + 1] == 0 && tseq[tu + 2] == 3 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu + 1] == 1 && tseq[tu + 2] == 3 {
-                                z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 { z = 2; }
-                        }
+                        let z = site_z::<0>(tseq, tu, flags);
                         *donor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                     for t in 2..target_len as i32 {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu - 1] == 0 && tseq[tu] == 2 {
-                                z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 0 && tseq[tu] == 1 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu - 1] == 0 && tseq[tu] == 1 {
-                                z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 2 && tseq[tu] == 1 { z = 1; }
-                            else if tseq[tu - 1] == 0 && tseq[tu] == 3 { z = 2; }
-                        }
+                        let z = site_z::<1>(tseq, tu, flags);
                         *acceptor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                 } else {
                     for t in 0..(target_len as i32 - 4) {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu + 1] == 2 && tseq[tu + 2] == 0 {
-                                z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 {
-                                z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
-                            } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 2 { z = 1; }
-                            else if tseq[tu + 1] == 3 && tseq[tu + 2] == 0 { z = 2; }
-                        }
+                        let z = site_z::<2>(tseq, tu, flags);
                         *donor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                     for t in 2..target_len as i32 {
                         let tu = t as usize;
-                        let mut z = 3i32;
-                        if (flags & SPLICE_FORWARD) != 0 {
-                            if tseq[tu - 1] == 3 && tseq[tu] == 2 {
-                                z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 1 && tseq[tu] == 2 { z = 1; }
-                            else if tseq[tu - 1] == 3 && tseq[tu] == 0 { z = 2; }
-                        } else if (flags & SPLICE_REVERSE) != 0 {
-                            if tseq[tu - 1] == 3 && tseq[tu] == 1 {
-                                z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
-                            } else if tseq[tu - 1] == 3 && tseq[tu] == 2 { z = 2; }
-                        }
+                        let z = site_z::<3>(tseq, tu, flags);
                         *acceptor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
                     }
                 }
@@ -2248,7 +2201,6 @@ pub(super) unsafe fn extend_splice_neon_impl(
     if alphabet_size <= 1 || query_len == 0 || target_len == 0 || (gap_open2 as i32) <= qe {
         return;
     }
-    assert!((flags & SPLICE_FORWARD) == 0 || (flags & SPLICE_REVERSE) == 0);
 
     // SIMD constants
     let zero_ = vdupq_n_u8(0);
@@ -2379,64 +2331,24 @@ pub(super) unsafe fn extend_splice_neon_impl(
             // Forward CIGAR: standard donor/acceptor patterns
             for t in 0..(target_len as i32 - 4) {
                 let tu = t as usize;
-                let mut z = 3i32;
-                if (flags & SPLICE_FORWARD) != 0 {
-                    if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 {
-                        z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
-                    } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 1 { z = 1; }
-                    else if tseq[tu + 1] == 0 && tseq[tu + 2] == 3 { z = 2; }
-                } else if (flags & SPLICE_REVERSE) != 0 {
-                    if tseq[tu + 1] == 1 && tseq[tu + 2] == 3 {
-                        z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
-                    } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 { z = 2; }
-                }
+                let z = site_z::<0>(tseq, tu, flags);
                 *donor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
             }
             for t in 2..target_len as i32 {
                 let tu = t as usize;
-                let mut z = 3i32;
-                if (flags & SPLICE_FORWARD) != 0 {
-                    if tseq[tu - 1] == 0 && tseq[tu] == 2 {
-                        z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
-                    } else if tseq[tu - 1] == 0 && tseq[tu] == 1 { z = 2; }
-                } else if (flags & SPLICE_REVERSE) != 0 {
-                    if tseq[tu - 1] == 0 && tseq[tu] == 1 {
-                        z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
-                    } else if tseq[tu - 1] == 2 && tseq[tu] == 1 { z = 1; }
-                    else if tseq[tu - 1] == 0 && tseq[tu] == 3 { z = 2; }
-                }
+                let z = site_z::<1>(tseq, tu, flags);
                 *acceptor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
             }
         } else {
             // REV_CIGAR: reversed donor/acceptor patterns (for left extension)
             for t in 0..(target_len as i32 - 4) {
                 let tu = t as usize;
-                let mut z = 3i32;
-                if (flags & SPLICE_FORWARD) != 0 {
-                    if tseq[tu + 1] == 2 && tseq[tu + 2] == 0 {
-                        z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
-                    } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 { z = 2; }
-                } else if (flags & SPLICE_REVERSE) != 0 {
-                    if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 {
-                        z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
-                    } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 2 { z = 1; }
-                    else if tseq[tu + 1] == 3 && tseq[tu + 2] == 0 { z = 2; }
-                }
+                let z = site_z::<2>(tseq, tu, flags);
                 *donor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
             }
             for t in 2..target_len as i32 {
                 let tu = t as usize;
-                let mut z = 3i32;
-                if (flags & SPLICE_FORWARD) != 0 {
-                    if tseq[tu - 1] == 3 && tseq[tu] == 2 {
-                        z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
-                    } else if tseq[tu - 1] == 1 && tseq[tu] == 2 { z = 1; }
-                    else if tseq[tu - 1] == 3 && tseq[tu] == 0 { z = 2; }
-                } else if (flags & SPLICE_REVERSE) != 0 {
-                    if tseq[tu - 1] == 3 && tseq[tu] == 1 {
-                        z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
-                    } else if tseq[tu - 1] == 3 && tseq[tu] == 2 { z = 2; }
-                }
+                let z = site_z::<3>(tseq, tu, flags);
                 *acceptor_bytes.add(tu) = if z < 0 { 0 } else { -sp[z as usize] as i8 };
             }
         }
@@ -2925,7 +2837,6 @@ pub fn extend_splice_scalar(
     if alphabet_size <= 1 || query_len == 0 || target_len == 0 || gap_open2 <= qe {
         return;
     }
-    assert!((flags & SPLICE_FORWARD) == 0 || (flags & SPLICE_REVERSE) == 0);
 
     // Check scoring matrix bounds (same as SIMD)
     {
@@ -2977,66 +2888,26 @@ pub fn extend_splice_scalar(
             // Forward direction donor sites
             for t in 0..(target_len as i32 - 4) {
                 let tu = t as usize;
-                let mut z = 3i32;
-                if (flags & SPLICE_FORWARD) != 0 {
-                    if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 {
-                        z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
-                    } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 1 { z = 1; }
-                    else if tseq[tu + 1] == 0 && tseq[tu + 2] == 3 { z = 2; }
-                } else if (flags & SPLICE_REVERSE) != 0 {
-                    if tseq[tu + 1] == 1 && tseq[tu + 2] == 3 {
-                        z = if tseq[tu + 3] == 0 || tseq[tu + 3] == 2 { -1 } else { 0 };
-                    } else if tseq[tu + 1] == 2 && tseq[tu + 2] == 3 { z = 2; }
-                }
+                let z = site_z::<0>(tseq, tu, flags);
                 donor[tu] = if z < 0 { 0 } else { -sp[z as usize] as i8 };
             }
             // Forward direction acceptor sites
             for t in 2..target_len as i32 {
                 let tu = t as usize;
-                let mut z = 3i32;
-                if (flags & SPLICE_FORWARD) != 0 {
-                    if tseq[tu - 1] == 0 && tseq[tu] == 2 {
-                        z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
-                    } else if tseq[tu - 1] == 0 && tseq[tu] == 1 { z = 2; }
-                } else if (flags & SPLICE_REVERSE) != 0 {
-                    if tseq[tu - 1] == 0 && tseq[tu] == 1 {
-                        z = if tseq[tu - 2] == 1 || tseq[tu - 2] == 3 { -1 } else { 0 };
-                    } else if tseq[tu - 1] == 2 && tseq[tu] == 1 { z = 1; }
-                    else if tseq[tu - 1] == 0 && tseq[tu] == 3 { z = 2; }
-                }
+                let z = site_z::<1>(tseq, tu, flags);
                 acceptor[tu] = if z < 0 { 0 } else { -sp[z as usize] as i8 };
             }
         } else {
             // REV_CIGAR direction donor sites
             for t in 0..(target_len as i32 - 4) {
                 let tu = t as usize;
-                let mut z = 3i32;
-                if (flags & SPLICE_FORWARD) != 0 {
-                    if tseq[tu + 1] == 2 && tseq[tu + 2] == 0 {
-                        z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
-                    } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 { z = 2; }
-                } else if (flags & SPLICE_REVERSE) != 0 {
-                    if tseq[tu + 1] == 1 && tseq[tu + 2] == 0 {
-                        z = if tseq[tu + 3] == 1 || tseq[tu + 3] == 3 { -1 } else { 0 };
-                    } else if tseq[tu + 1] == 1 && tseq[tu + 2] == 2 { z = 1; }
-                    else if tseq[tu + 1] == 3 && tseq[tu + 2] == 0 { z = 2; }
-                }
+                let z = site_z::<2>(tseq, tu, flags);
                 donor[tu] = if z < 0 { 0 } else { -sp[z as usize] as i8 };
             }
             // REV_CIGAR direction acceptor sites
             for t in 2..target_len as i32 {
                 let tu = t as usize;
-                let mut z = 3i32;
-                if (flags & SPLICE_FORWARD) != 0 {
-                    if tseq[tu - 1] == 3 && tseq[tu] == 2 {
-                        z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
-                    } else if tseq[tu - 1] == 1 && tseq[tu] == 2 { z = 1; }
-                    else if tseq[tu - 1] == 3 && tseq[tu] == 0 { z = 2; }
-                } else if (flags & SPLICE_REVERSE) != 0 {
-                    if tseq[tu - 1] == 3 && tseq[tu] == 1 {
-                        z = if tseq[tu - 2] == 0 || tseq[tu - 2] == 2 { -1 } else { 0 };
-                    } else if tseq[tu - 1] == 3 && tseq[tu] == 2 { z = 2; }
-                }
+                let z = site_z::<3>(tseq, tu, flags);
                 acceptor[tu] = if z < 0 { 0 } else { -sp[z as usize] as i8 };
             }
         }
@@ -3471,5 +3342,213 @@ pub fn extend_splice_scalar(
                 p_arr.as_mut_ptr(), band_off.as_mut_ptr(), band_off_end.as_mut_ptr(),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const A: u8 = 0;
+    const C: u8 = 1;
+    const G: u8 = 2;
+    const T: u8 = 3;
+    const FLAG_SETS: [i32; 4] = [0, SPLICE_FORWARD, SPLICE_REVERSE, SPLICE_FORWARD | SPLICE_REVERSE];
+
+    fn z(kind: u8, s: &[u8], tu: usize, flags: i32) -> i32 {
+        match kind {
+            0 => site_z::<0>(s, tu, flags),
+            1 => site_z::<1>(s, tu, flags),
+            2 => site_z::<2>(s, tu, flags),
+            _ => site_z::<3>(s, tu, flags),
+        }
+    }
+
+    #[test]
+    fn test_site_z_motifs() {
+        // (kind, context, tu, forward, reverse). Donors (0, 2) read tu+1..=tu+3, acceptors
+        // (1, 3) tu-2..=tu. Kinds 2 and 3 see the target reversed (left extension).
+        let cases: &[(u8, [u8; 4], usize, i32, i32)] = &[
+            // Forward donor: GT with an R flank, GT, GC, AT; reverse-strand donor side: CT[R], CT.
+            (0, [A, G, T, A], 0, -1, 2),
+            (0, [A, G, T, G], 0, -1, 2),
+            (0, [A, G, T, C], 0, 0, 2),
+            (0, [A, G, C, A], 0, 1, 3),
+            (0, [A, A, T, A], 0, 2, 3),
+            (0, [A, C, T, A], 0, 3, -1),
+            (0, [A, C, T, T], 0, 3, 0),
+            (0, [A, A, A, A], 0, 3, 3),
+            // Forward acceptor: [Y]AG, AG, AC; reverse-strand acceptor side: [Y]AC, AC, GC, AT.
+            (1, [A, C, A, G], 3, -1, 3),
+            (1, [A, T, A, G], 3, -1, 3),
+            (1, [A, A, A, G], 3, 0, 3),
+            (1, [A, T, A, C], 3, 2, -1),
+            (1, [A, G, A, C], 3, 2, 0),
+            (1, [A, A, G, C], 3, 3, 1),
+            (1, [A, A, A, T], 3, 3, 2),
+            (1, [A, A, A, A], 3, 3, 3),
+            // Reversed target: the forward acceptor reads GA[Y], the reverse-strand one CA[Y].
+            (2, [A, G, A, C], 0, -1, 3),
+            (2, [A, G, A, G], 0, 0, 3),
+            (2, [A, C, A, T], 0, 2, -1),
+            (2, [A, C, A, A], 0, 2, 0),
+            (2, [A, C, G, A], 0, 3, 1),
+            (2, [A, T, A, A], 0, 3, 2),
+            // Reversed target: the forward donor reads [R]TG, the reverse-strand one [R]TC.
+            (3, [C, A, T, G], 3, -1, 2),
+            (3, [C, C, T, G], 3, 0, 2),
+            (3, [C, A, C, G], 3, 1, 3),
+            (3, [C, A, T, A], 3, 2, 3),
+            (3, [C, G, T, C], 3, 3, -1),
+            (3, [C, C, T, C], 3, 3, 0),
+        ];
+        for &(kind, s, tu, f, r) in cases {
+            assert_eq!(z(kind, &s, tu, SPLICE_FORWARD), f, "kind {kind} {s:?} forward");
+            assert_eq!(z(kind, &s, tu, SPLICE_REVERSE), r, "kind {kind} {s:?} reverse");
+            assert_eq!(z(kind, &s, tu, SPLICE_FORWARD | SPLICE_REVERSE), f.min(r), "kind {kind} {s:?} both");
+            assert_eq!(z(kind, &s, tu, 0), 3, "kind {kind} {s:?} no strand");
+            // Other flags do not matter.
+            assert_eq!(z(kind, &s, tu, SPLICE_FORWARD | SPLICE_COMPLEX | SPLICE_FLANK | REV_CIGAR), f);
+        }
+    }
+
+    #[test]
+    fn test_site_z_exhaustive() {
+        // Every 4-base context (N included): both strands = the better strand, no strand = 3,
+        // values in -1..=3, and the reversed-target kinds mirror the forward ones
+        // (kind 2 at n-2-p = kind 1 at p, kind 3 at n-2-p = kind 0 at p).
+        for code in 0..625u32 {
+            let s: Vec<u8> = (0..4).map(|i| ((code / 5u32.pow(i)) % 5) as u8).collect();
+            for kind in 0..4u8 {
+                let tu = if kind == 0 || kind == 2 { 0 } else { 3 };
+                let (f, v) = (z(kind, &s, tu, SPLICE_FORWARD), z(kind, &s, tu, SPLICE_REVERSE));
+                assert!((-1..=3).contains(&f) && (-1..=3).contains(&v));
+                assert_eq!(z(kind, &s, tu, SPLICE_FORWARD | SPLICE_REVERSE), f.min(v), "kind {kind} {s:?}");
+                assert_eq!(z(kind, &s, tu, 0), 3);
+            }
+            for flags in FLAG_SETS {
+                // In a 6-base window, so every position each kind reads is in range.
+                let mut w = vec![A; 6];
+                w[1..5].copy_from_slice(&s);
+                let rw: Vec<u8> = w.iter().rev().copied().collect();
+                let n = w.len();
+                for p in 2..n - 1 {
+                    assert_eq!(z(2, &rw, n - 2 - p, flags), z(1, &w, p, flags), "{w:?} p {p} flags {flags:#x}");
+                }
+                for d in 0..n - 3 {
+                    assert_eq!(z(3, &rw, n - 2 - d, flags), z(0, &w, d, flags), "{w:?} d {d} flags {flags:#x}");
+                }
+            }
+        }
+    }
+
+    /// xorshift64 nt4 sequence.
+    fn rand_seq(x: &mut u64, n: usize) -> Vec<u8> {
+        (0..n).map(|_| { *x ^= *x << 13; *x ^= *x >> 7; *x ^= *x << 17; (*x >> 62) as u8 }).collect()
+    }
+
+    /// Exon 1, intron, exon 2 in nt4; `fwd` gives a GT[R]..[Y]AG intron, otherwise the genome
+    /// side of a reverse-strand one, CT[R]..[Y]AC. Returns (reference, transcript).
+    fn two_exons(x: &mut u64, fwd: bool, e1: usize, intron: usize, e2: usize) -> (Vec<u8>, Vec<u8>) {
+        let (ex1, ex2) = (rand_seq(x, e1), rand_seq(x, e2));
+        let mut i = rand_seq(x, intron);
+        let n = intron;
+        if fwd {
+            i[..3].copy_from_slice(&[G, T, A]);
+            i[n - 3..].copy_from_slice(&[C, A, G]);
+        } else {
+            i[..3].copy_from_slice(&[C, T, G]);
+            i[n - 3..].copy_from_slice(&[T, A, C]);
+        }
+        ([&ex1[..], &i, &ex2].concat(), [ex1, ex2].concat())
+    }
+
+    /// cdna preset scoring (-A1 -B2 -O2,32 -E1,0 -C9, junction bonus 9 / penalty 5).
+    fn mat() -> [i8; 25] { crate::align::extend::build_scoring_matrix_full(1, 2, 0, 1) }
+
+    fn dp(q: &[u8], t: &[u8], end_bonus: i32, flags: i32, junc: Option<&[u8]>) -> DpResult {
+        let mut ez = DpResult::default();
+        extend_splice(q, t, 5, &mat(), 2, 1, 32, 9, 200, end_bonus, 9, 5, flags, junc, &mut ez);
+        ez
+    }
+
+    #[test]
+    fn test_splice_union_flags_score_the_better_strand() {
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        let base = SPLICE_COMPLEX | SPLICE_FLANK;
+        for fwd in [true, false] {
+            let (t, q) = two_exons(&mut x, fwd, 120, 500, 110);
+            let (right, wrong) = if fwd { (SPLICE_FORWARD, SPLICE_REVERSE) } else { (SPLICE_REVERSE, SPLICE_FORWARD) };
+            // Gap fill (global) and the left extension's reversed, right-aligned form.
+            let (qr, tr): (Vec<u8>, Vec<u8>) = (q.iter().rev().copied().collect(), t.iter().rev().copied().collect());
+            for (qq, tt, eb, extra) in [(&q, &t, -1, APPROX_MAX), (&qr, &tr, 5, EXTENSION_ONLY | RIGHT_ALIGN | REV_CIGAR)] {
+                let one = dp(qq, tt, eb, base | right | extra, None);
+                let other = dp(qq, tt, eb, base | wrong | extra, None);
+                let both = dp(qq, tt, eb, base | SPLICE_FORWARD | SPLICE_REVERSE | extra, None);
+                assert_eq!(one.cigar, vec![120 << 4, 500 << 4 | 3, 110 << 4], "fwd {fwd} extra {extra:#x}");
+                assert_eq!((both.cigar.clone(), both.score, both.max), (one.cigar.clone(), one.score, one.max),
+                    "fwd {fwd} extra {extra:#x}: both strands = the intron's strand");
+                let sc = |r: &DpResult| if extra & EXTENSION_ONLY != 0 { r.max } else { r.score };
+                assert!(sc(&other) < sc(&one), "fwd {fwd} extra {extra:#x}: the other strand scores worse ({} vs {})",
+                    sc(&other), sc(&one));
+            }
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn test_splice_kernels_match_scalar() {
+        // Every SIMD kernel scores splice sites through site_z; they must agree with the scalar
+        // kernel for each strand setting, in gap-fill and extension modes, with annotations.
+        type Kernel = unsafe fn(&[u8], &[u8], i8, &[i8], i8, i8, i8, i8, i32, i32, i8, i8, i32, Option<&[u8]>, &mut DpResult);
+        let mut kernels: Vec<(&str, Kernel)> = vec![("sse2", extend_splice2_impl)];
+        if is_x86_feature_detected!("sse4.1") { kernels.push(("sse4.1", extend_splice41_impl)); }
+        if crate::align::dp::simd_test_available("avx2", is_x86_feature_detected!("avx2")) {
+            kernels.push(("avx2", extend_splice_avx2_fn));
+        }
+        if crate::align::dp::simd_test_available("avx512bw", is_x86_feature_detected!("avx512bw")) {
+            kernels.push(("avx512", extend_splice_avx512_fn));
+        }
+        let m = mat();
+        let mut x = 0x9e37_79b9_7f4a_7c15u64;
+        let mut n_cases = 0;
+        for case in 0..24 {
+            let fwd = case % 2 == 0;
+            let intron = [60, 150, 700, 1500][case % 4];
+            let (t, mut q) = two_exons(&mut x, fwd, 40 + case * 7, intron, 50 + case * 5);
+            // A few substitutions so the junction position is not trivially forced.
+            for k in 0..q.len() / 25 { let i = (k * 37 + case) % q.len(); q[i] = (q[i] + 1) & 3; }
+            let mut junc = vec![0u8; t.len()];
+            let e1 = 40 + case * 7;
+            junc[e1] |= if fwd { 1 } else { 8 };
+            junc[e1 + intron - 1] |= if fwd { 2 } else { 4 };
+            let (qr, tr): (Vec<u8>, Vec<u8>) = (q.iter().rev().copied().collect(), t.iter().rev().copied().collect());
+            let jr: Vec<u8> = junc.iter().rev().copied().collect();
+            for strand in [SPLICE_FORWARD, SPLICE_REVERSE, SPLICE_FORWARD | SPLICE_REVERSE] {
+                for flank in [0, SPLICE_FLANK] {
+                    for (qq, tt, jj, eb, extra) in [
+                        (&q, &t, &junc, -1, APPROX_MAX),
+                        (&q, &t, &junc, 5, EXTENSION_ONLY),
+                        (&qr, &tr, &jr, 5, EXTENSION_ONLY | RIGHT_ALIGN | REV_CIGAR),
+                    ] {
+                        for annotate in [false, true] {
+                            let flags = SPLICE_COMPLEX | strand | flank | extra;
+                            let j = if annotate { Some(&jj[..]) } else { None };
+                            let mut want = DpResult::default();
+                            extend_splice_scalar(qq, tt, 5, &m, 2, 1, 32, 9, 200, eb, 9, 5, flags, j, &mut want);
+                            for &(name, k) in &kernels {
+                                let mut got = DpResult::default();
+                                unsafe { k(qq, tt, 5, &m, 2, 1, 32, 9, 200, eb, 9, 5, flags, j, &mut got); }
+                                let key = |r: &DpResult| (r.score, r.max, r.max_score_query_pos, r.max_score_target_pos,
+                                    r.max_query_end_score, r.max_query_end_target_pos, r.reach_end, r.zdropped, r.cigar.clone());
+                                assert_eq!(key(&got), key(&want), "{name} case {case} flags {flags:#x} annotated {annotate}");
+                                n_cases += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(n_cases > 0);
     }
 }

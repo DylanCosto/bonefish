@@ -25,6 +25,7 @@ mod dual_clean_reg32vl;
 mod dual_clean16;
 pub use dual_clean::{clean_dual, set_clean_dual};
 mod splice;
+pub(crate) use splice::{site_z, splice_site_penalties};
 mod lw;
 #[cfg(feature = "census")]
 pub mod census;

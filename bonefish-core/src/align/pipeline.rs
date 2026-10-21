@@ -969,6 +969,25 @@ fn align_spliced_mapping(
         res.trans_strand = if strand.contains(AlignFlags::SPLICE_FOR) { 1 } else { 2 };
         return (res, rec, split);
     }
+    // Align once with the better of both strands' splice-site scores (an upper bound on each
+    // strand). When that path's introns score as well under one strand as under the bound and
+    // worse under the other, that strand's best alignment is this one; without introns, or with
+    // introns scoring equally under both, the strands tie. Only mixed cases need both passes.
+    // Junction annotations are strand-specific, so with them both strands are always aligned.
+    if opt.junctions.is_none() {
+        let mut m_union = mapping.clone();
+        let (mut res, rec, split) = align_single_mapping(&mut m_union, opt, mi, qseq, qseq_fwd_nt4, qseq_rc_nt4, qlen,
+            ctx, map_ctx, out, squeezed, both);
+        if let Some(trans_strand) = union_strand(&res, mi, opt) {
+            *mapping = m_union;
+            res.trans_strand = trans_strand;
+            if res.is_spliced {
+                let bonus = opt.scoring.match_score + opt.scoring.mismatch_penalty;
+                if trans_strand == 3 { res.dp_score -= bonus; } else { res.dp_score += bonus + (bonus >> 1); }
+            }
+            return (res, rec, split);
+        }
+    }
     let mut r_rev = mapping.clone();
     let (res_for, rec_for, split_for) = align_single_mapping(mapping, opt, mi, qseq, qseq_fwd_nt4, qseq_rc_nt4, qlen,
         ctx, map_ctx, out, squeezed, AlignFlags::SPLICE_FOR);
@@ -991,6 +1010,57 @@ fn align_spliced_mapping(
         if trans_strand == 3 { res.dp_score -= bonus; } else { res.dp_score += bonus + (bonus >> 1); }
     }
     (res, rec, split)
+}
+
+/// Transcript strand of an alignment made with both strands' splice-site scores (see
+/// `align_spliced_mapping`): Some(1) forward, Some(2) reverse, Some(3) tie, None when its introns
+/// favour different strands (both strands must then be aligned separately).
+fn union_strand(res: &AlnResult, mi: &Index, opt: &MapOptions) -> Option<u8> {
+    use crate::align::dp::{site_z, splice_site_penalties, SPLICE_COMPLEX, SPLICE_FORWARD, SPLICE_REVERSE};
+    let flank = if opt.flags.contains(AlignFlags::SPLICE_FLANK) { crate::align::dp::SPLICE_FLANK } else { 0 };
+    let sp = splice_site_penalties(SPLICE_COMPLEX | flank, opt.scoring.noncanon_penalty);
+    let pen = |z: i32| if z < 0 { 0 } else { sp[z as usize] };
+    let rlen = mi.seqs[res.ref_id].len;
+    let (mut pf, mut pr, mut pu, mut n) = (0i32, 0i32, 0i32, 0usize);
+    let mut pos = res.ref_start;
+    let mut num = 0usize;
+    let mut buf = [0u8; 4];
+    for b in res.cigar_str.bytes() {
+        if b.is_ascii_digit() {
+            num = num * 10 + (b - b'0') as usize;
+            continue;
+        }
+        if b == b'N' {
+            let (s, e) = (pos, pos + num);
+            if s < 1 || s + 3 > rlen || e < 3 {
+                return None;
+            }
+            n += 1;
+            mi.extract_nt4_into(res.ref_id, s - 1, s + 3, &mut buf);
+            let (df, dr) = (site_z::<0>(&buf, 0, SPLICE_FORWARD), site_z::<0>(&buf, 0, SPLICE_REVERSE));
+            mi.extract_nt4_into(res.ref_id, e - 3, e, &mut buf[..3]);
+            let (af, ar) = (site_z::<1>(&buf[..3], 2, SPLICE_FORWARD), site_z::<1>(&buf[..3], 2, SPLICE_REVERSE));
+            pf += pen(df) + pen(af);
+            pr += pen(dr) + pen(ar);
+            pu += pen(df.min(dr)) + pen(af.min(ar));
+        }
+        if matches!(b, b'M' | b'D' | b'N' | b'=' | b'X') {
+            pos += num;
+        }
+        num = 0;
+    }
+    // Genome-forward splice signals are the transcript's forward strand unless the read maps
+    // to the reverse strand (the kernel flags are swapped there, see `splice_dp_flags`).
+    let (gf, gr) = if res.is_reverse { (2u8, 1u8) } else { (1u8, 2u8) };
+    if n == 0 || (pf == pu && pr == pu) {
+        Some(3)
+    } else if pf == pu && pr > pu {
+        Some(gf)
+    } else if pr == pu && pf > pu {
+        Some(gr)
+    } else {
+        None
+    }
 }
 
 /// Attempt inversion alignment from z-drop split positions.
@@ -2580,5 +2650,67 @@ mod tests {
         }
         assert!(output.contains("read1"), "Output should contain qname: {}", output);
         assert!(output.contains("ref1"), "Output should contain rname: {}", output);
+    }
+
+    /// An `AlnResult` with only the fields `union_strand` reads set.
+    fn spliced_result(cigar: &str, ref_start: usize, is_reverse: bool) -> AlnResult {
+        AlnResult {
+            ref_id: 0, is_reverse, chain_score: 0, initial_chain_score: 0, anchor_count: 0, s2_score: None, hash: 0,
+            align_score: 0, matches: 0, block_len: 0, cigar_str: cigar.to_string(), cs_str: String::new(),
+            ds_str: String::new(), md_str: String::new(), query_start: 0, query_end: 0, claim_qs: 0, claim_qe: 0,
+            ref_start, ref_end: 0, edit_distance: 0, num_ambiguous: 0, divergence: 0.0, is_secondary: false, split: 0,
+            split_depth: 0, dp_score: 0, dp_score_original: 0, effective_cnt: 0, pre_num_suboptimal: 0,
+            dp_score_secondary: 0, secondary_chain_score: 0, num_suboptimal: 0, split_inv: false, inv: false, div: 0.0,
+            is_alt: false, is_root_chain: true, is_spliced: cigar.contains('N'), trans_strand: 0,
+        }
+    }
+
+    #[test]
+    fn test_union_strand() {
+        // 6 kb reference (A-only, so unplanted positions match no motif) with planted introns:
+        //   [1000,2000) GT[A]..[C]AG   forward, favourable flanks
+        //   [2200,3000) CT[A]..[T]AC   reverse strand, favourable flanks
+        //   [3200,3600) AA..CC         no motif on either strand
+        //   [3800,4200) GT[A]..[T]AC   forward donor, reverse acceptor
+        //   [4400,4800) GT[C]..[A]AG   forward, no favourable flank
+        //   [5000,5400) GC..AG         forward GC donor
+        let mut g = vec![b'A'; 6000];
+        let mut plant = |s: usize, e: usize, donor: &[u8; 3], acceptor: &[u8; 3]| {
+            g[s..s + 3].copy_from_slice(donor);
+            g[e - 3..e].copy_from_slice(acceptor);
+        };
+        plant(1000, 2000, b"GTA", b"CAG");
+        plant(2200, 3000, b"CTA", b"TAC");
+        plant(3200, 3600, b"AAA", b"ACC");
+        plant(3800, 4200, b"GTA", b"TAC");
+        plant(4400, 4800, b"GTC", b"AAG");
+        plant(5000, 5400, b"GCA", b"CAG");
+        let mi = Index::build(vec![("chr".to_string(), g)], 5, 15, usize::MAX);
+        let mut opt = MapOptions::default();
+        let (mut k, mut w) = (15, 10);
+        crate::api::apply_preset_str(&mut opt, &mut k, &mut w, "cdna").unwrap();
+        let ts = |cigar: &str, rs: usize, rev: bool| union_strand(&spliced_result(cigar, rs, rev), &mi, &opt);
+        // No intron: the strands tie.
+        assert_eq!(ts("300M", 900, false), Some(3));
+        // A forward intron: transcript strand + for a forward read, - for a reverse one.
+        assert_eq!(ts("100M1000N100M", 900, false), Some(1));
+        assert_eq!(ts("100M1000N100M", 900, true), Some(2));
+        assert_eq!(ts("100M2I50M1D49M1000N100M", 800, false), Some(1), "other ops move the reference position");
+        // A reverse-strand intron.
+        assert_eq!(ts("100M800N100M", 2100, false), Some(2));
+        assert_eq!(ts("100M800N100M", 2100, true), Some(1));
+        // Same penalty under both strands (no motif at all): a tie.
+        assert_eq!(ts("100M400N100M", 3100, false), Some(3));
+        // One intron favours each strand at either end: both strands must be aligned.
+        assert_eq!(ts("100M400N100M", 3700, false), None);
+        // Two introns favouring different strands.
+        assert_eq!(ts("100M1000N200M800N100M", 900, false), None);
+        // Canonical without the favourable flank, and GC..AG: still forward only.
+        assert_eq!(ts("100M400N100M", 4300, false), Some(1));
+        assert_eq!(ts("100M400N100M", 4900, false), Some(1));
+        // Forward and no-motif introns: forward scores as the bound, reverse worse.
+        assert_eq!(ts("100M1000N1200M400N100M", 900, true), Some(2));
+        // An intron at the reference start (its donor context is out of range): undecided.
+        assert_eq!(ts("500N100M", 0, false), None);
     }
 }
