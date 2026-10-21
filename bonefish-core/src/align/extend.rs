@@ -1996,7 +1996,7 @@ pub fn align_anchors(
                         }
                     }
                     // Z-drop test applies to both paths
-                    zdrop_code = if !ez.cigar.is_empty() && !dp::speculating() {
+                    zdrop_code = if !ez.cigar.is_empty() {
                         test_zdrop(q_sub, t_sub, &ez.cigar, &mat, opt)
                     } else { 0 };
                     if zdrop_code != 0 {
@@ -2024,7 +2024,7 @@ pub fn align_anchors(
                     }
 
                     // Z-drop test
-                    zdrop_code = if !ez.cigar.is_empty() && !dp::speculating() {
+                    zdrop_code = if !ez.cigar.is_empty() {
                         test_zdrop(q_sub, t_sub, &ez.cigar, &mat, opt)
                     } else { 0 };
                     if zdrop_code != 0 {

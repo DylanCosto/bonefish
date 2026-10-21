@@ -1,6 +1,4 @@
 use clap::Parser;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 use std::io::Write;
 use std::time::Instant;
 
@@ -1272,8 +1270,6 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
     } else {
         #[cfg(feature = "census")]
         bonefish::align::dp::census::flush();
-        #[cfg(feature = "gpu")]
-        if let Some(line) = bonefish::align::dp::gpu::report() { eprintln!("[*] {line}"); }
         let total_time = t_start.elapsed().as_secs_f64();
         eprintln!("[*] Mapped {} reads in {:.3}s ({} index part{})", total_stats.n_reads, total_time, n_parts, if n_parts != 1 { "s" } else { "" });
 
@@ -1445,208 +1441,107 @@ fn map_one_part(
                     Ok(acc)
                 });
 
-                // Each iteration aligns one new chunk *plus* the re-runs of earlier chunks' pending
-                // reads, so with the GPU path on (`--features gpu`, BONEFISH_GPU=1) the GPU works on
-                // one round's requests while the CPU works on the next round. A read that needs an
-                // uncached GPU DP result finishes as a speculative dry run that queues its GPU
-                // requests; its output is discarded and it is re-run in the next iteration, after
-                // `wait_pending` has cached those results. Chunks are written strictly in order,
-                // once all their reads are done. Without the GPU path every read completes in its
-                // chunk's first iteration, which is the original one-chunk-at-a-time behaviour.
-                #[cfg(feature = "gpu")]
-                let gpu_on = bonefish::align::dp::gpu::enabled();
-                #[cfg(not(feature = "gpu"))]
-                #[allow(unused_variables)]
-                let gpu_on = false;
-                let verbose = gpu_on && std::env::var_os("BONEFISH_GPU_VERBOSE").is_some();
-                // A read still pending after this many speculative attempts (chains of z-drop
-                // mispredictions, typically one ultra-long read) finishes on the CPU instead.
-                const MAX_GPU_ATTEMPTS: u8 = 3;
                 let align_one = |ctx: &mut bonefish::align::extend::AlignmentContext,
                                  map_ctx: &mut bonefish::align::map::MapContext,
-                                 (qname, qseq, qual, comment): &SeData, use_gpu: bool| {
+                                 (qname, qseq, qual, comment): &SeData| {
                     let ri = ReadInfo { qname, qseq, qual: qual.as_deref(), comment: comment.as_deref() };
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        #[allow(unused_mut)]
-                        let mut run = || bonefish::align::pipeline::align_and_format_query(
-                            opt, mi, &ri, ctx, map_ctx, out_cfg,
-                        );
-                        #[cfg(feature = "gpu")]
-                        if use_gpu { return bonefish::align::dp::gpu::retry_scope(run); }
-                        let _ = use_gpu;
-                        run()
+                        bonefish::align::pipeline::align_and_format_query(opt, mi, &ri, ctx, map_ctx, out_cfg)
                     }))
                 };
-                // CPU-only: stream reads into the pool chunk by chunk, so the stragglers at the
+                // Stream reads into the pool chunk by chunk, so the stragglers at the
                 // end of one chunk overlap with later chunks instead of leaving cores idle at a
                 // per-chunk barrier. Two chunks are always admitted; beyond that a new chunk is
                 // admitted whenever fewer than 2 x threads reads are left queued or running
                 // (e.g. one long read still holding the oldest chunk), up to MAX_IN_FLIGHT.
                 // Chunks are still written in order.
-                if !gpu_on {
-                    use std::sync::atomic::{AtomicUsize, Ordering};
-                    struct Chunk {
-                        data: Vec<SeData>,
-                        done: Vec<std::sync::OnceLock<(String, AlignmentStats)>>,
-                        remaining: AtomicUsize,
-                    }
-                    thread_local! {
-                        static CTX: std::cell::RefCell<Option<(bonefish::align::extend::AlignmentContext, bonefish::align::map::MapContext)>> =
-                            const { std::cell::RefCell::new(None) };
-                    }
-                    const MIN_IN_FLIGHT: usize = 2;
-                    const MAX_IN_FLIGHT: usize = 8;
-                    let low_water = 2 * rayon::current_num_threads();
-                    // Reads admitted but not yet aligned, over all chunks in flight.
-                    let outstanding = std::sync::Arc::new(AtomicUsize::new(0));
-                    // usize::MAX = "outstanding fell below the low-water mark", else a finished chunk id.
-                    let (tx_done, rx_done) = std::sync::mpsc::channel::<usize>();
-                    let align_one = &align_one;
-                    let mut send_failed = false;
-                    rayon::in_place_scope(|sc| {
-                        let mut in_flight: std::collections::VecDeque<(usize, std::sync::Arc<Chunk>)> = std::collections::VecDeque::new();
-                        let mut finished: std::collections::HashSet<usize> = std::collections::HashSet::new();
-                        let mut next_id = 0usize;
-                        let mut input_done = false;
-                        loop {
-                            // Write out completed chunks in order.
-                            while let Some((id, _)) = in_flight.front() {
-                                if !finished.remove(id) { break; }
-                                let (_, mut c) = in_flight.pop_front().unwrap();
-                                // Workers drop their handle just after the final decrement.
-                                let c = loop {
-                                    match std::sync::Arc::try_unwrap(c) {
-                                        Ok(c) => break c,
-                                        Err(back) => { c = back; std::thread::yield_now(); }
-                                    }
-                                };
-                                let results: Vec<(String, AlignmentStats)> = c.done.into_iter().map(|r| r.into_inner().expect("every read aligned")).collect();
-                                if tx_out.send(results).is_err() { send_failed = true; break; }
-                            }
-                            if send_failed { break; }
-                            let admit = in_flight.len() < MIN_IN_FLIGHT
-                                || (in_flight.len() < MAX_IN_FLIGHT && outstanding.load(Ordering::Acquire) < low_water);
-                            if !input_done && admit {
-                                match rx.recv() {
-                                    Ok(chunk_data) if !chunk_data.is_empty() => {
-                                        let n = chunk_data.len();
-                                        let id = next_id;
-                                        next_id += 1;
-                                        let c = std::sync::Arc::new(Chunk { data: chunk_data, done: (0..n).map(|_| std::sync::OnceLock::new()).collect(),
-                                                                            remaining: AtomicUsize::new(n) });
-                                        outstanding.fetch_add(n, Ordering::AcqRel);
-                                        for ri in 0..n {
-                                            let c = std::sync::Arc::clone(&c);
-                                            let tx_done = tx_done.clone();
-                                            let outstanding = std::sync::Arc::clone(&outstanding);
-                                            sc.spawn(move |_| {
-                                                let read = &c.data[ri];
-                                                let r = CTX.with(|cell| {
-                                                    let mut g = cell.borrow_mut();
-                                                    let (ctx, map_ctx) = g.get_or_insert_with(|| (bonefish::align::extend::AlignmentContext::new(), bonefish::align::map::MapContext::new()));
-                                                    align_one(ctx, map_ctx, read, false)
-                                                });
-                                                let r = r.unwrap_or_else(|_| {
-                                                    eprintln!("[WARNING] alignment panicked for read: {}", read.0);
-                                                    (String::new(), AlignmentStats::default())
-                                                });
-                                                let _ = c.done[ri].set(r);
-                                                let last = c.remaining.fetch_sub(1, Ordering::AcqRel) == 1;
-                                                drop(c);
-                                                if last { let _ = tx_done.send(id); }
-                                                if outstanding.fetch_sub(1, Ordering::AcqRel) == low_water { let _ = tx_done.send(usize::MAX); }
-                                            });
-                                        }
-                                        in_flight.push_back((id, c));
-                                        continue;
-                                    }
-                                    _ => input_done = true,
-                                }
-                            }
-                            if in_flight.is_empty() { break; }
-                            match rx_done.recv() {
-                                Ok(usize::MAX) => {} // below the low-water mark: re-check admission
-                                Ok(id) => { finished.insert(id); }
-                                Err(_) => break,
-                            }
-                        }
-                    });
-                    drop(tx_out);
-                    return writer_handle.join().expect("writer thread panicked");
-                }
-                struct OpenChunk {
+                use std::sync::atomic::{AtomicUsize, Ordering};
+                struct Chunk {
                     data: Vec<SeData>,
-                    done: Vec<Option<(String, AlignmentStats)>>,
-                    pending: Vec<usize>,
-                    attempts: Vec<u8>,
+                    done: Vec<std::sync::OnceLock<(String, AlignmentStats)>>,
+                    remaining: AtomicUsize,
                 }
-                let mut open: std::collections::VecDeque<OpenChunk> = std::collections::VecDeque::new();
-                let mut input_done = false;
-                for iter in 0usize.. {
-                    if !input_done {
-                        match rx.recv() {
-                            Ok(chunk_data) if !chunk_data.is_empty() => {
-                                let n = chunk_data.len();
-                                open.push_back(OpenChunk { data: chunk_data, done: (0..n).map(|_| None).collect(),
-                                                           pending: (0..n).collect(), attempts: vec![0; n] });
-                            }
-                            _ => input_done = true,
-                        }
-                    }
-                    if open.is_empty() { break; }
-                    assert!(iter < 1_000_000, "GPU retry did not converge");
-
-                    // Results for every GPU request queued in the previous iteration.
-                    let t_wait = std::time::Instant::now();
-                    #[cfg(feature = "gpu")]
-                    if gpu_on { bonefish::align::dp::gpu::wait_pending(); }
-                    let wait_s = t_wait.elapsed().as_secs_f64();
-
-                    let work: Vec<(usize, usize)> = open.iter().enumerate()
-                        .flat_map(|(ci, o)| o.pending.iter().map(move |&ri| (ci, ri)))
-                        .collect();
-                    for o in open.iter_mut() { o.pending.clear(); }
-                    let t_cpu = std::time::Instant::now();
-                    #[allow(clippy::type_complexity)]
-                    let attempted: Vec<(usize, usize, Option<(String, AlignmentStats)>)> = work.par_iter().map_init(
-                        || (bonefish::align::extend::AlignmentContext::new(), bonefish::align::map::MapContext::new()),
-                        |(ctx, map_ctx), &(ci, ri)| {
-                            let read = &open[ci].data[ri];
-                            let use_gpu = gpu_on && open[ci].attempts[ri] < MAX_GPU_ATTEMPTS;
-                            let attempt = align_one(ctx, map_ctx, read, use_gpu);
-                            #[cfg(feature = "gpu")]
-                            if use_gpu && bonefish::align::dp::gpu::was_speculative() { return (ci, ri, None); }
-                            match attempt {
-                                Ok(result) => (ci, ri, Some(result)),
-                                Err(_) => {
-                                    eprintln!("[WARNING] alignment panicked for read: {}", read.0);
-                                    (ci, ri, Some((String::new(), AlignmentStats::default())))
+                thread_local! {
+                    static CTX: std::cell::RefCell<Option<(bonefish::align::extend::AlignmentContext, bonefish::align::map::MapContext)>> =
+                        const { std::cell::RefCell::new(None) };
+                }
+                const MIN_IN_FLIGHT: usize = 2;
+                const MAX_IN_FLIGHT: usize = 8;
+                let low_water = 2 * rayon::current_num_threads();
+                // Reads admitted but not yet aligned, over all chunks in flight.
+                let outstanding = std::sync::Arc::new(AtomicUsize::new(0));
+                // usize::MAX = "outstanding fell below the low-water mark", else a finished chunk id.
+                let (tx_done, rx_done) = std::sync::mpsc::channel::<usize>();
+                let align_one = &align_one;
+                let mut send_failed = false;
+                rayon::in_place_scope(|sc| {
+                    let mut in_flight: std::collections::VecDeque<(usize, std::sync::Arc<Chunk>)> = std::collections::VecDeque::new();
+                    let mut finished: std::collections::HashSet<usize> = std::collections::HashSet::new();
+                    let mut next_id = 0usize;
+                    let mut input_done = false;
+                    loop {
+                        // Write out completed chunks in order.
+                        while let Some((id, _)) = in_flight.front() {
+                            if !finished.remove(id) { break; }
+                            let (_, mut c) = in_flight.pop_front().unwrap();
+                            // Workers drop their handle just after the final decrement.
+                            let c = loop {
+                                match std::sync::Arc::try_unwrap(c) {
+                                    Ok(c) => break c,
+                                    Err(back) => { c = back; std::thread::yield_now(); }
                                 }
+                            };
+                            let results: Vec<(String, AlignmentStats)> = c.done.into_iter().map(|r| r.into_inner().expect("every read aligned")).collect();
+                            if tx_out.send(results).is_err() { send_failed = true; break; }
+                        }
+                        if send_failed { break; }
+                        let admit = in_flight.len() < MIN_IN_FLIGHT
+                            || (in_flight.len() < MAX_IN_FLIGHT && outstanding.load(Ordering::Acquire) < low_water);
+                        if !input_done && admit {
+                            match rx.recv() {
+                                Ok(chunk_data) if !chunk_data.is_empty() => {
+                                    let n = chunk_data.len();
+                                    let id = next_id;
+                                    next_id += 1;
+                                    let c = std::sync::Arc::new(Chunk { data: chunk_data, done: (0..n).map(|_| std::sync::OnceLock::new()).collect(),
+                                                                        remaining: AtomicUsize::new(n) });
+                                    outstanding.fetch_add(n, Ordering::AcqRel);
+                                    for ri in 0..n {
+                                        let c = std::sync::Arc::clone(&c);
+                                        let tx_done = tx_done.clone();
+                                        let outstanding = std::sync::Arc::clone(&outstanding);
+                                        sc.spawn(move |_| {
+                                            let read = &c.data[ri];
+                                            let r = CTX.with(|cell| {
+                                                let mut g = cell.borrow_mut();
+                                                let (ctx, map_ctx) = g.get_or_insert_with(|| (bonefish::align::extend::AlignmentContext::new(), bonefish::align::map::MapContext::new()));
+                                                align_one(ctx, map_ctx, read)
+                                            });
+                                            let r = r.unwrap_or_else(|_| {
+                                                eprintln!("[WARNING] alignment panicked for read: {}", read.0);
+                                                (String::new(), AlignmentStats::default())
+                                            });
+                                            let _ = c.done[ri].set(r);
+                                            let last = c.remaining.fetch_sub(1, Ordering::AcqRel) == 1;
+                                            drop(c);
+                                            if last { let _ = tx_done.send(id); }
+                                            if outstanding.fetch_sub(1, Ordering::AcqRel) == low_water { let _ = tx_done.send(usize::MAX); }
+                                        });
+                                    }
+                                    in_flight.push_back((id, c));
+                                    continue;
+                                }
+                                _ => input_done = true,
                             }
                         }
-                    ).collect();
-                    let cpu_s = t_cpu.elapsed().as_secs_f64();
-                    for (ci, ri, r) in attempted {
-                        match r {
-                            Some(x) => open[ci].done[ri] = Some(x),
-                            None => { open[ci].pending.push(ri); open[ci].attempts[ri] += 1; }
+                        if in_flight.is_empty() { break; }
+                        match rx_done.recv() {
+                            Ok(usize::MAX) => {} // below the low-water mark: re-check admission
+                            Ok(id) => { finished.insert(id); }
+                            Err(_) => break,
                         }
                     }
-                    if verbose {
-                        let n_pend: usize = open.iter().map(|o| o.pending.len()).sum();
-                        eprintln!("[gpu] iter {iter}: gpu wait {wait_s:.2}s, cpu {cpu_s:.2}s on {} reads, {} still pending, {} open chunks",
-                                  work.len(), n_pend, open.len());
-                    }
-                    let mut send_failed = false;
-                    while open.front().is_some_and(|o| o.pending.is_empty()) {
-                        let o = open.pop_front().unwrap();
-                        let results: Vec<(String, AlignmentStats)> = o.done.into_iter().map(|r| r.expect("every read aligned")).collect();
-                        if tx_out.send(results).is_err() { send_failed = true; break; }
-                    }
-                    if send_failed { break; }
-                    #[cfg(feature = "gpu")]
-                    if gpu_on && open.is_empty() { bonefish::align::dp::gpu::clear_cache(); }
-                }
+                });
                 drop(tx_out);
                 writer_handle.join().expect("writer thread panicked")
             })?;
