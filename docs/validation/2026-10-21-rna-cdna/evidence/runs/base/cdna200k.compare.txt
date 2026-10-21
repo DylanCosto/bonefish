@@ -1,0 +1,10 @@
+primary records compared: 200,000
+  identical:                         200,000 (100.000%)
+  same locus (overlapping interval): 0 (0.000%)
+  moved (contig/strand/no overlap):  0 (0.000%)
+  newly unmapped / newly mapped:     0 / 0
+  MAPQ lower / higher:               0 / 0
+aligned bases, primary:        0.431 Gb -> 0.431 Gb
+aligned bases, supplementary:  0.009 Gb -> 0.009 Gb (8,851 -> 8,851 records)
+aligned bases, total:          0.440 Gb -> 0.440 Gb
+soft-clipped bases, primary:   0.057 Gb -> 0.057 Gb

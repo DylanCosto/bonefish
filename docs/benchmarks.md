@@ -85,6 +85,17 @@ Same genome-wide HG001 sample, bonefish vs minimap2: on T2T-CHM13 41 s vs 166 s 
 with the same number of primaries on ALT contigs (155 vs 154) and the same MHC mapping quality.
 Details: [validation/2026-10-14-other-references](validation/2026-10-14-other-references/README.md).
 
+## Direct RNA and cDNA (spliced presets)
+
+HG002 direct RNA (RNA004 sup, 902k reads) and cDNA (PCS114 hac, 809k reads) against GRCh38, minimap2
+2.31 with the same presets (`-ax splice -uf -k14`, `-ax splice`): 2.1x / 5.3x less CPU time (wall on an
+idle machine 456 vs 177 s and 1,223 vs 227 s); 99.87% / 99.49% of primaries identical to minimap2;
+introns at GENCODE positions 97.95% / 97.46% (minimap2 97.94% / 97.49%); on simulated reads with known
+intron chains, exact chains 88.79% / 93.09% (minimap2 89.10% / 93.13%). Introns are aligned against
+the reference near the chain's anchors with a 10-mer search for unanchored exons, and cDNA chains are
+aligned once for both transcript strands. Details:
+[validation/2026-10-21-rna-cdna](validation/2026-10-21-rna-cdna/README.md).
+
 ## Metagenomes, duplex reads and rDNA
 
 Against minimap2 `lr:hq` on the same reads (v0.1.7): ONT's Zymo fecal reference (1.70 M R10.4.1 sup

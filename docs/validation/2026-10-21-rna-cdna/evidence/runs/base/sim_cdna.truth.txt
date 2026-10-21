@@ -1,0 +1,2 @@
+simulated reads 44,667, with >= 1 true intron 43,989
+sim_cdna.sam: mapped 99.87%  exact intron chain 41,599 (93.13%)  wrong locus 596  intron precision 97.57%  recall 97.81%

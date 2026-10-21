@@ -1,0 +1,2 @@
+simulated reads 44,787, with >= 1 true intron 44,127
+sim_drna.sam: mapped 99.77%  exact intron chain 39,903 (89.10%)  wrong locus 241  intron precision 98.48%  recall 97.34%

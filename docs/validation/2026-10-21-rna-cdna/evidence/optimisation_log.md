@@ -1,0 +1,19 @@
+# RNA optimisation log (overnight 2026-10-21)
+- base (rna-trial dfd6e9a): identical to minimap2; drna200k 105.4 s / 1164 CPU, cdna200k 313.5 s / 4003 CPU (mm2 112.6/1215, 338.5/4298).
+- Profile: intron gap fills (t > 4q, > 1 kb) = 86% (dRNA) / 85% (cDNA) of alignment; 2.3 M cells per intron gap.
+- c1 two-window compression: fast but wrong (middle exons inside gaps lost: annot 73%).
+- c2 anchor-window compression: dRNA 68.9 s/582, cDNA 124.9 s/1048; ident 99.78/98.68; sim exact dRNA 86.30 (base 89.10).
+- c3 flank check + full-DP fallback: accuracy back (89.07-89.09) but CPU +25-45% -> rejected.
+- c4/c5 10-mer rescue (single best / up to 6 candidates): c5 shrank anchor windows -> unmapped reads; fixed in c6.
+- c6 keep-interval windows + additive rescue windows (FLANK_MAX 6, RESCUE_Q 48, MAX_CAND 6): dRNA 46.9 s/599, cDNA 83.3 s/1111; ident 99.88/99.47; annot 97.97/97.47; sim exact cDNA 93.10 (93.13), dRNA 88.77 (89.10).
+- c7 union-strand single pass for cDNA (fallback to two passes when introns favour different strands; always two with --junc-bed): cdna200k 60.1 s / 816 CPU (c6 83.3/1111, mm2 338.5/4298); ident 99.475% (c6 99.471); ts:+/- 90650/91905 (mm2 90635/91871); sims unchanged.
+- c8 = c7 + SIMD cDNA chaining (agent, exact): drna200k 40.6 s/562, cdna200k 52.9 s/764 (mm2 112.6/338.5 -> 2.8x / 6.4x).
+- -M 1000 / -M 500 for dRNA: 34.0 / 29.8 s but 337 / 477 reads newly unmapped (repeats/paralogs) -> rejected as default.
+- Seeding profile dRNA: anchor sort 147-163 of ~205 thread-s (4.16 G anchors, max 3.2 M per read). LSD radix (c9): 1 thread seeding 5.55 -> 3.40 s; 16 threads no gain (memory-bandwidth bound); 4 threads 4.07 -> 3.53 s wall. Output: 2/15k records differ in cm/s2 only. Kept.
+- Benchmark noise: the two RNA indexes (11 + 13 GB) do not fit in the page cache together on 31 GB; rna_bench.sh now evicts the other indexes (posix_fadvise DONTNEED) and pages in the one used right before each run. Earlier wall times with large seeding outliers (cdna c10 568 s seeding) were page faults.
+- Isolated-anchor pre-filter before spliced chaining (exact; drops 16% of dRNA anchors): no CPU change (560 vs 561) -> dropped.
+- LSD anchor sort at 16 threads: +6% CPU vs MSD (memory-bound) -> reverted; MSD keeps minimap2's tie order.
+- Current (c8 = rna-opt 26a54b0 / after revert): drna200k 38.3-39.3 s / 561 CPU, cdna200k 51.1-52.1 s / 774-781 CPU.
+- Unit-test agent found: rescued-exon window could truncate the exon (worse alignment returned as success; 3/225 random unanchored-exon genes). Fix (window to neighbouring anchors, search all skipped stretches, realign after last round) = opt2: ident 99.894/99.534 (c8 99.882/99.475), CPU +4%/+10%. opt4 (global top-6 candidates, 300 bp cap): +2%/+6%. opt5 (2 rounds): drna 569 CPU, cdna 803 CPU (+1%/+3%), ident 99.891/99.529, sims 88.79/93.09. Kept opt5.
+- Full sets (opt1, before the fix): drna 902k 177.3 s vs mm2 455.6 (2.57x), cdna 809k 227.0 vs 1222.8 (5.39x); ident 99.85/99.43; annot 97.95/97.45 (mm2 97.97/97.51).
+- DNA guard (opt1 vs v0.1.7, genome-wide sample, 3 alternating rounds): MD5 identical; CPU 650.3-651.3 vs 647.7-648.3 (+0.4%).

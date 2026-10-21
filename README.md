@@ -1,8 +1,8 @@
 # bonefish
 
-A fast aligner for Oxford Nanopore DNA reads, written in Rust. bonefish takes ONT reads (FASTQ,
-FASTA, or the BAM that dorado writes) and produces SAM, PAF, or a coordinate-sorted, indexed BAM
-in one step. It is tuned and validated for variant calling: on whole human genomes (GIAB HG002 and
+A fast aligner for Oxford Nanopore reads, written in Rust: genomic DNA, direct RNA and cDNA.
+bonefish takes ONT reads (FASTQ, FASTA, or the BAM that dorado writes) and produces SAM, PAF, or a
+coordinate-sorted, indexed BAM in one step. It is tuned and validated for variant calling: on whole human genomes (GIAB HG002 and
 HG005, R10.4.1), its SNP, indel and structural-variant accuracy match minimap2's and its CpG
 methylation calls (modkit) agree with minimap2's at r = 0.999, while it goes from reads to a sorted,
 indexed BAM about 3x faster than `minimap2 | samtools sort` (aligner alone: 2.6-8x).
@@ -42,9 +42,12 @@ bonefish -t 16 -y -o sample.bam ref.raw reads.bam     # dorado BAM in, sorted BA
 bonefish -t 16 -a ref.fa reads.fq.gz > sample.sam     # FASTQ in, SAM out
 ```
 
-- There is one preset, `dna` (ONT genomic DNA, R10.4.1 or R9.4.1), applied by default. The
-  minimap2 names `lr:hq`, `lr:hq-fast`, `map-ont` and `lr` are accepted for it; other minimap2
-  presets (PacBio, short reads, RNA/splice, assembly) are not supported.
+- `dna` (ONT genomic DNA, R10.4.1 or R9.4.1) is the default preset; the minimap2 names `lr:hq`,
+  `lr:hq-fast`, `map-ont` and `lr` are accepted for it. For spliced alignment to a genome,
+  `-x rna` (direct RNA, as minimap2 `-ax splice -uf -k14`) and `-x cdna` (cDNA, as `-ax splice`;
+  also `splice:hq`), with `--junc-bed` for annotated junctions; e.g.
+  `bonefish -t 16 -x cdna -y -o cdna.bam ref.fa reads.bam`. A spliced preset needs its own index
+  (`-x rna -d rna.raw --idx-raw ref.fa`). PacBio, short-read and assembly presets are not supported.
 - Reads can be FASTQ, FASTA or BAM, plain or gzipped, from files or stdin; several files are
   mapped in turn. BAM input may be unaligned (dorado) or aligned: reverse-strand records are
   restored to the read's orientation and secondary/supplementary records are skipped.
@@ -92,6 +95,14 @@ run of HG005 shared its disk with a download.) Aligner alone:
 | HG002 R10.4.1 ultra-long (3.4 Gbp) | 542 s | 65 s | 8.3x |
 | HG001 R10.4.1 sup, random genome-wide sample (2.7 Gbp) | 202 s | 44 s | 4.6x |
 | *Salmonella enterica* R10.4.1 (1.2 Gbp) | 25 s | 10 s | 2.6x |
+
+Spliced alignment to GRCh38 against minimap2 2.31 with the same presets (HG002, ONT's
+`UHRR_HG002_2026.06` release; [details](docs/validation/2026-10-21-rna-cdna/README.md)):
+
+| dataset | minimap2 | bonefish | speedup | identical primaries | introns in GENCODE (mm2 / bonefish) |
+|---|---:|---:|---:|---:|---:|
+| direct RNA, RNA004 sup, 902k reads (`-x rna`) | 456 s | 177 s | 2.6x | 99.87% | 97.94% / 97.95% |
+| cDNA, PCS114 hac, 809k reads (`-x cdna`) | 1,223 s | 227 s | 5.4x | 99.49% | 97.49% / 97.46% |
 
 Chromosome-scale variant calling (Clair3 + rtg vcfeval vs GIAB v4.2.1; Sniffles2 + Truvari vs GIAB v5.0q):
 
@@ -151,7 +162,9 @@ options.
 
 ## Limitations
 
-- DNA only: no spliced (RNA/cDNA) alignment, and no PacBio, short-read or assembly presets.
+- ONT reads only: no PacBio, short-read or assembly presets. The spliced presets are new
+  (October 2026) and validated against minimap2, GENCODE and simulated reads, not yet by
+  downstream isoform or expression benchmarks.
 - Output is SAM, PAF or sorted BAM (no CRAM).
 - Indexes written with `-d` are bonefish's own format; minimap2 `.mmi` files can be read but not
   written.
@@ -164,7 +177,7 @@ options.
 ## Library
 
 `bonefish-core` (imported as `bonefish`) exposes the aligner as a Rust library
-(`bonefish::Aligner`, `Preset::Dna`); see `bonefish-core/examples/`.
+(`bonefish::Aligner`, `Preset::Dna`, `Preset::Rna`, `Preset::Cdna`); see `bonefish-core/examples/`.
 
 ## Credits and license
 

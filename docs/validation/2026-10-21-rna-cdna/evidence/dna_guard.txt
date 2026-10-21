@@ -1,0 +1,7 @@
+1 bonefish-v017 wall=47.24 cpu=648.27 md5=9bc7ff3e9f498cc1530b2b1d78c47e10
+1 bf-rna-opt1 wall=44.57 cpu=651.26 md5=9bc7ff3e9f498cc1530b2b1d78c47e10
+2 bonefish-v017 wall=44.22 cpu=647.71 md5=9bc7ff3e9f498cc1530b2b1d78c47e10
+2 bf-rna-opt1 wall=44.91 cpu=650.28 md5=9bc7ff3e9f498cc1530b2b1d78c47e10
+3 bonefish-v017 wall=43.88 cpu=648.06 md5=9bc7ff3e9f498cc1530b2b1d78c47e10
+3 bf-rna-opt1 wall=44.68 cpu=650.87 md5=9bc7ff3e9f498cc1530b2b1d78c47e10
+DONE

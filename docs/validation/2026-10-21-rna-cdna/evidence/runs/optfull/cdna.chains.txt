@@ -1,0 +1,4 @@
+A ${BENCH}/results/rna/mm2/cdna.bam: reads 808,749  mapped 803,649 (99.37%)  spliced 736,223 (91.61% of mapped)  introns 6,341,457, annotated 97.49%  distinct introns 256,799
+B cdna.sam: reads 808,749  mapped 803,634 (99.37%)  spliced 736,095 (91.60% of mapped)  introns 6,334,623, annotated 97.45%  distinct introns 259,348
+reads spliced by either: 736,230; identical intron chain 731,617 (99.37%); spliced only by A 135, only by B 7
+differing chains: higher annotated-intron share in A 3,401, in B 565
