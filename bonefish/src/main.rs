@@ -46,8 +46,9 @@ struct AlignArgs {
     #[arg(short = 'd', long)]
     pub dump_index: Option<String>,
 
-    /// Preset applied before other options:
-    ///   dna              — ONT reads (R10.4.1 or R9.4.1) vs a reference genome (default)
+    /// Preset applied before other options (names ignore case):
+    ///   dna / ont        — ONT reads (R10.4.1 or R9.4.1) vs a reference genome (default)
+    ///   hifi             — PacBio HiFi reads vs a reference genome; alias: map-hifi
     ///   lr:hq / lr:hq-fast / map-ont / lr — accepted as aliases of dna
     ///   rna              — direct RNA vs a reference genome (spliced; minimap2 -x splice -uf -k14)
     ///   cdna             — cDNA vs a reference genome (spliced; minimap2 -x splice); alias: splice
@@ -59,6 +60,8 @@ struct AlignArgs {
     /// cdna = -k15 -w5 -g2k -G200k -A1 -B2 -O2,32 -E1,0 -C9 -z200,100 -ub --junc-bonus 9
     /// --junc-pen 5 --splice-flank yes; rna = cdna with -k14 -uf
     /// tx = dna with -k15 -w10 -g5000 -U10,1000000 -N100
+    /// hifi = dna, with stretches of fragmented long gaps realigned under map-hifi scoring
+    /// (-A1 -B4 -O6,26 -E2,1); uses dna indexes
     #[arg(short = 'x', long, verbatim_doc_comment)]
     pub preset: Option<String>,
 

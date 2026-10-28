@@ -1,6 +1,6 @@
 [package]
 name = "bonefish"
-description = "Fast aligner for Oxford Nanopore DNA, RNA and cDNA reads (a fork of rammap, the Rust port of minimap2)"
+description = "Fast aligner for Oxford Nanopore DNA, RNA and cDNA reads and PacBio HiFi DNA (a fork of rammap, the Rust port of minimap2)"
 repository.workspace = true
 version.workspace = true
 edition.workspace = true

@@ -1,0 +1,3 @@
+type	tp	fp	fn	precision	recall	f1
+snps	71267	90	95	0.9987	0.9987	0.9987
+indels	9911	819	1345	0.9237	0.8805	0.9016

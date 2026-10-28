@@ -4,6 +4,19 @@ Each release's binaries and full notes are on the
 [releases page](https://github.com/DylanCosto/bonefish/releases). "Output" means the alignment
 records. Each entry quotes the MD5 of the genome-wide HG001 sample's SAM output, `@PG` lines removed.
 
+## Unreleased
+
+**New: `-x hifi`** (alias `map-hifi`), for PacBio HiFi genomic DNA. It is the `dna` preset, plus
+one extra step: stretches of fragmented long gaps are realigned under minimap2 `map-hifi` scoring,
+so one SV is no longer split into several false ones.
+
+- **Speed:** on whole-genome HG002 it needs 3.9x less CPU time than minimap2 `map-hifi`.
+- **Accuracy:** SNP and indel F1 are higher than minimap2's (0.9984 and 0.9922), and SV F1 is
+  0.003 lower. Report: `docs/validation/2026-10-28-hifi/`.
+
+**Preset names:** `ont` is now an alias for `dna`, and preset names ignore case. `dna` output
+is unchanged on the golden-output tests.
+
 ## v0.3.0 (2026-10-21)
 
 **New: `-x tx`.** The preset maps direct RNA or cDNA to a transcriptome for quantifiers such as

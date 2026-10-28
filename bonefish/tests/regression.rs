@@ -1,5 +1,8 @@
 //! End-to-end regression tests on a small synthetic ONT-like dataset (`tests/data`, made by
-//! `scripts/make_regression_data.py`).
+//! `scripts/make_regression_data.py`), synthetic spliced reads (`rna_*`, `cdna_*`:
+//! `scripts/make_regression_rna_data.py`) and eight HG002 HiFi reads at three structural variants
+//! (`hifi_*`: `scripts/make_regression_hifi_data.py`), there aligned with both the dna and the
+//! hifi preset.
 //!
 //! * The output (SAM, PAF, and the --cs / --MD --eqx variants) is pinned to golden hashes in
 //!   `tests/data/expected.tsv`, so speed-only changes can be checked for identical output.
@@ -67,6 +70,8 @@ fn map_args(name: &str, case_args: &str) -> Vec<String> {
         ("rna_ref.fa.gz", "rna_reads.fq.gz")
     } else if name.starts_with("cdna_") {
         ("rna_ref.fa.gz", "cdna_reads.fq.gz")
+    } else if name.starts_with("hifi_") {
+        ("hifi_ref.fa.gz", "hifi_reads.fa.gz")
     } else {
         ("ref.fa.gz", "reads.fq.gz")
     };

@@ -85,6 +85,13 @@ Same genome-wide HG001 sample, bonefish vs minimap2: on T2T-CHM13 41 s vs 166 s 
 with the same number of primaries on ALT contigs (155 vs 154) and the same MHC mapping quality.
 Details: [validation/2026-10-14-other-references](validation/2026-10-14-other-references/README.md).
 
+## PacBio HiFi
+
+`-x hifi` against minimap2 `-ax map-hifi` on the whole HG002 genome (PacBio Revio, about 30x):
+3.9x less CPU time and 2.6x faster to a sorted BAM. SNP F1 is 0.9984 (minimap2 0.9980) and indel F1
+0.9922 (0.9868). SV F1 is 0.8061 strict (0.8091). Details:
+[validation/2026-10-28-hifi](validation/2026-10-28-hifi/README.md).
+
 ## Direct RNA and cDNA (spliced presets)
 
 HG002 direct RNA (RNA004 sup, 902k reads) and cDNA (PCS114 hac, 809k reads) against GRCh38, minimap2

@@ -4,14 +4,16 @@
 
 | preset | for | minimap2 equivalent |
 |---|---|---|
-| `dna` (default) | ONT genomic DNA: R10.4.1 or R9.4.1, sup or hac, ultra-long | `-x lr:hq`, with cheaper chaining and alignment |
+| `dna` (default; alias `ont`) | ONT genomic DNA: R10.4.1 or R9.4.1, sup or hac, ultra-long | `-x lr:hq`, with cheaper chaining and alignment |
+| `hifi` | PacBio HiFi genomic DNA; uses `dna` indexes | `-x map-hifi` |
 | `rna` | direct RNA (RNA004), spliced to a genome | `-x splice -uf -k14` |
 | `cdna` | cDNA, spliced to a genome, transcript strand from splice signals | `-x splice` |
 | `splice:hq` | accurate cDNA | `-x splice:hq` |
 | `tx` | direct RNA or cDNA to a transcriptome, for quantification (oarfish, NanoCount) | `-x map-ont -N 100` |
 
-The minimap2 names `lr:hq`, `lr:hq-fast`, `map-ont` and `lr` are accepted for `dna`, and `splice`
-for `cdna`. PacBio, short-read and assembly presets are not supported.
+The minimap2 names `lr:hq`, `lr:hq-fast`, `map-ont` and `lr` are accepted for `dna`, `map-hifi` for
+`hifi` and `splice` for `cdna`. Preset names ignore case. PacBio Iso-Seq/Kinnex RNA has not been
+validated. Short-read and assembly presets are not supported.
 
 ## Indexes
 

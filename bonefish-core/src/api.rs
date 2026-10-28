@@ -45,6 +45,8 @@ pub enum Preset {
     SpliceHq,
     /// RNA or cDNA reads to a transcriptome, for quantification (minimap2 `-x map-ont -N 100`).
     Tx,
+    /// PacBio HiFi genomic DNA (minimap2 `-x map-hifi`).
+    Hifi,
 }
 
 impl Preset {
@@ -56,6 +58,7 @@ impl Preset {
             Preset::Cdna => "cdna",
             Preset::SpliceHq => "splice:hq",
             Preset::Tx => "tx",
+            Preset::Hifi => "hifi",
         }
     }
 }
@@ -363,6 +366,10 @@ impl Aligner {
     pub fn cdna() -> Preset { Preset::Cdna }
     /// Alias of [`Aligner::dna`] for minimap2-rs compatibility.
     pub fn map_ont() -> Preset { Preset::Dna }
+    /// PacBio HiFi genomic DNA preset.
+    pub fn hifi() -> Preset { Preset::Hifi }
+    /// Alias of [`Aligner::hifi`] for minimap2-rs compatibility.
+    pub fn map_hifi() -> Preset { Preset::Hifi }
 
     // --- Constructors ---
 
@@ -570,8 +577,9 @@ fn parse_cigar_string(s: &str) -> Vec<CigarOp> {
 // Preset application (moved from main.rs)
 // ---------------------------------------------------------------------------
 
-/// Apply a preset by string name ("dna" or one of its minimap2-name aliases, "rna", "cdna",
-/// "splice" (= cdna), "splice:hq" or "tx").
+/// Apply a preset by string name, ignoring case: "dna" (alias "ont", and the minimap2 names
+/// "lr:hq", "lr:hq-fast", "map-ont", "lr"), "rna", "cdna", "splice" (= cdna), "splice:hq", "tx" or
+/// "hifi" (alias "map-hifi").
 ///
 /// This is the same function used by the CLI's `-x` flag. Modifies `opt`,
 /// `k` and `w` in place. Returns an error if the preset name
@@ -583,6 +591,8 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, pres
     // AVX-512's per-core license throttling (chain/seed-heavy presets where DP
     // is a small fraction of CPU time).
     crate::align::dp::set_simd_cap(crate::align::dp::SimdCap::Auto);
+    let preset = preset.to_ascii_lowercase();
+    let preset = preset.as_str();
     match preset {
         // The one preset: ONT genomic DNA (formerly lr:hq-fast). minimap2's lr:hq seeding (k=19,
         // w=19) and scoring, with cheaper DP and chaining (ont-aligner Phase 3 onwards): narrower
@@ -596,8 +606,8 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, pres
         // land on another repeat copy; v0.1.3 sub-anchored there too, v0.1.4 not at all).
         // Validated against GIAB truth sets on R10.4.1 (sup, HAC) and R9.4.1:
         // SNP/indel accuracy at minimap2 level, SV recall at or above it. The minimap2 names
-        // people habitually pass are accepted for the same preset.
-        "dna" | "lr:hq" | "lr:hq-fast" | "map-ont" | "lr" => {
+        // people habitually pass are accepted for the same preset, and "ont" pairs with "hifi".
+        "dna" | "ont" | "lr:hq" | "lr:hq-fast" | "map-ont" | "lr" => {
             *k = 19; *w = 19;
             opt.chaining.max_gap = 10000;
             opt.chaining.max_gap_ref = 5000;
@@ -627,6 +637,17 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, pres
             opt.chaining.max_gap = 5000;
             opt.seeding.min_mid_occ = 10; opt.seeding.max_mid_occ = 1_000_000;
             opt.filtering.best_n = 100;
+        },
+        // PacBio HiFi genomic DNA: the dna preset, with stretches of fragmented long gaps
+        // realigned under minimap2 map-hifi scoring (-A1 -B4 -O6,26 -E2,1). lr:hq scoring (match
+        // 2, long-gap extension 1) splits long deletions around short chance matches; on HiFi
+        // reads, where nearly every long gap is a real SV, that turns one deletion into several
+        // false SV calls. Everything else, including lr:hq scoring for the rest of the alignment
+        // (better small-indel calls on HiFi than map-hifi scoring), is unchanged, so dna indexes
+        // work for this preset too.
+        "hifi" | "map-hifi" => {
+            apply_preset_str(opt, k, w, "dna")?;
+            opt.alignment.gap_cluster_realign = Some([1, 4, 6, 2, 26, 1]);
         },
         // Spliced alignment of transcripts, as minimap2 2.30/2.31 `-x splice` (options.c): k15 w5,
         // both transcript strands tried (-ub) with splice-site flank scoring, introns up to 200 kb
@@ -658,7 +679,7 @@ pub fn apply_preset_str(opt: &mut MapOptions, k: &mut usize, w: &mut usize, pres
             }
         },
         _ => {
-            return Err(format!("unrecognized preset '{}' (dna, the default; rna; cdna)", preset));
+            return Err(format!("unrecognized preset '{}' (dna or ont, the default; hifi; rna; cdna; splice:hq; tx)", preset));
         }
     }
     finalize_options(opt, *k);
@@ -1103,7 +1124,7 @@ mod tests {
 
     #[test]
     fn test_preset_as_str_roundtrip() {
-        let presets = [Preset::Dna, Preset::Rna, Preset::Cdna, Preset::SpliceHq, Preset::Tx];
+        let presets = [Preset::Dna, Preset::Rna, Preset::Cdna, Preset::SpliceHq, Preset::Tx, Preset::Hifi];
         for p in &presets {
             let s = p.as_str();
             assert!(!s.is_empty(), "preset {:?} should have a string form", p);
@@ -1124,12 +1145,21 @@ mod tests {
         assert_eq!((dna.1, dna.2), (19, 19));
         // Sub-anchoring must skip tandem repeats: inside them it misaligns reads (fixed in v0.1.4).
         assert!(dna.0.contains("gap_subanchor: true, gap_subanchor_tr: 150"), "dna preset: sub-anchor outside tandem repeats");
-        for alias in ["lr:hq", "lr:hq-fast", "map-ont", "lr"] {
+        for alias in ["ont", "ONT", "DNA", "lr:hq", "lr:hq-fast", "map-ont", "lr"] {
             assert_eq!(apply(alias).unwrap(), dna, "{alias} should be the dna preset");
         }
         for gone in ["lr:hq-turbo", "sr", "splice:sr", "map-pb", "asm5"] {
             assert!(apply(gone).is_err(), "{gone} should be rejected");
         }
+        // HiFi: the dna preset plus long-gap cluster realignment; the dna preset itself must not
+        // realign (its output is validated on ONT).
+        assert!(dna.0.contains("gap_cluster_realign: None"), "dna preset: no gap-cluster realignment");
+        let hifi = apply("hifi").unwrap();
+        assert_eq!((hifi.1, hifi.2), (19, 19), "hifi shares dna indexes");
+        assert_eq!(apply("HiFi").unwrap(), hifi, "preset names ignore case");
+        assert!(hifi.0.contains("gap_cluster_realign: Some([1, 4, 6, 2, 26, 1])"));
+        assert_eq!(hifi.0.replace("gap_cluster_realign: Some([1, 4, 6, 2, 26, 1])", "gap_cluster_realign: None"), dna.0);
+        assert_eq!(apply("map-hifi").unwrap(), hifi);
         // Spliced presets (minimap2 -x splice; rna adds -uf -k14), with splice as a cdna alias.
         let cdna = apply("cdna").unwrap();
         assert_eq!((cdna.1, cdna.2), (15, 5));

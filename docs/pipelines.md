@@ -13,6 +13,7 @@ minimap2 in a pipeline in two ways:
 |---|---|
 | `minimap2 -ax lr:hq -y -t 16 ref.fa reads.fq \| samtools sort -o out.bam && samtools index out.bam` | `bonefish -t 16 -y -o out.bam ref.fa reads.fq` |
 | `samtools fastq -T '*' reads.bam \| minimap2 -ax lr:hq -y ...` (dorado BAM) | `bonefish -t 16 -y -o out.bam ref.fa reads.bam` |
+| `minimap2 -ax map-hifi -y -t 16 ref.fa hifi.fq \| samtools sort ...` (PacBio HiFi) | `bonefish -x hifi -t 16 -y -o out.bam ref.fa hifi.fq` |
 | `minimap2 -ax splice -uf -k14 ref.fa drna.fq` | `bonefish -x rna -a ref.fa drna.fq` |
 | `minimap2 -ax splice ref.fa cdna.fq` | `bonefish -x cdna -a ref.fa cdna.fq` |
 | `minimap2 -ax splice --junc-bed anno.bed ...` | `bonefish -x cdna -a --junc-bed anno.bed ...` |
