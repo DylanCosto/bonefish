@@ -1479,6 +1479,10 @@ fn map_one_part(
                 let (tx_done, rx_done) = std::sync::mpsc::channel::<usize>();
                 let align_one = &align_one;
                 let mut send_failed = false;
+                // Set when the writer has stopped (e.g. the output pipe closed): queued reads are
+                // skipped rather than aligned for nobody.
+                let abort = std::sync::atomic::AtomicBool::new(false);
+                let abort = &abort;
                 rayon::in_place_scope(|sc| {
                     let mut in_flight: std::collections::VecDeque<(usize, std::sync::Arc<Chunk>)> = std::collections::VecDeque::new();
                     let mut finished: std::collections::HashSet<usize> = std::collections::HashSet::new();
@@ -1497,7 +1501,7 @@ fn map_one_part(
                                 }
                             };
                             let results: Vec<(String, AlignmentStats)> = c.done.into_iter().map(|r| r.into_inner().expect("every read aligned")).collect();
-                            if tx_out.send(results).is_err() { send_failed = true; break; }
+                            if tx_out.send(results).is_err() { send_failed = true; abort.store(true, Ordering::Relaxed); break; }
                         }
                         if send_failed { break; }
                         let admit = in_flight.len() < MIN_IN_FLIGHT
@@ -1517,11 +1521,11 @@ fn map_one_part(
                                         let outstanding = std::sync::Arc::clone(&outstanding);
                                         sc.spawn(move |_| {
                                             let read = &c.data[ri];
-                                            let r = CTX.with(|cell| {
+                                            let r = if abort.load(Ordering::Relaxed) { Ok((String::new(), AlignmentStats::default())) } else { CTX.with(|cell| {
                                                 let mut g = cell.borrow_mut();
                                                 let (ctx, map_ctx) = g.get_or_insert_with(|| (bonefish::align::extend::AlignmentContext::new(), bonefish::align::map::MapContext::new()));
                                                 align_one(ctx, map_ctx, read)
-                                            });
+                                            }) };
                                             let r = r.unwrap_or_else(|_| {
                                                 eprintln!("[WARNING] alignment panicked for read: {}", read.0);
                                                 (String::new(), AlignmentStats::default())
@@ -1548,6 +1552,9 @@ fn map_one_part(
                     }
                 });
                 drop(tx_out);
+                // Unblocks the reader if it is waiting on a full queue after a write error;
+                // otherwise the scope would wait for it forever.
+                drop(rx);
                 writer_handle.join().expect("writer thread panicked")
             })?;
             if let Some(e) = read_err.into_inner().unwrap() {

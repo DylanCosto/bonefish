@@ -11,7 +11,8 @@
 //!   prints the new lines for `expected.tsv`.
 //! * A raw (memory-mapped) index and BAM input must give the same output as FASTA/FASTQ.
 //! * Input handling: dorado BAM tags and read groups with -y, wrapped FASTQ, malformed input
-//!   failing with a non-zero exit, `-o x.bam` as --sort, options after the file arguments.
+//!   failing with a non-zero exit, a closed output pipe ending the run, `-o x.bam` as --sort,
+//!   options after the file arguments.
 //!
 //! Hashes are 64-bit FNV-1a over the output with `@PG` lines removed.
 
@@ -433,6 +434,34 @@ fn malformed_input_fails() {
     }
     let err = run_fails(&["-a", "-k", "40", reference, data("reads.fq.gz").to_str().unwrap()]);
     assert!(err.contains("-k"), "{err}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A closed output pipe ends the run with an error instead of a hang. The reader must still have
+/// input left when the write fails: a two-chunk read-ahead queue of 50 kb chunks, 10 Mb of reads.
+#[test]
+fn closed_output_pipe_exits() {
+    use std::process::Stdio;
+    let dir = tmp_dir("epipe");
+    let reads = dir.join("reads.fq");
+    std::fs::write(&reads, reads_text().repeat(10)).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_bonefish"))
+        .args(["-a", "-t", "2", "-K", "50k", data("ref.fa.gz").to_str().unwrap(), reads.to_str().unwrap()])
+        .env("BONEFISH_LOOKAHEAD", "2")
+        .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut stdout = child.stdout.take().unwrap();
+    stdout.read_exact(&mut [0u8; 1000]).unwrap();
+    drop(stdout);
+    let start = std::time::Instant::now();
+    let status = loop {
+        if let Some(s) = child.try_wait().unwrap() { break s; }
+        if start.elapsed() > std::time::Duration::from_secs(60) {
+            child.kill().ok();
+            panic!("bonefish still running 60 s after its output pipe closed");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    assert!(!status.success(), "a failed write should give a non-zero exit");
     std::fs::remove_dir_all(&dir).ok();
 }
 
