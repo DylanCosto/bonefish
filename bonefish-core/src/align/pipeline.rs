@@ -417,6 +417,13 @@ pub struct AlnResult {
     pub align_score: i32,
     pub matches: usize,
     pub block_len: usize,
+    /// The DP's alignment where -x hifi rewrote long gaps in the written one (cigar_str and the
+    /// stats): its CIGAR (None if not rewritten), matches, block length and divergence, for
+    /// ranking, MAPQ and filtering, so placement is that of the dna preset.
+    pub dp_cigar_str: Option<String>,
+    pub dp_matches: usize,
+    pub dp_block_len: usize,
+    pub dp_divergence: f64,
     pub cigar_str: String,
     pub cs_str: String,
     pub ds_str: String,
@@ -492,6 +499,9 @@ fn align_single_mapping(
     let (fuzzy_mlen, fuzzy_blen) = if out.do_cigar { (0, 0) } else { estimate_match_block_lengths(&mapping.anchors) };
     let mut matches = fuzzy_mlen;
     let mut block_len = fuzzy_blen;
+    // The DP's alignment, before -x hifi rewrites long gaps (see AlnResult::dp_cigar_str)
+    let (mut dp_matches, mut dp_block_len, mut dp_divergence) = (matches, block_len, 0.0);
+    let mut dp_cigar_str: Option<String> = None;
     let mut cigar_str = String::new();
     let mut cs_str = String::new();
     let mut ds_str = String::new();
@@ -880,7 +890,23 @@ fn align_single_mapping(
         rs = new_rs;
         re = new_re;
 
-        let stats = CigarStats::from_cigar(&ops, aln_qseq, aln_tseq);
+        let dp_stats = CigarStats::from_cigar(&ops, aln_qseq, aln_tseq);
+        (dp_matches, dp_block_len, dp_divergence) = (dp_stats.matches, dp_stats.block_len, dp_stats.divergence);
+        // -x hifi: fragmented long gaps are rewritten in the alignment as written only. Ranking,
+        // MAPQ and filtering use the DP's alignment (dp_max and recalc_info above, the dp_*
+        // fields), so every read is placed as with the dna preset.
+        let realigned = opt.alignment.gap_cluster_realign.as_ref().and_then(|sc| {
+            crate::align::extend::realign_gap_clusters_ops(&ops, query_seq_for_aln, target_region, new_qs, rgn_rs,
+                sc, opt.scoring.transition, opt.scoring.ambig_penalty)
+        });
+        let (ops, stats) = match realigned {
+            Some(new_ops) => {
+                dp_cigar_str = Some(fmt_cigar(&ops, out.eqx));
+                let stats = CigarStats::from_cigar(&new_ops, aln_qseq, aln_tseq);
+                (new_ops, stats)
+            }
+            None => (ops, dp_stats),
+        };
         matches = stats.matches;
         nm = stats.edit_distance;
         block_len = stats.block_len;
@@ -911,6 +937,10 @@ fn align_single_mapping(
         align_score,
         matches,
         block_len,
+        dp_cigar_str,
+        dp_matches,
+        dp_block_len,
+        dp_divergence,
         cigar_str,
         cs_str,
         ds_str,
@@ -1240,6 +1270,10 @@ fn try_align_inversion(
         align_score,
         matches,
         block_len,
+        dp_cigar_str: None,
+        dp_matches: matches,
+        dp_block_len: block_len,
+        dp_divergence: de,
         cigar_str,
         cs_str,
         ds_str,
@@ -1340,7 +1374,7 @@ fn compute_mapping_qualities(
             let score = r.chain_score as f32;
             let dp_max = r.dp_score as f32;
             let dp_max2 = r.dp_score_secondary as f32;
-            let identity = if r.block_len > 0 { r.matches as f32 / r.block_len as f32 } else { 1.0 };
+            let identity = if r.dp_block_len > 0 { r.dp_matches as f32 / r.dp_block_len as f32 } else { 1.0 };
             let pen_s1 = (if r.chain_score > 100 { 1.0f32 } else { 0.01 * score }) * uniq_ratio;
             let pen_cm = if r.anchor_count > 10 { 1.0f32 } else { 0.1 * r.anchor_count as f32 };
             let pen_cm = pen_s1.min(pen_cm);
@@ -1423,7 +1457,7 @@ fn filter_alignment_results(
             if !r.inv && r.effective_cnt < min_cnt {
                 keep[i] = false;
             }
-            if (r.matches as i32) < min_chain_score {
+            if (r.dp_matches as i32) < min_chain_score {
                 keep[i] = false;
             }
             if r.dp_score < min_dp_max {
@@ -1451,7 +1485,7 @@ fn filter_alignment_results(
         // Filter results only (retain path)
         results.retain(|r| {
             let flt = (!r.inv && r.effective_cnt < min_cnt)
-                || (r.matches as i32) < min_chain_score
+                || (r.dp_matches as i32) < min_chain_score
                 || r.dp_score < min_dp_max
                 || ((r.query_start as f32) > clip_thresh
                     && ((qlen.saturating_sub(r.query_end)) as f32) > clip_thresh);
@@ -1480,7 +1514,7 @@ fn drop_probe_tail_junk(results: &mut Vec<AlnResult>) {
         return;
     }
     results.retain(|r| {
-        if r.divergence <= MAX_DIV {
+        if r.dp_divergence <= MAX_DIV {
             return true;
         }
         let len = r.query_end.saturating_sub(r.query_start);
@@ -1915,7 +1949,7 @@ pub fn refilter_merged_results(
     // 1. update_dp_max
     if do_cigar && qlen >= 500 {
         let recalc_infos: Vec<DpRecalcInfo> = results.iter()
-            .map(|r| DpRecalcInfo::from_cigar_str(&r.cigar_str))
+            .map(|r| DpRecalcInfo::from_cigar_str(r.dp_cigar_str.as_deref().unwrap_or(&r.cigar_str)))
             .collect();
         let mut dp_max_vals: Vec<i32> = results.iter().map(|r| r.dp_score).collect();
         let qs_vals: Vec<usize> = results.iter().map(|r| r.query_start).collect();
@@ -2657,6 +2691,10 @@ mod tests {
         AlnResult {
             ref_id: 0, is_reverse, chain_score: 0, initial_chain_score: 0, anchor_count: 0, s2_score: None, hash: 0,
             align_score: 0, matches: 0, block_len: 0, cigar_str: cigar.to_string(), cs_str: String::new(),
+            dp_cigar_str: None,
+            dp_matches: 0,
+            dp_block_len: 0,
+            dp_divergence: 0.0,
             ds_str: String::new(), md_str: String::new(), query_start: 0, query_end: 0, claim_qs: 0, claim_qe: 0,
             ref_start, ref_end: 0, edit_distance: 0, num_ambiguous: 0, divergence: 0.0, is_secondary: false, split: 0,
             split_depth: 0, dp_score: 0, dp_score_original: 0, effective_cnt: 0, pre_num_suboptimal: 0,

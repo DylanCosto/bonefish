@@ -22,6 +22,7 @@ Each folder holds the README for one validation round, its evidence (logs, table
 
 | report | what |
 |---|---|
+| [2026-10-28-hifi](2026-10-28-hifi/README.md) | PacBio HiFi genomic DNA (`-x hifi`): whole-genome HG002, chr20 HG002-HG004, against minimap2 `map-hifi` |
 | [2026-10-21-rna-cdna](2026-10-21-rna-cdna/README.md) | Direct RNA and cDNA (spliced presets) against minimap2, GENCODE and simulated reads |
 | [2026-10-21-transcriptome](2026-10-21-transcriptome/README.md) | Transcriptome mapping for quantification (`-x tx`, oarfish) |
 | [2026-10-20-metagenomics-duplex-rdna](2026-10-20-metagenomics-duplex-rdna/README.md) | Metagenome (Zymo fecal), HG002 duplex reads, rDNA |

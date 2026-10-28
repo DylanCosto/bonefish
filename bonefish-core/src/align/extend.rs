@@ -1387,6 +1387,203 @@ fn gap_subanchored(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i
     Some(out)
 }
 
+/// Realign stretches that hold two or more long gaps (>= 50 bp) with no well-aligned run of 50
+/// bases between them, under the scoring `sc` = [A, B, O1, E1, O2, E2] (for HiFi reads). With
+/// `lr:hq`'s match score of 2 against a long-gap extension of 1, the DP splits a long deletion
+/// around a few short chance matches (a 2.5 kb deletion as 1333D 13M 1D 5M 1226D, called as two
+/// deletions); with a match score of 1 (minimap2 `map-hifi`) it stays whole. A stretch that stays
+/// split with the read aligned poorly between the gaps (an insertion replacing a deletion, its
+/// sequence spread over the deleted one) becomes one deletion and one insertion: minimap2 z-drops
+/// there and splits the read. `cigar` starts at `qseq[qs]` / `tseq[rs]`. Returns the number of
+/// stretches realigned.
+#[allow(clippy::too_many_arguments)]
+fn realign_gap_clusters(cigar: &mut Vec<u32>, qseq: &[u8], tseq: &[u8], qs: usize, rs: usize,
+                        sc: &[i32; 6], transition: i32, sc_ambi: i32) -> usize {
+    const MIN_GAP: u32 = 50;
+    const SOLID: usize = 50;
+    const MAX_CELLS: usize = 50_000_000;
+    const FLANK: u32 = 500;
+    let min_id = crate::align::env_flags::EXP_REALIGN_MIN_ID.unwrap_or(0.9);
+    let long =|c: u32| (c & 0xf) != 0 && (c >> 4) >= MIN_GAP;
+    if cigar.iter().filter(|&&c| long(c)).count() < 2 { return 0; }
+    // Query/target offset at the start of each op.
+    let mut offs = Vec::with_capacity(cigar.len() + 1);
+    let (mut qo, mut to) = (0usize, 0usize);
+    for &c in cigar.iter() {
+        offs.push((qo, to));
+        let l = (c >> 4) as usize;
+        match c & 0xf { 0 => { qo += l; to += l; } 1 => qo += l, _ => to += l }
+    }
+    offs.push((qo, to));
+    // Stretches between runs of >= SOLID bases at >= min_id identity that hold two or more long
+    // gaps, as op ranges [first, last]: the short matches and small gaps around the long gaps are
+    // realigned too (an insertion that replaces a deletion can be aligned, poorly, ahead of the
+    // first long gap). Stretches at either end of the alignment are left alone, so its extent,
+    // which placement decisions rest on, does not change.
+    let solid = |k: usize, c: u32| {
+        let ((qo, to), n) = (offs[k], (c >> 4) as usize);
+        (c & 0xf) == 0 && n >= SOLID
+            && (0..n).filter(|&j| qseq[qs + qo + j] == tseq[rs + to + j]).count() as f64 >= min_id * n as f64
+    };
+    let mut clusters: Vec<(usize, usize)> = Vec::new();
+    let (mut start, mut n_long) = (0usize, 0usize);
+    for (k, &c) in cigar.iter().enumerate() {
+        if long(c) {
+            n_long += 1;
+        } else if solid(k, c) {
+            if n_long >= 2 && start > 0 { clusters.push((start, k - 1)); }
+            (start, n_long) = (k + 1, 0);
+        }
+    }
+    if clusters.is_empty() { return 0; }
+    let hmat = build_scoring_matrix_full(sc[0], sc[1], transition, sc_ambi);
+    let flag = if transition != 0 && transition != sc[1] { GENERIC_SCORING } else { 0 };
+    let mut out: Vec<u32> = Vec::with_capacity(cigar.len());
+    let mut n_realigned = 0usize;
+    // ops before `next` are emitted, and the first `skip` bases of `cigar[next]` too (taken by the
+    // previous window)
+    let (mut next, mut skip) = (0usize, 0u32);
+    let len = |k: usize| cigar[k] >> 4;
+    for (f, l) in clusters {
+        // Up to FLANK bases of the solid runs on either side join the window: such a run can end in
+        // a few poorly aligned bases, and the realignment keeps only the well-aligned part.
+        let el = FLANK.min(len(f - 1) - if next == f - 1 { skip } else { 0 });
+        let er = FLANK.min(len(l + 1));
+        let (qa, ta) = (offs[f].0 - el as usize, offs[f].1 - el as usize);
+        let (qb, tb) = (offs[l + 1].0 + er as usize, offs[l + 1].1 + er as usize);
+        let (ql, tl) = (qb - qa, tb - ta);
+        let bw = (tl as i32 - ql as i32).abs() + 100;
+        // DP cells: one anti-diagonal per base of either sequence, each no wider than the band or
+        // the shorter sequence
+        if (ql + tl) * ql.min(tl).min(bw as usize) > MAX_CELLS { continue; }
+        let mut ez = DpResult::default();
+        dp::extend_dual_affine_dispatch(&qseq[qs + qa..qs + qb], &tseq[rs + ta..rs + tb], 5, &hmat,
+            sc[2] as i8, sc[3] as i8, sc[4] as i8, sc[5] as i8, bw, -1, -1, flag, &mut ez);
+        let (mut nq, mut nt) = (0usize, 0usize);
+        for &c in &ez.cigar {
+            let n = (c >> 4) as usize;
+            match c & 0xf { 0 => { nq += n; nt += n; } 1 => nq += n, _ => nt += n }
+        }
+        if (nq, nt) != (ql, tl) { continue; }
+        let new = if ez.cigar.iter().filter(|&&c| long(c)).count() >= 2 {
+            replace_poor_middle(&ez.cigar, &qseq[qs + qa..qs + qb], &tseq[rs + ta..rs + tb], sc, MIN_GAP, min_id)
+        } else {
+            ez.cigar
+        };
+        n_realigned += 1;
+        for (k, &c) in cigar.iter().enumerate().take(f).skip(next) {
+            let n = (c >> 4) - if k == next { skip } else { 0 } - if k == f - 1 { el } else { 0 };
+            if n > 0 { append_cigar(&mut out, &[n << 4 | (c & 0xf)]); }
+        }
+        append_cigar(&mut out, &new);
+        (next, skip) = (l + 1, er);
+    }
+    for (k, &c) in cigar.iter().enumerate().skip(next) {
+        let n = (c >> 4) - if k == next { skip } else { 0 };
+        if n > 0 { append_cigar(&mut out, &[n << 4 | (c & 0xf)]); }
+    }
+    *cigar = out;
+    n_realigned
+}
+
+/// [`realign_gap_clusters`] on an alignment's final CIGAR (`=`/`X`/`M`/`I`/`D` ops starting at
+/// `qseq[qs]` / `tseq[rs]`), followed by [`finalize_cigar`]'s fix-up and `=`/`X` conversion.
+/// `None` if nothing was realigned.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn realign_gap_clusters_ops(ops: &[CigarOp], qseq: &[u8], tseq: &[u8], qs: usize, rs: usize,
+                                       sc: &[i32; 6], transition: i32, sc_ambi: i32) -> Option<Vec<CigarOp>> {
+    let mut raw: Vec<u32> = Vec::with_capacity(ops.len());
+    for o in ops {
+        let code = match o.op { '=' | 'X' | 'M' => 0, 'I' => 1, 'D' => 2, _ => return None };
+        append_cigar(&mut raw, &[o.len << 4 | code]);
+    }
+    if realign_gap_clusters(&mut raw, qseq, tseq, qs, rs, sc, transition, sc_ambi) == 0 { return None; }
+    let (out, nqs, nrs) = finalize_cigar(raw, qseq, tseq, qs as i32, rs as i32);
+    (nqs == qs as i32 && nrs == rs as i32).then_some(out)
+}
+
+/// Whether `t` (nt4) is mostly tandem repeat: at least a fifth of its 15-mers occur more than once
+/// in it. Unique sequence, even with a segmental duplicate or two, stays far below.
+fn tandem_repeat(t: &[u8]) -> bool {
+    const K: usize = 15;
+    let mask: u32 = (1u32 << (2 * K)) - 1;
+    let mut kmers = Vec::with_capacity(t.len());
+    let (mut h, mut l) = (0u32, 0usize);
+    for &c in t {
+        if c > 3 { l = 0; continue; }
+        h = ((h << 2) | c as u32) & mask;
+        l += 1;
+        if l >= K { kmers.push(h); }
+    }
+    if kmers.is_empty() { return false; }
+    kmers.sort_unstable();
+    let mut repeated = 0usize;
+    for w in kmers.chunk_by(|a, b| a == b) {
+        if w.len() > 1 { repeated += w.len(); }
+    }
+    5 * repeated >= kmers.len()
+}
+
+/// `path`, a global alignment of `q` to `t`, still splits at two or more long gaps (>= `min_gap`).
+/// Keep its well-aligned ends (the prefix before the first long gap and the suffix after the last
+/// of highest score under `sc`, as an extension stops at its best score); if the read is aligned
+/// between them at under `min_id` identity, small gaps counted as errors, that is no alignment of
+/// homologous sequence (HiFi reads are > 99% accurate) but a replacement: the middle is written as
+/// one deletion and one insertion, the insertion on the side where most of its bases were aligned.
+/// Otherwise, or if `t` is a tandem repeat, `path` is returned unchanged.
+fn replace_poor_middle(path: &[u32], q: &[u8], t: &[u8], sc: &[i32; 6], min_gap: u32, min_id: f64) -> Vec<u32> {
+    // One entry per column: (op 0 M / 1 I / 2 D, match, part of a long gap).
+    let mut cols: Vec<(u32, bool, bool)> = Vec::new();
+    let (mut qi, mut ti) = (0usize, 0usize);
+    for &c in path {
+        let (n, op) = (c >> 4, c & 0xf);
+        let lg = op != 0 && n >= min_gap;
+        for _ in 0..n {
+            match op {
+                0 => { cols.push((0, q[qi] == t[ti], false)); qi += 1; ti += 1; }
+                1 => { cols.push((1, false, lg)); qi += 1; }
+                _ => { cols.push((2, false, lg)); ti += 1; }
+            }
+        }
+    }
+    let (Some(first), Some(last)) = (cols.iter().position(|c| c.2), cols.iter().rposition(|c| c.2)) else {
+        return path.to_vec();
+    };
+    let col_score = |k: usize, nb: Option<u32>| match cols[k] {
+        (0, true, _) => sc[0],
+        (0, false, _) => -sc[1],
+        (op, _, _) => -sc[3] - if nb == Some(op) { 0 } else { sc[2] },
+    };
+    let (mut s, mut best, mut lo) = (0, 0, 0);
+    for k in 0..first {
+        s += col_score(k, k.checked_sub(1).map(|j| cols[j].0));
+        if s > best { (best, lo) = (s, k + 1); }
+    }
+    let (mut s, mut best, mut hi) = (0, 0, cols.len());
+    for k in (last + 1..cols.len()).rev() {
+        s += col_score(k, cols.get(k + 1).map(|c| c.0));
+        if s > best { (best, hi) = (s, k); }
+    }
+    let (mut aligned, mut same, mut nm, mut tsum, mut ql, mut tl) = (0usize, 0usize, 0usize, 0usize, 0u32, 0u32);
+    for &(op, m, lg) in &cols[lo..hi] {
+        match op {
+            0 => { aligned += 1; same += m as usize; nm += 1; tsum += tl as usize; ql += 1; tl += 1; }
+            1 => { aligned += !lg as usize; ql += 1; }
+            _ => { aligned += !lg as usize; tl += 1; }
+        }
+    }
+    // In a tandem repeat (a satellite array, a VNTR) the read is a diverged copy of the repeat,
+    // not a replacement: copies of an alpha-satellite unit are 70-80% identical.
+    if same as f64 >= min_id * aligned as f64 || tandem_repeat(t) { return path.to_vec(); }
+    let mut out: Vec<u32> = Vec::new();
+    let mut push = |op: u32, n: u32| if n > 0 { append_cigar(&mut out, &[n << 4 | op]); };
+    for &(op, _, _) in &cols[..lo] { push(op, 1); }
+    // mean target offset of the aligned columns, left or right of the middle
+    if nm > 0 && 2 * tsum < nm * tl as usize { push(1, ql); push(2, tl); } else { push(2, tl); push(1, ql); }
+    for &(op, _, _) in &cols[hi..] { push(op, 1); }
+    out
+}
+
 #[allow(clippy::too_many_arguments)]
 fn gap_dual(qs: &[u8], ts: &[u8], mat: &[i8], q: i8, e: i8, q2: i8, e2: i8, bw1: i32, narrow: Option<i32>,
             zdrop: i32, end_bonus: i32, flag: i32, ez: &mut DpResult) {
@@ -2417,5 +2614,70 @@ mod subanchor_tests {
         let r = gap_subanchored(&q, &t, &mat, 4, 2, 24, 1, 500, 32, 150, 400, -1, 0).expect("flanks anchor");
         assert_eq!(r.cigar, vec![(t.len() as u32) << 4], "one run of matches and mismatches");
         assert_eq!(r.score, 2 * (t.len() as i32 - 2) - 2 * 4);
+    }
+
+    const HIFI: [i32; 6] = [1, 4, 6, 2, 26, 1];
+    fn ops(v: &[(u32, u32)]) -> Vec<u32> { v.iter().map(|&(l, o)| l << 4 | o).collect() }
+
+    #[test]
+    fn test_gap_cluster_realign_joins_split_deletion() {
+        // Read = A + B, reference = A + X + B (a 2.5 kb deletion of X), aligned as lr:hq scoring
+        // can leave it: the deletion split around 18 read bases placed inside X.
+        let mut seed = 0x2545f4914f6cdd1du64;
+        let (a, x, b) = (random_seq(1000, &mut seed), random_seq(2500, &mut seed), random_seq(1000, &mut seed));
+        let t: Vec<u8> = [&a[..], &x[..], &b[..]].concat();
+        let q: Vec<u8> = [&a[..], &b[..]].concat();
+        let mut cigar = ops(&[(1000, 0), (1200, 2), (18, 0), (1300, 2), (982, 0)]);
+        assert_eq!(realign_gap_clusters(&mut cigar, &q, &t, 0, 0, &HIFI, 0, 1), 1);
+        assert_eq!(cigar, ops(&[(1000, 0), (2500, 2), (1000, 0)]), "one deletion");
+    }
+
+    #[test]
+    fn test_gap_cluster_realign_replacement() {
+        // Reference A + X + B, read A + Y + B: 300 unrelated bases replace 2 kb, aligned in pieces
+        // between deletions. It becomes one deletion and one insertion between the flanks.
+        let mut seed = 0xda3e39cb94b95bdbu64;
+        let (a, x, y, b) = (random_seq(1000, &mut seed), random_seq(2000, &mut seed),
+                            random_seq(300, &mut seed), random_seq(1000, &mut seed));
+        let t: Vec<u8> = [&a[..], &x[..], &b[..]].concat();
+        let q: Vec<u8> = [&a[..], &y[..], &b[..]].concat();
+        for cig in [vec![(500, 0), (650, 0), (700, 2), (150, 0), (1000, 2), (1000, 0)],
+                    vec![(1000, 0), (1000, 2), (150, 0), (700, 2), (650, 0), (500, 0)]] {
+            let mut cigar = ops(&cig);
+            realign_gap_clusters(&mut cigar, &q, &t, 0, 0, &HIFI, 0, 1);
+            // the kept ends may take a chance match or two from the replaced middle
+            let len = |op| cigar.iter().find(|&&c| c & 0xf == op).map_or(0, |c| c >> 4);
+            assert!(cigar.len() == 4 && cigar[0] & 0xf == 0 && cigar[3] & 0xf == 0, "{cigar:?}");
+            assert!((295..=300).contains(&len(1)) && (1995..=2000).contains(&len(2)), "{cigar:?}");
+        }
+        // No rewrite in a tandem repeat: the same stretch inside a 171 bp-unit array, its copies 80%
+        // identical, stays as aligned.
+        let unit = random_seq(171, &mut seed);
+        let array: Vec<u8> = (0..12).flat_map(|i| unit.iter().enumerate()
+            .map(move |(j, &c)| if (j + 7 * i) % 5 == 0 { (c + 1) % 4 } else { c })).collect();
+        assert!(tandem_repeat(&array) && !tandem_repeat(&x));
+        let path = ops(&[(100, 2), (100, 0), (800, 2)]);
+        assert_eq!(replace_poor_middle(&path, &y, &array[..1000], &HIFI, 50, 0.9), path);
+        // The insertion goes on the side where the read was aligned.
+        let (x, y) = (random_seq(1000, &mut seed), random_seq(100, &mut seed));
+        let left = replace_poor_middle(&ops(&[(100, 2), (100, 0), (800, 2)]), &y, &x, &HIFI, 50, 0.9);
+        assert_eq!(left, ops(&[(100, 1), (1000, 2)]));
+        let right = replace_poor_middle(&ops(&[(800, 2), (100, 0), (100, 2)]), &y, &x, &HIFI, 50, 0.9);
+        assert_eq!(right, ops(&[(1000, 2), (100, 1)]));
+    }
+
+    #[test]
+    fn test_gap_cluster_realign_keeps_separate_gaps() {
+        // Two deletions with 60 matched bases between them are two events; one long gap alone is
+        // left as aligned.
+        let mut seed = 0x853c49e6748fea9bu64;
+        let t = random_seq(3000, &mut seed);
+        let q: Vec<u8> = [&t[..1000], &t[1100..1160], &t[1260..]].concat();
+        for c in [ops(&[(1000, 0), (100, 2), (60, 0), (100, 2), (1740, 0)]), ops(&[(1000, 0), (2000, 2)])] {
+            let mut cigar = c.clone();
+            let n = if c.len() == 2 { 1000 } else { q.len() };
+            assert_eq!(realign_gap_clusters(&mut cigar, &q[..n], &t, 0, 0, &HIFI, 0, 1), 0);
+            assert_eq!(cigar, c);
+        }
     }
 }

@@ -6,6 +6,7 @@ dna_paf_cs	bonefish	-c --cs	0dc5b802637a8b0f
 dna_md_eqx	bonefish	-a --MD --eqx	0d347ab709e3136b
 alias_sam	bonefish	-ax lr:hq-fast	81ec695369877c8c
 alias_map_ont	bonefish	-ax map-ont	81ec695369877c8c
+alias_ont	bonefish	-x ONT -a	81ec695369877c8c
 rna_sam	bonefish	-x rna -a	3ae4701b00bc65f8
 rna_paf_cs	bonefish	-x rna -c --cs	f779a1c786e11fa3
 rna_md_eqx	bonefish	-x rna -a --MD --eqx	f603af3054848bb4
@@ -15,3 +16,7 @@ cdna_junc_bed	bonefish	-x cdna -a --junc-bed {junc}	6292d532a2fcabc3
 cdna_splice_hq	bonefish	-x splice:hq -a	1988a08a9ab7353a
 cdna_alias_splice	bonefish	-x splice -a	60d6d8c7c31cd299
 tx_sam	bonefish	-x tx -a	d53bfcfb58fa2138
+hifi_dna_sam	bonefish	-a	0fd60164e25f0a22
+hifi_sam	bonefish	-x hifi -a	a588f831a69177e5
+hifi_paf_cs	bonefish	-x hifi -c --cs	8da6d9c5f2b3debe
+hifi_alias_map_hifi	bonefish	-ax map-hifi	a588f831a69177e5

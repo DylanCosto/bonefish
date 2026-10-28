@@ -1,13 +1,15 @@
 # bonefish
 
-A fast aligner for Oxford Nanopore reads, written in Rust. bonefish maps genomic DNA, direct
-RNA and cDNA reads to a reference genome. It writes SAM, PAF or a sorted, indexed BAM in one step.
+A fast aligner for Oxford Nanopore and PacBio HiFi reads, written in Rust. bonefish maps ONT
+genomic DNA, direct RNA and cDNA, and PacBio HiFi genomic DNA, to a reference genome. It writes
+SAM, PAF or a sorted, indexed BAM in one step.
 
 - **Accurate.** On whole human genomes (GIAB HG002 and HG005), SNP, indel and structural-variant
   calls match minimap2's. Methylation calls agree at r = 0.999.
 - **Fast.**
   - Aligner alone: 2.6-8x faster than minimap2 on DNA, 2.6x on direct RNA, 5.4x on cDNA and
-    2.3-2.8x for transcriptome quantification.
+    2.3-2.8x for transcriptome quantification. On PacBio HiFi it needs 3.9x less CPU time than
+    minimap2 `map-hifi`.
   - Reads to a sorted BAM: about 3x faster than `minimap2 | samtools sort`.
 - **Drop-in.** It reads dorado's BAM output, keeping methylation and other tags, and accepts
   minimap2's options and preset names.
@@ -51,7 +53,8 @@ in a few minutes.
 
 | preset | for |
 |---|---|
-| `dna` (default) | genomic DNA: R10.4.1 or R9.4.1, sup or hac, ultra-long (minimap2 `lr:hq`) |
+| `dna` (default; alias `ont`) | genomic DNA: R10.4.1 or R9.4.1, sup or hac, ultra-long (minimap2 `lr:hq`) |
+| `hifi` | PacBio HiFi genomic DNA (minimap2 `map-hifi`) |
 | `rna` | direct RNA (minimap2 `splice -uf -k14`) |
 | `cdna` | cDNA (minimap2 `splice`) |
 | `tx` | RNA or cDNA to a transcriptome, for quantification with oarfish or NanoCount (minimap2 `map-ont -N 100`) |
@@ -121,7 +124,8 @@ The rest comes from engineering:
 
 ## Limitations
 
-- ONT reads only: there are no PacBio, short-read or assembly presets.
+- PacBio support covers HiFi genomic DNA (`-x hifi`). Iso-Seq/Kinnex RNA has not been validated,
+  and there are no short-read or assembly presets.
 - The RNA presets are new (v0.2.0). They are validated against minimap2, GENCODE and simulated
   reads, but not yet with downstream isoform or expression tools.
 - Output is SAM, PAF or sorted BAM; there is no CRAM output.
@@ -130,7 +134,7 @@ The rest comes from engineering:
 ## Library
 
 `bonefish-core` (imported as `bonefish`) exposes the aligner as a Rust library: `bonefish::Aligner`
-with `Preset::Dna`, `Preset::Rna` and `Preset::Cdna`. See `bonefish-core/examples/`.
+with `Preset::Dna`, `Preset::Hifi`, `Preset::Rna` and `Preset::Cdna`. See `bonefish-core/examples/`.
 
 ## Contributing
 

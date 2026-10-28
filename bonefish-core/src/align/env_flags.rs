@@ -67,3 +67,8 @@ pub static EXP_RMQ_CHECK: LazyLock<bool> =
 /// BONEFISH_EXP_EXT_ADAPT=W: adaptive extension band of W cells (see --ext-adaptive).
 pub static EXP_EXT_ADAPT: LazyLock<Option<i32>> =
     LazyLock::new(|| std::env::var("BONEFISH_EXP_EXT_ADAPT").ok().and_then(|v| v.parse().ok()));
+/// BONEFISH_EXP_REALIGN_MIN_ID=f: identity below which `extend::realign_gap_clusters` writes a
+/// split stretch as one deletion and one insertion, and above which a run of matches bounds a
+/// stretch (default 0.9; 0 never rewrites).
+pub static EXP_REALIGN_MIN_ID: LazyLock<Option<f64>> =
+    LazyLock::new(|| std::env::var("BONEFISH_EXP_REALIGN_MIN_ID").ok().and_then(|v| v.parse().ok()));

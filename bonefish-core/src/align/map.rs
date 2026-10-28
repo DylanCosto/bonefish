@@ -173,6 +173,9 @@ pub struct AlignmentParams {
     pub gap_subanchor: bool,
     /// Sub-anchoring skips tandem repeats with a period up to this many bases (0 = none).
     pub gap_subanchor_tr: u32,
+    /// Realign stretches of fragmented long gaps under this scoring, [A, B, O1, E1, O2, E2]
+    /// (see `extend::realign_gap_clusters`).
+    pub gap_cluster_realign: Option<[i32; 6]>,
     pub anchor_ext_len: i32,
     pub anchor_ext_shift: i32,
     pub max_clip_ratio: f32,
@@ -284,6 +287,7 @@ impl Default for MapOptions {
                 min_dp_len: 200,
                 gap_subanchor: false,
                 gap_subanchor_tr: 0,
+                gap_cluster_realign: None,
                 anchor_ext_len: 20,
                 anchor_ext_shift: 6,
                 max_clip_ratio: 1.0,
