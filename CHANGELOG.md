@@ -4,7 +4,7 @@ Each release's binaries and full notes are on the
 [releases page](https://github.com/DylanCosto/bonefish/releases). "Output" means the alignment
 records. Each entry quotes the MD5 of the genome-wide HG001 sample's SAM output, `@PG` lines removed.
 
-## Unreleased
+## v0.4.0 (2026-10-28)
 
 **New: `-x hifi`** (alias `map-hifi`), for PacBio HiFi genomic DNA. It is the `dna` preset, plus
 one extra step: stretches of fragmented long gaps are realigned under minimap2 `map-hifi` scoring,
