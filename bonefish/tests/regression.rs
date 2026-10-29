@@ -114,6 +114,86 @@ fn raw_index_gives_same_output() {
     let direct = run(&["-a", "-t", "2", reference, reads]);
     let mapped = run(&["-a", "-t", "2", raw_s, reads]);
     assert!(direct == mapped, "raw index output differs from FASTA-built index");
+    // A loaded index supplies k for chaining as well as seeding. The preset's
+    // default k (19) must not change mappings from this k=15 index.
+    run(&["-k15", "-w10", "-d", raw_s, "--idx-raw", reference]);
+    let direct = run(&["-a", "-t2", "-k15", "-w10", reference, reads]);
+    let mapped = run(&["-a", "-t2", raw_s, reads]);
+    assert_eq!(direct, mapped, "loaded index used the preset's chaining penalty");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn split_index_preserves_inputs_and_reference_headers() {
+    let dir = tmp_dir("split");
+    let reference = dir.join("ref.fa");
+    let gz = dir.join("ref.fa.gz");
+    let (q1, q2) = (dir.join("q1.fa"), dir.join("q2.fa"));
+    let mut state = 372u64;
+    let seq: String = (0..12000).map(|_| {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        b"ACGT"[(state >> 32) as usize & 3] as char
+    }).collect();
+    let text = format!(">a\n{}\n>b\n{}\n", &seq[..6000], &seq[6000..]);
+    std::fs::write(&reference, &text).unwrap();
+    let mut encoder = flate2::write::GzEncoder::new(std::fs::File::create(&gz).unwrap(), flate2::Compression::fast());
+    encoder.write_all(text.as_bytes()).unwrap();
+    encoder.finish().unwrap();
+    std::fs::write(&q1, format!(">read_a\n{}\n", &seq[1000..3000])).unwrap();
+    std::fs::write(&q2, format!(">read_b\n{}\n", &seq[7000..9000])).unwrap();
+    let (reference, q1, q2) = (reference.to_str().unwrap(), q1.to_str().unwrap(), q2.to_str().unwrap());
+    let expected = run(&["-a", "-t2", reference, q1, q2]);
+    let prefix = dir.join("split");
+    let prefix = prefix.to_str().unwrap();
+    // The single-part FASTA fast path must create the same split files as other paths.
+    assert_eq!(run(&["-a", "-t2", "--split-prefix", prefix, reference, q1, q2]), expected);
+    for target in [reference, gz.to_str().unwrap()] {
+        assert_eq!(run(&["-a", "-t2", "-I5k", "--split-prefix", prefix, target, q1, q2]), expected);
+        assert_eq!(run(&["-a", "-t2", "-I5k", target, q1, q2]), expected);
+    }
+    for (file, raw) in [("ref.idx", false), ("ref.raw", true)] {
+        let index = dir.join(file);
+        let mut args = vec!["-t2", "-I5k", "-d", index.to_str().unwrap()];
+        if raw { args.push("--idx-raw"); }
+        args.push(reference);
+        run(&args);
+        assert_eq!(run(&["-a", "-t2", index.to_str().unwrap(), q1, q2]), expected);
+    }
+    let bam = dir.join("out.bam");
+    run(&["-t2", "-I5k", "-o", bam.to_str().unwrap(), reference, q1, q2]);
+    let mut bytes = Vec::new();
+    flate2::read::MultiGzDecoder::new(std::fs::File::open(bam).unwrap()).read_to_end(&mut bytes).unwrap();
+    let header_len = u32::from_le_bytes(bytes[4..8].try_into().unwrap()) as usize;
+    assert_eq!(u32::from_le_bytes(bytes[8 + header_len..12 + header_len].try_into().unwrap()), 2);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn output_errors_fail_without_hanging() {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    let dir = tmp_dir("write-error");
+    let reads = dir.join("reads.fa");
+    for count in [1, 100] {
+        std::fs::write(&reads, (0..count).map(|i| format!(">r{i}\n{}\n", "A".repeat(2000))).collect::<String>()).unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_bonefish"))
+            .args(["-a", "-t2", "-K1k", "-o", "/dev/full"])
+            .arg(data("ref.fa.gz")).arg(&reads)
+            .stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+        let start = Instant::now();
+        while child.try_wait().unwrap().is_none() {
+            if start.elapsed() > Duration::from_secs(5) {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("output failure left the reader blocked ({count} reads)");
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let out = child.wait_with_output().unwrap();
+        assert!(!out.status.success(), "output failure was reported as success");
+        assert!(String::from_utf8_lossy(&out.stderr).contains("No space left on device"));
+    }
     std::fs::remove_dir_all(&dir).ok();
 }
 

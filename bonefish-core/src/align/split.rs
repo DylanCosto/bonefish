@@ -154,8 +154,9 @@ pub struct MergeConfig<'a> {
     pub n_parts: usize,
     pub k: usize,
     pub w: usize,
-    pub query_path: &'a str,
+    pub query_paths: &'a [String],
     pub sam_rg: Option<&'a str>,
+    pub input_rg: &'a [String],
     pub copy_comment: bool,
 }
 
@@ -171,7 +172,6 @@ pub fn merge_split_results(
     let n_parts = config.n_parts;
     let k = config.k;
     let w = config.w;
-    let query_path = config.query_path;
     let sam_rg = config.sam_rg;
     let copy_comment = config.copy_comment;
     // 1. Read all temp file headers, build global seqs + rid_shifts
@@ -196,29 +196,32 @@ pub fn merge_split_results(
             let expanded = rg_line.replace("\\t", "\t");
             writeln!(handle, "{}", expanded)?;
         }
+        for line in config.input_rg { writeln!(handle, "{}", line)?; }
     }
 
     // 4. Re-open query files for output
-    let query_reader = crate::fasta::open(query_path)
-        .map_err(|e| anyhow::anyhow!("Error re-opening query for merge: {}", e))?;
-
     let mut total_stats = AlignmentStats::default();
-    let mut record_iter = query_reader.records();
     let mut output_buffer = String::new();
 
-    {
+    for query_path in config.query_paths {
+        let query_reader = crate::fasta::open(query_path)
+            .map_err(|e| anyhow::anyhow!("Error re-opening query for merge: {}", e))?;
+        let mut record_iter = query_reader.records();
         // Single-end merge
         loop {
             let rec = match record_iter.next() {
                 Some(Ok(r)) => r,
-                Some(Err(e)) => { eprintln!("Warning: Error reading record: {}", e); continue; },
+                Some(Err(e)) => anyhow::bail!("{}: {}", query_path, e),
                 None => break,
             };
 
             let qname = rec.name().to_string();
             let qseq = rec.sequence().to_vec();
             let qual = rec.quality().map(|qs| String::from_utf8_lossy(qs).to_string());
-            let comment = if copy_comment { rec.description().map(|s| s.to_string()) } else { None };
+            #[cfg(not(target_arch = "wasm32"))]
+            let comment = if copy_comment { rec.description().and_then(crate::fasta::bam::filter_comment_tags) } else { None };
+            #[cfg(target_arch = "wasm32")]
+            let comment = if copy_comment { rec.description().map(str::to_string) } else { None };
             let qlen = qseq.len();
 
             // Read results from all parts

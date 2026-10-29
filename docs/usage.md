@@ -30,6 +30,11 @@ bonefish -x tx   -d tx.raw   --idx-raw transcripts.fa
 Without `--idx-raw`, `-d` writes a smaller index that takes a few seconds to load. Indexes are
 bonefish's own format. minimap2 `.mmi` files can be read but not written.
 
+SAM/BAM output automatically merges results when a reference has multiple index parts
+(`-I` controls the number of reference bases per part). The merge rereads the queries, so
+use regular query files rather than stdin or pipes. `--split-prefix PATH` chooses where
+the intermediate files are written; otherwise the system temporary directory is used.
+
 ## Input
 
 - **Formats:** FASTQ, FASTA or BAM, plain or gzipped, from files, stdin (`-`) or a pipe. Several
