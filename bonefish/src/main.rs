@@ -851,8 +851,6 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
             anyhow::bail!("Input file '{}' not found.", qf);
         }
     }
-    let query_path = query_files.first().map(|s| s.as_str()).unwrap_or("-");
-
     // Check the reference and the output combination before -o creates (truncates) its file.
     std::fs::File::open(target_path).map_err(|e| anyhow::anyhow!("cannot open reference '{}': {}", target_path, e))?;
     if cli.sort {
@@ -920,7 +918,8 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
         || Index::sniff_is_index_file(target_path);
     let mut n_parts = 0usize;
     let mut sam_header_written = false;
-    let split_prefix = cli.split_prefix.clone();
+    let mut split_output = SplitOutput { prefix: cli.split_prefix.clone(), temp_dir: None };
+    split_output.prepare(false, &query_files)?;
     let mut saved_k = k;
     let mut saved_w = w;
 
@@ -961,6 +960,13 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                 None => break,
             };
             n_parts += 1;
+            if n_parts == 1 {
+                let has_more = match &mapped_parts {
+                    Some(parts) => !parts.is_empty(),
+                    None => !std::io::BufRead::fill_buf(&mut idx_reader)?.is_empty(),
+                };
+                split_output.prepare(cli.output_sam && has_more, &query_files)?;
+            }
             if let Some(dw) = dump_writer.as_mut() {
                 if cli.idx_no_seq {
                     let mut idx_copy = mi.clone();
@@ -983,6 +989,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
             }
             saved_k = mi.kmer_size;
             saved_w = mi.window_size;
+            bonefish::api::finalize_options(&mut opt, mi.kmer_size);
             if n_parts == 1 && (cli.k.is_some_and(|v| v != mi.kmer_size) || cli.w.is_some_and(|v| v != mi.window_size)) {
                 eprintln!("Warning: -k/-w are ignored with a prebuilt index (it has k={}, w={})", mi.kmer_size, mi.window_size);
             }
@@ -990,11 +997,8 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                 read_alt_list(&mut mi, alt_path)?;
             }
 
-            if let Some(ref prefix) = split_prefix {
+            if let Some(ref prefix) = split_output.prefix {
                 // Split mode: write results to temp files
-                if query_path == "-" && n_parts > 1 {
-                    anyhow::bail!("Cannot use stdin for queries with multi-part index. Use a named file or increase -I.");
-                }
                 let mut split_writer = split::split_init(prefix, n_parts - 1, &mi)
                     .map_err(|e| anyhow::anyhow!("Failed to init split temp file: {}", e))?;
                 for qf in &query_files {
@@ -1077,13 +1081,22 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                         }
                     }
 
-                    for qf in &query_files {
-                        let part_stats = map_one_part(
-                            &mi, &mut opt, &run_cfg,
-                            qf, 1, &mut sam_header_written,
-                            &mut handle,
-                        )?;
-                        total_stats = total_stats + part_stats;
+                    if let Some(ref prefix) = split_output.prefix {
+                        let mut split_writer = split::split_init(prefix, 0, &mi)?;
+                        for qf in &query_files {
+                            total_stats = total_stats + map_one_part_split(
+                                &mi, &mut opt, &run_cfg, qf, 1, &mut split_writer,
+                            )?;
+                        }
+                    } else {
+                        for qf in &query_files {
+                            let part_stats = map_one_part(
+                                &mi, &mut opt, &run_cfg,
+                                qf, 1, &mut sam_header_written,
+                                &mut handle,
+                            )?;
+                            total_stats = total_stats + part_stats;
+                        }
                     }
                 } else {
                     // ─── Multi-part from mmap: split all_seqs into batches ───
@@ -1101,6 +1114,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                         n_parts: &mut usize, opt: &mut MapOptions, dump_writer: &mut Option<std::io::BufWriter<std::fs::File>>,
                         sam_header_written: &mut bool, total_stats: &mut AlignmentStats| -> anyhow::Result<()>
                     {
+                        split_output.prepare(cli.output_sam, &query_files)?;
                         let seqs = std::mem::take(batch_seqs);
                         *batch_bases = 0;
                         *n_parts += 1;
@@ -1128,7 +1142,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                             }
                         }
 
-                        if let Some(ref prefix) = split_prefix {
+                        if let Some(ref prefix) = split_output.prefix {
                             let mut split_writer = split::split_init(prefix, *n_parts - 1, &mi)
                                 .map_err(|e| anyhow::anyhow!("Failed to init split temp file: {}", e))?;
                             for qf in &query_files {
@@ -1183,6 +1197,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                 let (batch_seqs, is_eof) = reader.read_batch(batch_size)
                     .map_err(|e| anyhow::anyhow!("cannot read reference '{}': {}", target_path, e))?;
                 if batch_seqs.is_empty() { break; }
+                split_output.prepare(cli.output_sam && !is_eof, &query_files)?;
 
                 n_parts += 1;
                 let t0 = Instant::now();
@@ -1210,7 +1225,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                     }
                 }
 
-                if let Some(ref prefix) = split_prefix {
+                if let Some(ref prefix) = split_output.prefix {
                     let mut split_writer = split::split_init(prefix, n_parts - 1, &mi)
                         .map_err(|e| anyhow::anyhow!("Failed to init split temp file: {}", e))?;
                     for qf in &query_files {
@@ -1237,20 +1252,21 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
         }
     }
 
-    if n_parts > 1 && split_prefix.is_none() {
+    if n_parts > 1 && split_output.prefix.is_none() {
         eprintln!("[WARNING] Index has {} parts. Without --split-prefix, MAPQ and secondary flags may be inaccurate.", n_parts);
     }
 
     // Merge split results if --split-prefix was used
-    if let Some(ref prefix) = split_prefix && n_parts >= 1 {
+    if let Some(ref prefix) = split_output.prefix && n_parts >= 1 {
         eprintln!("[*] Merging {} split parts...", n_parts);
         let merge_cfg = split::MergeConfig {
             prefix,
             n_parts,
             k: saved_k,
             w: saved_w,
-            query_path,
+            query_paths: &query_files,
             sam_rg: cli.sam_rg.as_deref(),
+            input_rg: &run_cfg.input_rg,
             copy_comment,
         };
         let merge_stats = split::merge_split_results(
@@ -1259,6 +1275,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
         total_stats = total_stats + merge_stats;
     }
 
+    handle.flush()?;
     drop(handle);
     if let Some(w) = sorted_out {
         let t_sort = Instant::now();
@@ -1297,6 +1314,36 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Automatically merge multi-part SAM/BAM output so its header contains every reference.
+/// The user can still choose a temporary-file location with --split-prefix.
+struct SplitOutput {
+    prefix: Option<String>,
+    temp_dir: Option<std::path::PathBuf>,
+}
+
+impl SplitOutput {
+    fn prepare(&mut self, multi_part_sam: bool, queries: &[String]) -> anyhow::Result<()> {
+        if self.prefix.is_none() && !multi_part_sam { return Ok(()); }
+        if queries.iter().any(|q| q == "-" || std::fs::metadata(q).is_ok_and(|m| !m.is_file())) {
+            anyhow::bail!("Split-index merging requires regular query files, not stdin or pipes. Increase -I to map in one part.");
+        }
+        if self.prefix.is_none() {
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos();
+            let dir = std::env::temp_dir().join(format!("bonefish-split-{}-{}", std::process::id(), stamp));
+            std::fs::create_dir(&dir)?;
+            self.prefix = Some(dir.join("part").to_string_lossy().into_owned());
+            self.temp_dir = Some(dir);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for SplitOutput {
+    fn drop(&mut self) {
+        if let Some(dir) = &self.temp_dir { let _ = std::fs::remove_dir_all(dir); }
+    }
 }
 
 /// Run-level configuration fields that stay constant across index parts.
@@ -1343,7 +1390,7 @@ fn map_one_part(
     }
     load_junctions(opt, mi, cli)?;
 
-    // SAM header: write once for single-part, or per-part for multi-part without split-prefix
+    // Single-part SAM header; multi-part SAM/BAM headers are written by the split merge.
     if cli.output_sam && !*sam_header_written {
         writeln!(handle, "@HD\tVN:1.6\tSO:unsorted\tGO:query")?;
         for s in &mi.seqs {
@@ -1547,6 +1594,9 @@ fn map_one_part(
                         }
                     }
                 });
+                // A failed writer stops the coordinator from draining the input queue.
+                // Disconnect it before the scope waits for a reader blocked in send().
+                drop(rx);
                 drop(tx_out);
                 writer_handle.join().expect("writer thread panicked")
             })?;
