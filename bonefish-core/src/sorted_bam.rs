@@ -4,7 +4,7 @@
 //! The mapper's SAM text is parsed into BAM records as it is written (one writer thread; parsing
 //! is cheap next to compression). Records collect in a memory batch. A full batch is sorted and
 //! handed to a background thread that writes it as a temporary run, in chunks compressed with
-//! libdeflate level 1 (a private format, much cheaper than the BGZF level 6 that samtools uses for
+//! DEFLATE level 1 (a private format, much cheaper than the BGZF level 6 that samtools uses for
 //! its temporary files), while the next batch fills. After the last read, the runs and the last
 //! batch are merged and written as BGZF blocks compressed in parallel, and the BAI index is built
 //! from the block offsets as they are written.
@@ -81,6 +81,9 @@ pub struct SortedBamWriter {
 
 impl SortedBamWriter {
     pub fn new(out_path: &str, cfg: SortConfig) -> io::Result<Self> {
+        if !(0..=12).contains(&cfg.level) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("BGZF compression level {} is not 0-12", cfg.level)));
+        }
         // Fail early if the output can't be created.
         File::create(out_path)?;
         // Rendezvous: at most one batch filling and one being spilled.
@@ -498,6 +501,11 @@ fn write_run(b: &Batch, path: &PathBuf, threads: usize, abort: &std::sync::atomi
     Ok(true)
 }
 
+/// A DEFLATE level 0-12 (`SortedBamWriter::new` checks the output level).
+fn zlevel(lvl: i32) -> zflate::CompressionLevel {
+    u8::try_from(lvl).ok().and_then(zflate::CompressionLevel::new).expect("DEFLATE level 0-12")
+}
+
 /// Deflate every buffer (level `lvl`) on up to `threads` threads, in order.
 fn compress_all(bufs: &[Vec<u8>], lvl: i32, threads: usize) -> Vec<Vec<u8>> {
     let mut out: Vec<Vec<u8>> = vec![Vec::new(); bufs.len()];
@@ -505,9 +513,9 @@ fn compress_all(bufs: &[Vec<u8>], lvl: i32, threads: usize) -> Vec<Vec<u8>> {
     std::thread::scope(|s| {
         for (bs, os) in bufs.chunks(per).zip(out.chunks_mut(per)) {
             s.spawn(move || {
-                let mut c = libdeflater::Compressor::new(libdeflater::CompressionLvl::new(lvl).unwrap());
+                let mut c = zflate::Compressor::new(zlevel(lvl));
                 for (b, o) in bs.iter().zip(os.iter_mut()) {
-                    let mut v = vec![0u8; c.deflate_compress_bound(b.len())];
+                    let mut v = vec![0u8; zflate::deflate_compress_bound(b.len())];
                     let n = c.deflate_compress(b, &mut v).expect("deflate");
                     v.truncate(n);
                     *o = v;
@@ -543,7 +551,7 @@ impl RunReader {
         for _ in 0..dec {
             let jr = job_rx.clone();
             std::thread::Builder::new().name("sort-dec".into()).spawn(move || {
-                let mut d = libdeflater::Decompressor::new();
+                let mut d = zflate::Decompressor::new();
                 loop {
                     let job = jr.lock().unwrap().recv();
                     let Ok((c, raw, done)) = job else { break };
@@ -641,9 +649,7 @@ fn bgzf_block(raw: &[u8], deflated: &[u8]) -> Vec<u8> {
     b.extend_from_slice(&[0x1f, 0x8b, 8, 4, 0, 0, 0, 0, 0, 0xff, 6, 0, b'B', b'C', 2, 0]);
     b.extend_from_slice(&((total - 1) as u16).to_le_bytes());
     b.extend_from_slice(deflated);
-    let mut crc = libdeflater::Crc::new();
-    crc.update(raw);
-    b.extend_from_slice(&crc.sum().to_le_bytes());
+    b.extend_from_slice(&zflate::crc32(0, raw).to_le_bytes());
     b.extend_from_slice(&(raw.len() as u32).to_le_bytes());
     b
 }
@@ -797,10 +803,10 @@ impl Indexer {
         }
         raw.extend_from_slice(&self.n_no_coor.to_le_bytes());
         let mut w = BufWriter::new(File::create(path)?);
-        let mut c = libdeflater::Compressor::new(libdeflater::CompressionLvl::default());
+        let mut c = zflate::Compressor::new(zflate::CompressionLevel::DEFAULT);
         let mut tmp = Vec::new();
         for chunk in raw.chunks(0xff00) {
-            tmp.resize(c.deflate_compress_bound(chunk.len()), 0);
+            tmp.resize(zflate::deflate_compress_bound(chunk.len()), 0);
             let n = c.deflate_compress(chunk, &mut tmp).map_err(|_| bad("deflate failed"))?;
             w.write_all(&bgzf_block(chunk, &tmp[..n]))?;
         }
@@ -834,12 +840,12 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
         let rx = job_rx.clone();
         let tx = done_tx.clone();
         workers.push(std::thread::spawn(move || {
-            let mut c = libdeflater::Compressor::new(libdeflater::CompressionLvl::new(level).unwrap());
+            let mut c = zflate::Compressor::new(zlevel(level));
             let mut tmp = Vec::new();
             loop {
                 let job = match rx.lock().unwrap().recv() { Ok(j) => j, Err(_) => break };
                 let out: Vec<Vec<u8>> = job.blocks.iter().map(|raw| {
-                    tmp.resize(c.deflate_compress_bound(raw.len()), 0);
+                    tmp.resize(zflate::deflate_compress_bound(raw.len()), 0);
                     let n = c.deflate_compress(raw, &mut tmp).expect("deflate");
                     bgzf_block(raw, &tmp[..n])
                 }).collect();
