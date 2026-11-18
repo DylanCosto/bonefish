@@ -76,7 +76,17 @@ pub struct SortedBamWriter {
     abort: std::sync::Arc<std::sync::atomic::AtomicBool>,
     spill_thread: Option<JoinHandle<io::Result<()>>>,
     runs: Vec<PathBuf>,
+    spilled_records: u64,
     scratch: Vec<u32>,
+}
+
+/// Progress while writing a coordinate-sorted BAM and its index.
+#[derive(Clone, Copy, Debug)]
+pub enum BamProgress {
+    /// Records written to the BAM and the total accepted by the sorter.
+    Writing { done: u64, total: u64 },
+    /// BAM output has been flushed and the BAI or CSI is being written.
+    Indexing,
 }
 
 impl SortedBamWriter {
@@ -100,7 +110,7 @@ impl SortedBamWriter {
         Ok(SortedBamWriter {
             cfg, out_path: out_path.to_string(), partial: Vec::new(), header: String::new(),
             name2tid: HashMap::new(), refs: Vec::new(), header_done: false, batch: Batch::default(),
-            spill_tx: Some(tx), back_rx, abort, spill_thread: Some(spill_thread), runs: Vec::new(), scratch: Vec::new(),
+            spill_tx: Some(tx), back_rx, abort, spill_thread: Some(spill_thread), runs: Vec::new(), spilled_records: 0, scratch: Vec::new(),
         })
     }
 
@@ -149,6 +159,7 @@ impl SortedBamWriter {
         b.sort();
         let path = PathBuf::from(format!("{}.{:04}.run", self.cfg.tmp_prefix, self.runs.len()));
         self.runs.push(path.clone());
+        self.spilled_records += b.ents.len() as u64;
         if self.spill_tx.as_ref().unwrap().send((b, path)).is_err() {
             // The spill thread stopped: report its error.
             return Err(self.join_spill().err().unwrap_or_else(|| bad("spill thread stopped")));
@@ -165,7 +176,15 @@ impl SortedBamWriter {
     }
 
     /// Merge everything into the sorted BAM and its index. Returns the number of records.
-    pub fn finish(mut self) -> io::Result<u64> {
+    pub fn finish(self) -> io::Result<u64> {
+        self.finish_with_progress(|_| {})
+    }
+
+    /// Finish the BAM, reporting progress from the BAM writer thread.
+    pub fn finish_with_progress(
+        mut self,
+        progress: impl Fn(BamProgress) + Send + 'static,
+    ) -> io::Result<u64> {
         if !self.partial.is_empty() {
             let p = std::mem::take(&mut self.partial);
             self.line(&p)?;
@@ -183,9 +202,11 @@ impl SortedBamWriter {
         }
         let t1 = std::time::Instant::now();
         let mut last = std::mem::take(&mut self.batch);
+        let total = self.spilled_records + last.ents.len() as u64;
+        progress(BamProgress::Writing { done: 0, total });
         last.sort();
         mem_batches.push(last);
-        let res = merge_and_write(&self.out_path, &self.header, &self.refs, &self.runs, mem_batches, &self.cfg);
+        let res = merge_and_write(&self.out_path, &self.header, &self.refs, &self.runs, mem_batches, &self.cfg, total, progress);
         if std::env::var_os("BONEFISH_SORT_TIMING").is_some() {
             eprintln!("[sort] wait for last spill {:.2}s, merge+write {:.2}s, {} runs", (t1 - t0).as_secs_f64(), t1.elapsed().as_secs_f64(), self.runs.len());
         }
@@ -821,7 +842,11 @@ fn fill_linear(linear: &mut [u64], off_beg: u64) {
 /// A compression job: raw BGZF blocks (numbered from `first_block`) and the records they hold.
 struct Job { seq: u64, blocks: Vec<Vec<u8>>, metas: Vec<RecMeta> }
 
-fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &[PathBuf], mem: Vec<Batch>, cfg: &SortConfig) -> io::Result<u64> {
+fn merge_and_write(
+    out_path: &str, header: &str, refs: &[(String, u32)], runs: &[PathBuf],
+    mem: Vec<Batch>, cfg: &SortConfig, total: u64,
+    progress: impl Fn(BamProgress) + Send + 'static,
+) -> io::Result<u64> {
     let threads = cfg.threads.max(1);
     let level = cfg.level;
     let (job_tx, job_rx) = mpsc::sync_channel::<Job>(threads * 2);
@@ -861,6 +886,7 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
         let mut addr: Vec<u64> = Vec::new(); // file offset of each block written so far
         let mut raw_len: Vec<u32> = Vec::new(); // its uncompressed size (the BGZF ISIZE field)
         let mut file_off = 0u64;
+        let mut written = 0u64;
         // Metas can point one block past the job's last (a record ending exactly at a block end).
         let mut held: Vec<RecMeta> = Vec::new();
         let voff = |addr: &Vec<u64>, file_off: u64, b: u64, o: u32| -> u64 {
@@ -883,6 +909,8 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
                     w.write_all(b)?;
                     file_off += b.len() as u64;
                 }
+                written += metas.len() as u64;
+                progress(BamProgress::Writing { done: written, total });
                 held.extend(metas);
                 let known = addr.len() as u64;
                 let mut keep = Vec::new();
@@ -902,6 +930,7 @@ fn merge_and_write(out_path: &str, header: &str, refs: &[(String, u32)], runs: &
         }
         w.write_all(&BGZF_EOF)?;
         w.flush()?;
+        progress(BamProgress::Indexing);
         idx.write(&out_path_w)
     });
 
@@ -1029,6 +1058,38 @@ mod tests {
         assert_eq!(bin_bot(2, 5), 1 << 12);
         assert_eq!(index_levels(&[("a".into(), 248_956_422)]), 5);
         assert_eq!(index_levels(&[("a".into(), 689_000_000)]), 6);
+    }
+
+    #[test]
+    fn bam_progress_counts_records_across_spills() {
+        let dir = std::env::temp_dir().join(format!("bonefish-sort-progress-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let bam = dir.join("out.bam");
+        let mut sorter = SortedBamWriter::new(bam.to_str().unwrap(), SortConfig {
+            mem: 256, tmp_prefix: dir.join("tmp").to_str().unwrap().to_owned(),
+            threads: 2, level: 1,
+        }).unwrap();
+        writeln!(sorter, "@HD\tVN:1.6\tSO:unsorted\n@SQ\tSN:ref\tLN:1000").unwrap();
+        for i in (1..=20).rev() {
+            write!(sorter, "read{i}\t0\tref\t{i}\t60\t4M\t*\t0\t0\tACGT\tIIII").unwrap();
+            if i != 1 { writeln!(sorter).unwrap(); }
+        }
+        let (tx, rx) = mpsc::channel();
+        assert_eq!(sorter.finish_with_progress(move |progress| tx.send(progress).unwrap()).unwrap(), 20);
+        let events: Vec<_> = rx.try_iter().collect();
+        assert!(matches!(events.first(), Some(BamProgress::Writing { done: 0, total: 20 })));
+        assert!(matches!(events.last(), Some(BamProgress::Indexing)));
+        let mut done = 0;
+        for event in events {
+            if let BamProgress::Writing { done: next, total } = event {
+                assert_eq!(total, 20);
+                assert!((done..=total).contains(&next));
+                done = next;
+            }
+        }
+        assert_eq!(done, 20);
+        assert!(bam.with_extension("bam.bai").exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -502,9 +502,9 @@ pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Reader<Box<dyn BufRead + Send
     let stdin = path.as_ref().as_os_str() == "-";
     if stdin {
     } else if ext_says_gz && !is_gz_content {
-        eprintln!("Warning: '{}' has a .gz extension but is not gzipped; reading as plain text.", path.as_ref().display());
+        crate::terminal_message(log::Level::Warn, format_args!("Warning: '{}' has a .gz extension but is not gzipped; reading as plain text.", path.as_ref().display()));
     } else if !ext_says_gz && is_gz_content {
-        eprintln!("Warning: '{}' is gzipped but lacks a .gz extension; decompressing.", path.as_ref().display());
+        crate::terminal_message(log::Level::Warn, format_args!("Warning: '{}' is gzipped but lacks a .gz extension; decompressing.", path.as_ref().display()));
     }
 
     let reader: Box<dyn BufRead + Send> = if is_gz_content {
@@ -689,7 +689,7 @@ pub fn parse_fasta_bytes(data: &[u8]) -> io::Result<Vec<(String, Vec<u8>)>> {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "reference sequence with an empty name"));
         }
         if seq.is_empty() {
-            eprintln!("Warning: skipping reference sequence '{name}' of length 0");
+            crate::terminal_message(log::Level::Warn, format_args!("Warning: skipping reference sequence '{name}' of length 0"));
             continue;
         }
         sequences.push((name, seq));

@@ -73,7 +73,7 @@ impl JunctionDb {
             v.dedup_by(|b, a| a.start == b.start && a.end == b.end);
             total += v.len();
         }
-        eprintln!("[M::load_bed_junctions] loaded {} non-redundant junctions", total);
+        crate::terminal_message(log::Level::Info, format_args!("[M::load_bed_junctions] loaded {} non-redundant junctions", total));
         Ok(JunctionDb { introns })
     }
 

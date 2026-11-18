@@ -46,6 +46,16 @@ bonefish -t 16 -x cdna -y -o cdna.bam ref.fa reads.bam
 bonefish -t 16 -a ref.fa reads.fq.gz > sample.sam
 ```
 
+Add `--tui` for a compact terminal view of reference preparation, reads processed, and
+BAM writing and indexing, with elapsed times:
+
+```bash
+bonefish --tui -t 16 -y -o sample.bam ref.fa reads.bam
+```
+
+The display uses stderr. When stderr is redirected, or alignment records are going to the
+terminal on stdout, bonefish uses its regular status messages.
+
 For repeated runs, build an index once: `bonefish -d ref.raw --idx-raw ref.fa`. It loads in under
 a second; add `-x rna` or `-x cdna` for a spliced index. New to bonefish? The
 [tutorial](docs/tutorial.md) goes from ONT's public demo data to a sorted BAM and methylation calls

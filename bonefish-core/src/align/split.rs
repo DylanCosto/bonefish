@@ -211,7 +211,7 @@ pub fn merge_split_results(
         loop {
             let rec = match record_iter.next() {
                 Some(Ok(r)) => r,
-                Some(Err(e)) => { eprintln!("Warning: Error reading record: {}", e); continue; },
+                Some(Err(e)) => { crate::terminal_message(log::Level::Warn, format_args!("Warning: Error reading record: {}", e)); continue; },
                 None => break,
             };
 

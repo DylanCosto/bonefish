@@ -721,9 +721,9 @@ impl Index {
             n_alt: Default::default(),
         };
 
-        eprintln!("[*] Index loaded: {} seqs, {}M bases in {:.1}s",
+        crate::terminal_message(log::Level::Info, format_args!("[*] Index loaded: {} seqs, {}M bases in {:.1}s",
             idx.seqs.len(), sum_len / 1_000_000,
-            t_total.elapsed().as_secs_f64());
+            t_total.elapsed().as_secs_f64()));
         Ok(Some(idx))
     }
 
