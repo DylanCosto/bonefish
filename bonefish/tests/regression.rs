@@ -169,6 +169,44 @@ fn split_index_preserves_inputs_and_reference_headers() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// A reference that fits in one -I batch is one part even when its last sequence fills the batch:
+/// no split temp files and merge, and reads can come from stdin.
+#[test]
+fn single_sequence_over_batch_size_is_one_part() {
+    let dir = tmp_dir("one-part");
+    let reference = dir.join("ref.fa");
+    let gz = dir.join("ref.fa.gz");
+    let mut state = 911u64;
+    let seq: String = (0..12000).map(|_| {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+        b"ACGT"[(state >> 32) as usize & 3] as char
+    }).collect();
+    std::fs::write(&reference, format!(">chr\n{seq}\n\n")).unwrap();
+    let mut encoder = flate2::write::GzEncoder::new(std::fs::File::create(&gz).unwrap(), flate2::Compression::fast());
+    encoder.write_all(format!(">chr\n{seq}\n").as_bytes()).unwrap();
+    encoder.finish().unwrap();
+    let reads = format!(">r1\n{}\n>r2\n{}\n", &seq[500..2500], &seq[8000..10000]);
+    let expected = {
+        let q = dir.join("q.fa");
+        std::fs::write(&q, &reads).unwrap();
+        run(&["-a", "-t2", reference.to_str().unwrap(), q.to_str().unwrap()])
+    };
+    for target in [&reference, &gz] {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_bonefish"))
+            .args(["-a", "-t2", "-I5k"]).arg(target).arg("-")
+            .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped())
+            .spawn().unwrap();
+        child.stdin.take().unwrap().write_all(reads.as_bytes()).unwrap();
+        let out = child.wait_with_output().unwrap();
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(out.status.success(), "{}", stderr);
+        assert!(!stderr.contains("Merging"), "one part was split and merged:\n{stderr}");
+        let text: String = String::from_utf8(out.stdout).unwrap().lines().filter(|l| !l.starts_with("@PG")).map(|l| format!("{l}\n")).collect();
+        assert_eq!(text, expected);
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn output_errors_fail_without_hanging() {

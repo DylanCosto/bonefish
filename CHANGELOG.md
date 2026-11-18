@@ -18,6 +18,16 @@ compiler. zflate needs Rust 1.91 or newer.
 - **`--sort-level`** outside 0-12 is rejected with an error, instead of a panic in a compression
   thread.
 
+**A reference that fits in one `-I` batch is one index part.** When its last sequence pushed the
+batch past `-I` (e.g. chr20 with `-I20M`), the reference was taken as unfinished: SAM/BAM output
+went through the split-index merge for that one part, which took longer (7.2 s against 6.0 s on
+10,000 ONT reads), changed MAPQ on about 3% of records, and refused reads from stdin. The output
+now matches a run without `-I`.
+
+- **Multi-part SAM/BAM output reads the queries twice**, so it needs them as files: reads from
+  stdin or a pipe are refused with an error (they used to be accepted with a warning, and with
+  `--split-prefix` and a prebuilt index gave no records). Use a larger `-I`, or PAF output.
+
 ## v0.4.0 (2026-10-28)
 
 **New: `-x hifi`** (alias `map-hifi`), for PacBio HiFi genomic DNA. It is the `dna` preset, plus
