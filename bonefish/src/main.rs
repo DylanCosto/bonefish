@@ -887,8 +887,6 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
             anyhow::bail!("Input file '{}' not found.", qf);
         }
     }
-    let query_path = query_files.first().map(|s| s.as_str()).unwrap_or("-");
-
     // Check the reference and the output combination before -o creates (truncates) its file.
     std::fs::File::open(target_path).map_err(|e| anyhow::anyhow!("cannot open reference '{}': {}", target_path, e))?;
     if cli.sort {
@@ -957,7 +955,14 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
         || Index::sniff_is_index_file(target_path);
     let mut n_parts = 0usize;
     let mut sam_header_written = false;
-    let split_prefix = cli.split_prefix.clone();
+    // Automatic split files go beside the sort's temporary runs or the output, as large runs can
+    // outgrow a small system /tmp; with output on stdout, the system temporary directory.
+    let split_base = cli.sort_tmp.as_deref().or(cli.output.as_deref())
+        .and_then(|p| std::path::Path::new(p).parent())
+        .map(|d| if d.as_os_str().is_empty() { std::path::PathBuf::from(".") } else { d.to_path_buf() })
+        .unwrap_or_else(std::env::temp_dir);
+    let mut split_output = SplitOutput { prefix: cli.split_prefix.clone(), base: split_base, temp_dir: None };
+    split_output.prepare(false, &query_files)?;
     let mut saved_k = k;
     let mut saved_w = w;
 
@@ -999,6 +1004,13 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
                 None => break,
             };
             n_parts += 1;
+            if n_parts == 1 {
+                let has_more = match &mapped_parts {
+                    Some(parts) => !parts.is_empty(),
+                    None => !std::io::BufRead::fill_buf(&mut idx_reader)?.is_empty(),
+                };
+                split_output.prepare(cli.output_sam && has_more, &query_files)?;
+            }
             if let Some(dw) = dump_writer.as_mut() {
                 if cli.idx_no_seq {
                     let mut idx_copy = mi.clone();
@@ -1021,6 +1033,7 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
             }
             saved_k = mi.kmer_size;
             saved_w = mi.window_size;
+            bonefish::api::finalize_options(&mut opt, mi.kmer_size);
             if n_parts == 1 && (cli.k.is_some_and(|v| v != mi.kmer_size) || cli.w.is_some_and(|v| v != mi.window_size)) {
                 notice(tui, format_args!("Warning: -k/-w are ignored with a prebuilt index (it has k={}, w={})", mi.kmer_size, mi.window_size));
             }
@@ -1028,11 +1041,8 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
                 read_alt_list(&mut mi, alt_path, tui)?;
             }
 
-            if let Some(ref prefix) = split_prefix {
+            if let Some(ref prefix) = split_output.prefix {
                 // Split mode: write results to temp files
-                if query_path == "-" && n_parts > 1 {
-                    anyhow::bail!("Cannot use stdin for queries with multi-part index. Use a named file or increase -I.");
-                }
                 let mut split_writer = split::split_init(prefix, n_parts - 1, &mi)
                     .map_err(|e| anyhow::anyhow!("Failed to init split temp file: {}", e))?;
                 for qf in &query_files {
@@ -1115,13 +1125,22 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
                         }
                     }
 
-                    for qf in &query_files {
-                        let part_stats = map_one_part(
-                            &mi, &mut opt, &run_cfg,
-                            qf, 1, &mut sam_header_written,
-                            &mut handle,
-                        )?;
-                        total_stats = total_stats + part_stats;
+                    if let Some(ref prefix) = split_output.prefix {
+                        let mut split_writer = split::split_init(prefix, 0, &mi)?;
+                        for qf in &query_files {
+                            total_stats = total_stats + map_one_part_split(
+                                &mi, &mut opt, &run_cfg, qf, 1, &mut split_writer,
+                            )?;
+                        }
+                    } else {
+                        for qf in &query_files {
+                            let part_stats = map_one_part(
+                                &mi, &mut opt, &run_cfg,
+                                qf, 1, &mut sam_header_written,
+                                &mut handle,
+                            )?;
+                            total_stats = total_stats + part_stats;
+                        }
                     }
                 } else {
                     // ─── Multi-part from mmap: split all_seqs into batches ───
@@ -1140,6 +1159,7 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
                         sam_header_written: &mut bool, total_stats: &mut AlignmentStats| -> anyhow::Result<()>
                     {
                         if let Some(tui) = tui { tui.stage(Stage::Reference, 0); }
+                        split_output.prepare(cli.output_sam, &query_files)?;
                         let seqs = std::mem::take(batch_seqs);
                         *batch_bases = 0;
                         *n_parts += 1;
@@ -1167,7 +1187,7 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
                             }
                         }
 
-                        if let Some(ref prefix) = split_prefix {
+                        if let Some(ref prefix) = split_output.prefix {
                             let mut split_writer = split::split_init(prefix, *n_parts - 1, &mi)
                                 .map_err(|e| anyhow::anyhow!("Failed to init split temp file: {}", e))?;
                             for qf in &query_files {
@@ -1223,6 +1243,7 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
                 let (batch_seqs, is_eof) = reader.read_batch(batch_size)
                     .map_err(|e| anyhow::anyhow!("cannot read reference '{}': {}", target_path, e))?;
                 if batch_seqs.is_empty() { break; }
+                split_output.prepare(cli.output_sam && !is_eof, &query_files)?;
 
                 n_parts += 1;
                 let t0 = Instant::now();
@@ -1250,7 +1271,7 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
                     }
                 }
 
-                if let Some(ref prefix) = split_prefix {
+                if let Some(ref prefix) = split_output.prefix {
                     let mut split_writer = split::split_init(prefix, n_parts - 1, &mi)
                         .map_err(|e| anyhow::anyhow!("Failed to init split temp file: {}", e))?;
                     for qf in &query_files {
@@ -1277,12 +1298,12 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
         }
     }
 
-    if n_parts > 1 && split_prefix.is_none() {
+    if n_parts > 1 && split_output.prefix.is_none() {
         notice(tui, format_args!("[WARNING] Index has {} parts. Without --split-prefix, MAPQ and secondary flags may be inaccurate.", n_parts));
     }
 
-    // Merge split results if --split-prefix was used
-    if let Some(ref prefix) = split_prefix && n_parts >= 1 {
+    // Merge split results (--split-prefix, or multi-part SAM/BAM output)
+    if let Some(ref prefix) = split_output.prefix && n_parts >= 1 {
         if let Some(tui) = tui { tui.stage(Stage::Merge, 0); }
         status(tui, format_args!("[*] Merging {} split parts...", n_parts));
         let merge_cfg = split::MergeConfig {
@@ -1290,8 +1311,9 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
             n_parts,
             k: saved_k,
             w: saved_w,
-            query_path,
+            query_paths: &query_files,
             sam_rg: cli.sam_rg.as_deref(),
+            input_rg: &run_cfg.input_rg,
             copy_comment,
         };
         let merge_stats = split::merge_split_results(
@@ -1300,7 +1322,7 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
         total_stats = total_stats + merge_stats;
     }
 
-    if tui.is_some() { handle.flush()?; }
+    handle.flush()?;
     drop(handle);
     if let Some(w) = sorted_out {
         let t_sort = Instant::now();
@@ -1354,6 +1376,38 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Automatically merge multi-part SAM/BAM output so its header contains every reference.
+/// The user can still choose a temporary-file location with --split-prefix.
+struct SplitOutput {
+    prefix: Option<String>,
+    /// Directory for the automatic temporary directory.
+    base: std::path::PathBuf,
+    temp_dir: Option<std::path::PathBuf>,
+}
+
+impl SplitOutput {
+    fn prepare(&mut self, multi_part_sam: bool, queries: &[String]) -> anyhow::Result<()> {
+        if self.prefix.is_none() && !multi_part_sam { return Ok(()); }
+        if queries.iter().any(|q| q == "-" || std::fs::metadata(q).is_ok_and(|m| !m.is_file())) {
+            anyhow::bail!("Split-index merging (multi-part SAM/BAM output, or --split-prefix) rereads the queries, so they must be regular files, not stdin or pipes. Drop --split-prefix, increase -I to map in one part, or write PAF.");
+        }
+        if self.prefix.is_none() {
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos();
+            let dir = self.base.join(format!("bonefish-split-{}-{}", std::process::id(), stamp));
+            std::fs::create_dir(&dir).map_err(|e| anyhow::anyhow!("cannot create split directory '{}': {}", dir.display(), e))?;
+            self.prefix = Some(dir.join("part").to_string_lossy().into_owned());
+            self.temp_dir = Some(dir);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for SplitOutput {
+    fn drop(&mut self) {
+        if let Some(dir) = &self.temp_dir { let _ = std::fs::remove_dir_all(dir); }
+    }
+}
+
 /// Run-level configuration fields that stay constant across index parts.
 struct RunConfig<'a> {
     tui: Option<&'a Tui>,
@@ -1399,7 +1453,7 @@ fn map_one_part(
     }
     load_junctions(opt, mi, cli)?;
 
-    // SAM header: write once for single-part, or per-part for multi-part without split-prefix
+    // Single-part SAM header; multi-part SAM/BAM headers are written by the split merge.
     if cli.output_sam && !*sam_header_written {
         writeln!(handle, "@HD\tVN:1.6\tSO:unsorted\tGO:query")?;
         for s in &mi.seqs {
@@ -1538,6 +1592,10 @@ fn map_one_part(
                 let (tx_done, rx_done) = std::sync::mpsc::channel::<usize>();
                 let align_one = &align_one;
                 let mut send_failed = false;
+                // Set when the writer has stopped (e.g. the output pipe closed): queued reads are
+                // skipped rather than aligned for nobody.
+                let abort = std::sync::atomic::AtomicBool::new(false);
+                let abort = &abort;
                 rayon::in_place_scope(|sc| {
                     let mut in_flight: std::collections::VecDeque<(usize, std::sync::Arc<Chunk>)> = std::collections::VecDeque::new();
                     let mut finished: std::collections::HashSet<usize> = std::collections::HashSet::new();
@@ -1556,7 +1614,7 @@ fn map_one_part(
                                 }
                             };
                             let results: Vec<(String, AlignmentStats)> = c.done.into_iter().map(|r| r.into_inner().expect("every read aligned")).collect();
-                            if tx_out.send(results).is_err() { send_failed = true; break; }
+                            if tx_out.send(results).is_err() { send_failed = true; abort.store(true, Ordering::Relaxed); break; }
                         }
                         if send_failed { break; }
                         let admit = in_flight.len() < MIN_IN_FLIGHT
@@ -1576,11 +1634,11 @@ fn map_one_part(
                                         let outstanding = std::sync::Arc::clone(&outstanding);
                                         sc.spawn(move |_| {
                                             let read = &c.data[ri];
-                                            let r = CTX.with(|cell| {
+                                            let r = if abort.load(Ordering::Relaxed) { Ok((String::new(), AlignmentStats::default())) } else { CTX.with(|cell| {
                                                 let mut g = cell.borrow_mut();
                                                 let (ctx, map_ctx) = g.get_or_insert_with(|| (bonefish::align::extend::AlignmentContext::new(), bonefish::align::map::MapContext::new()));
                                                 align_one(ctx, map_ctx, read)
-                                            });
+                                            }) };
                                             let r = r.unwrap_or_else(|_| {
                                                 notice(run.tui, format_args!("[WARNING] alignment panicked for read: {}", read.0));
                                                 (String::new(), AlignmentStats::default())
@@ -1606,6 +1664,9 @@ fn map_one_part(
                         }
                     }
                 });
+                // A failed writer stops the coordinator from draining the input queue.
+                // Disconnect it before the scope waits for a reader blocked in send().
+                drop(rx);
                 drop(tx_out);
                 writer_handle.join().expect("writer thread panicked")
             })?;
@@ -1693,35 +1754,57 @@ fn map_one_part_split(
 
     let mut total_stats = AlignmentStats::default();
     let mut record_iter = reader.records();
+    let mini_batch_size = opt.mini_batch_size as u64;
+    let opt: &MapOptions = opt;
 
-    {
-        // Single-end split write
-        let mut ctx = bonefish::align::extend::AlignmentContext::new();
-        let mut map_ctx = MapContext::new();
-
-        let mut reported = 0;
+    // Map in batches of ~mini_batch_size bases on all threads; write results in input order
+    // (the merge reads the parts' temp files in lockstep with the query file).
+    loop {
+        let mut batch: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut batch_bases = 0u64;
         loop {
-            let rec = match record_iter.next() {
-                Some(Ok(r)) => r,
+            match record_iter.next() {
+                Some(Ok(r)) => {
+                    let (name, _, seq, _) = r.into_parts();
+                    batch_bases += seq.len() as u64;
+                    batch.push((name, seq));
+                }
                 Some(Err(e)) => anyhow::bail!("{}: {}", query_path, e),
                 None => break,
-            };
+            }
+            if batch_bases >= mini_batch_size { break; }
+        }
+        if batch.is_empty() { break; }
 
-            let qname = rec.name().to_string();
-            let qseq = rec.sequence().to_vec();
+        let align = |ctx: &mut bonefish::align::extend::AlignmentContext, map_ctx: &mut MapContext, (qname, qseq): &(String, Vec<u8>)| {
+            process_query(opt, mi, qname, qseq, ctx, map_ctx, out_cfg)
+        };
+        #[cfg(feature = "parallel")]
+        let processed: Vec<_> = {
+            use rayon::prelude::*;
+            thread_local! {
+                static SPLIT_CTX: std::cell::RefCell<Option<(bonefish::align::extend::AlignmentContext, MapContext)>> =
+                    const { std::cell::RefCell::new(None) };
+            }
+            batch.par_iter().map(|q| SPLIT_CTX.with(|cell| {
+                let mut g = cell.borrow_mut();
+                let (ctx, map_ctx) = g.get_or_insert_with(|| (bonefish::align::extend::AlignmentContext::new(), MapContext::new()));
+                align(ctx, map_ctx, q)
+            })).collect()
+        };
+        #[cfg(not(feature = "parallel"))]
+        let processed: Vec<_> = {
+            let mut ctx = bonefish::align::extend::AlignmentContext::new();
+            let mut map_ctx = MapContext::new();
+            batch.iter().map(|q| align(&mut ctx, &mut map_ctx, q)).collect()
+        };
 
-            let pq = process_query(opt, mi, &qname, &qseq, &mut ctx, &mut map_ctx, out_cfg);
-
+        for pq in processed {
             split::split_write_query(split_writer, &pq.results, pq.rep_len)
                 .map_err(|e| anyhow::anyhow!("Error writing split temp: {}", e))?;
-
             total_stats = total_stats + pq.stats;
-            if let Some(tui) = run.tui && total_stats.n_reads - reported >= 1024 {
-                tui.reads(total_stats.n_reads - reported);
-                reported = total_stats.n_reads;
-            }
         }
-        if let Some(tui) = run.tui { tui.reads(total_stats.n_reads - reported); }
+        if let Some(tui) = run.tui { tui.reads(batch.len()); }
     }
 
     split_writer.flush()?;
