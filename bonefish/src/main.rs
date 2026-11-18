@@ -1,3 +1,4 @@
+mod interrupt;
 mod tui;
 
 use clap::Parser;
@@ -547,6 +548,7 @@ fn main() -> anyhow::Result<()> {
         tui.start();
     }
     logger.init();
+    interrupt::install(tui.clone());
 
     let result = run(args.align, tui.as_ref());
     if let Some(tui) = &tui { tui.finish(result.is_ok()); }
@@ -918,6 +920,7 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
             threads: cli.align_threads.max(1),
             level: cli.sort_level,
         };
+        interrupt::register_runs(&cfg.tmp_prefix);
         Some(std::sync::Arc::new(std::sync::Mutex::new(Some(bonefish::sorted_bam::SortedBamWriter::new(path, cfg)?))))
     } else {
         None
@@ -975,6 +978,7 @@ fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
     if is_idx_file {
         // ─── Load from .mmi/.idx: iterate over parts ───
         status(tui, format_args!("[*] Loading index from {}...", target_path));
+        if let Some(tui) = tui { tui.reference(1, RefWork::Load); }
         let t_load = Instant::now();
         // Raw indexes are memory-mapped (all parts at once; pages fault in on use);
         // other formats are deserialized one part at a time.
@@ -1431,6 +1435,7 @@ impl SplitOutput {
             let dir = self.base.join(format!("bonefish-split-{}-{}", std::process::id(), stamp));
             std::fs::create_dir(&dir).map_err(|e| anyhow::anyhow!("cannot create split directory '{}': {}", dir.display(), e))?;
             self.prefix = Some(dir.join("part").to_string_lossy().into_owned());
+            interrupt::register_dir(&dir);
             self.temp_dir = Some(dir);
         }
         Ok(())
@@ -1439,7 +1444,10 @@ impl SplitOutput {
 
 impl Drop for SplitOutput {
     fn drop(&mut self) {
-        if let Some(dir) = &self.temp_dir { let _ = std::fs::remove_dir_all(dir); }
+        if let Some(dir) = &self.temp_dir {
+            let _ = std::fs::remove_dir_all(dir);
+            interrupt::unregister_dir(dir);
+        }
     }
 }
 

@@ -494,8 +494,26 @@ fn encode_aux(tag: &[u8], out: &mut Vec<u8>) -> io::Result<()> {
 
 /// Write a sorted batch as a run: chunks of whole records, each `[raw_len u32][comp_len u32][deflate]`.
 /// Returns false (file incomplete) if `abort` was set meanwhile.
+/// Read-locked while a temporary run file is created; [`stop_new_runs`] write-locks it.
+static NEW_RUNS: std::sync::RwLock<bool> = std::sync::RwLock::new(true);
+
+/// Stops temporary runs from being created: once this returns, none is being created, and a
+/// thread about to create one waits instead. For removing the runs before exiting on a signal.
+pub fn stop_new_runs() {
+    *NEW_RUNS.write().unwrap_or_else(|e| e.into_inner()) = false;
+}
+
+fn create_run(path: &PathBuf) -> io::Result<File> {
+    let open = NEW_RUNS.read().unwrap_or_else(|e| e.into_inner());
+    if !*open {
+        drop(open);
+        loop { std::thread::park(); }
+    }
+    File::create(path)
+}
+
 fn write_run(b: &Batch, path: &PathBuf, threads: usize, abort: &std::sync::atomic::AtomicBool) -> io::Result<bool> {
-    let mut w = BufWriter::with_capacity(1 << 20, File::create(path)?);
+    let mut w = BufWriter::with_capacity(1 << 20, create_run(path)?);
     let mut group: Vec<Vec<u8>> = Vec::new();
     let mut cur = Vec::with_capacity(RUN_CHUNK + 65536);
     let flush = |group: &mut Vec<Vec<u8>>, w: &mut BufWriter<File>| -> io::Result<bool> {

@@ -45,6 +45,13 @@ impl RefWork {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Outcome {
+    Complete,
+    Failed,
+    Interrupted,
+}
+
 struct Row {
     stage: Stage,
     elapsed: Duration,
@@ -62,14 +69,15 @@ struct Span {
 struct Run {
     started: Instant,
     since: Instant,
-    finished: Option<(Instant, bool)>,
+    finished: Option<(Instant, Outcome)>,
     /// The row whose clock is running.
     active: usize,
     /// The row marked as current. It never moves back up: indexing a later reference part runs
     /// the "Prepare reference" clock while "Align reads" stays marked.
     focus: usize,
     rows: Vec<Row>,
-    ref_work: RefWork,
+    /// None until the reference work starts (option parsing, opening the inputs).
+    ref_work: Option<RefWork>,
     /// Reference part being prepared (1-based; 0 before the first), and the last one aligned
     /// against. Reading past the last part briefly starts one more that never aligns.
     part: usize,
@@ -150,7 +158,7 @@ impl Run {
         let mut pieces: Vec<String> = Vec::new();
         if self.active != self.focus {
             // Between parts: the next part's index is being prepared.
-            let mut s = self.ref_work.verb().to_owned();
+            let mut s = self.ref_work.map_or("working", RefWork::verb).to_owned();
             if let Some(part) = self.part_label() { s = format!("{s} · {part}"); }
             pieces.push(s);
         } else {
@@ -185,8 +193,9 @@ impl Run {
         if let Some(f) = self.align_fraction() { self.shown = self.shown.max(f); }
         let (now, status) = match self.finished {
             None => (Instant::now(), "Running"),
-            Some((end, true)) => (end, "Complete"),
-            Some((end, false)) => (end, "Failed"),
+            Some((end, Outcome::Complete)) => (end, "Complete"),
+            Some((end, Outcome::Failed)) => (end, "Failed"),
+            Some((end, Outcome::Interrupted)) => (end, "Interrupted"),
         };
         let title = format!("bonefish  {status}  {}", time(now - self.started));
         let title = title
@@ -197,6 +206,19 @@ impl Run {
 
         // Keep the longest line short enough to avoid wrapping in small terminals.
         if width < 56 {
+            if let Some((_, outcome)) = self.finished {
+                // One summary line: what was done, or where it stopped.
+                let line = match outcome {
+                    Outcome::Complete => {
+                        let mut s = format!("Done · {} reads", count(self.reads));
+                        if let Some((done, _)) = self.bam { s.push_str(&format!(" · {done} records")); }
+                        s
+                    }
+                    Outcome::Failed => format!("{} failed", self.rows[self.active].stage.name()),
+                    Outcome::Interrupted => format!("{} interrupted", self.rows[self.active].stage.name()),
+                };
+                return write!(out, "{}", line.chars().take(width.saturating_sub(1)).collect::<String>());
+            }
             let row = &self.rows[self.focus];
             let detail = match row.stage {
                 Stage::Align => format!(" · {}", self.align_detail(now, width.saturating_sub(row.stage.name().len() + 4))),
@@ -222,13 +244,17 @@ impl Run {
         let details = body - 32;
         let label = "─ Alignment progress ";
         writeln!(out, "┌{label}{}┐", "─".repeat(body - label.chars().count()))?;
-        let failed = self.finished.is_some_and(|(_, ok)| !ok);
+        let stopped = match self.finished {
+            Some((_, Outcome::Failed)) => Some("failed"),
+            Some((_, Outcome::Interrupted)) => Some("interrupted"),
+            _ => None,
+        };
         for (index, row) in self.rows.iter().enumerate() {
             let current = index == self.focus && self.finished.is_none();
             let (mark, detail) = if current {
                 let detail = match row.stage {
                     Stage::Align => self.align_detail(now, details),
-                    Stage::Reference => self.ref_work.verb().to_owned(),
+                    Stage::Reference => self.ref_work.map_or("working", RefWork::verb).to_owned(),
                     Stage::Bam => self.bam.filter(|&(_, total)| total > 0).map_or_else(
                         || "working".to_owned(),
                         |(done, total)| {
@@ -244,13 +270,15 @@ impl Run {
                     _ => "working".to_owned(),
                 };
                 ("›", detail)
-            } else if index == self.active && failed {
-                (" ", "failed".to_owned())
+            } else if let Some(stopped) = stopped.filter(|_| index == self.active) {
+                (" ", stopped.to_owned())
             } else if row.visited {
                 let detail = match (row.stage, self.bam) {
                     (Stage::Align, _) if self.finished.is_some() || index < self.focus => {
-                        let parts = if self.aligned_part > 1 { format!(" · {} parts", self.aligned_part) } else { String::new() };
-                        format!("done · {} reads{parts}", count(self.reads))
+                        // Drop the part count rather than cut it short.
+                        let reads = format!("done · {} reads", count(self.reads));
+                        let parts = format!("{reads} · {} parts", self.aligned_part);
+                        if self.aligned_part > 1 && parts.chars().count() <= details { parts } else { reads }
                     }
                     (Stage::Bam, Some((done, _))) => format!("done · {done} records"),
                     _ => "done".to_owned(),
@@ -360,7 +388,7 @@ impl Tui {
                     visited: stage == Stage::Reference,
                 })
                 .collect(),
-            ref_work: RefWork::Read,
+            ref_work: None,
             part: 0,
             aligned_part: 0,
             parts: None,
@@ -397,7 +425,7 @@ impl Tui {
     pub(crate) fn reference(&self, part: usize, work: RefWork) {
         {
             let mut run = self.run.lock().unwrap();
-            run.ref_work = work;
+            run.ref_work = Some(work);
             run.part = part;
         }
         self.stage(Stage::Reference);
@@ -487,13 +515,25 @@ impl Tui {
     }
 
     pub(crate) fn finish(&self, ok: bool) {
+        self.stop(if ok { Outcome::Complete } else { Outcome::Failed });
+    }
+
+    /// The run was stopped by a signal: draw the final panel, marked interrupted.
+    pub(crate) fn interrupted(&self) {
+        self.stop(Outcome::Interrupted);
+    }
+
+    fn stop(&self, outcome: Outcome) {
+        let mut run = self.run.lock().unwrap_or_else(|e| e.into_inner());
+        if run.finished.is_some() {
+            return;
+        }
         self.bar.disable_steady_tick();
-        let mut run = self.run.lock().unwrap();
         let now = Instant::now();
         let elapsed = now - run.since;
         let active = run.active;
         run.rows[active].elapsed += elapsed;
-        run.finished = Some((now, ok));
+        run.finished = Some((now, outcome));
         drop(run);
         self.bar.finish();
         let _ = io::Write::write_all(&mut io::stderr(), b"\n");

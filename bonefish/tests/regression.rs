@@ -207,6 +207,44 @@ fn single_sequence_over_batch_size_is_one_part() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// Ctrl-C (SIGINT) during a multi-part sorted-BAM run removes the split directory and the
+/// sorter's runs, and exits with 130.
+#[cfg(target_os = "linux")]
+#[test]
+fn interrupt_removes_temporary_files() {
+    use std::time::{Duration, Instant};
+    let dir = tmp_dir("interrupt");
+    // Enough reads that the run is still going when its temporary files appear.
+    let reads = dir.join("reads.fq");
+    let mut text = String::new();
+    flate2::read::MultiGzDecoder::new(std::fs::File::open(data("reads.fq.gz")).unwrap()).read_to_string(&mut text).unwrap();
+    std::fs::write(&reads, text.repeat(40)).unwrap();
+    let out = dir.join("out.bam");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_bonefish"))
+        .args(["-a", "-t2", "-I100k", "--sort-mem", "64k", "-o"]).arg(&out)
+        .arg(data("ref.fa.gz")).arg(&reads)
+        .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+        .spawn().unwrap();
+    let temporary = |d: &Path| -> Vec<String> {
+        std::fs::read_dir(d).unwrap().flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("bonefish-split-") || n.ends_with(".run"))
+            .collect()
+    };
+    let start = Instant::now();
+    while !temporary(&dir).iter().any(|n| n.ends_with(".run")) {
+        assert!(child.try_wait().unwrap().is_none(), "the run ended before it wrote a sorter run");
+        assert!(start.elapsed() < Duration::from_secs(60), "no sorter run appeared");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(temporary(&dir).iter().any(|n| n.starts_with("bonefish-split-")));
+    Command::new("kill").args(["-INT", &child.id().to_string()]).status().unwrap();
+    let status = child.wait().unwrap();
+    assert_eq!(status.code(), Some(130));
+    assert!(temporary(&dir).is_empty(), "left behind: {:?}", temporary(&dir));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn output_errors_fail_without_hanging() {
