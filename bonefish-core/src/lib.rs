@@ -10,12 +10,18 @@ pub use api::{dp_align, dp_global, dp_local, dp_extension, DpScoring, DpAlignmen
 // Runtime knob for the per-thread DP scratch-cache retention cap (peak-RSS control).
 pub use align::dp::{set_dp_cache_cap_mb, DEFAULT_DP_CACHE_CAP_MB, DP_CACHE_UNBOUNDED};
 
-// The CLI registers this target while drawing progress on stderr. Otherwise
-// these longstanding diagnostic messages go directly to stderr.
+static TERMINAL_MESSAGES_TO_LOG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Send the library's stderr diagnostics (index loaded, input warnings) to the `log` crate,
+/// target `bonefish::terminal`, instead of printing them. The CLI does this while it draws
+/// progress on stderr; other callers keep the plain stderr messages unless they opt in.
+pub fn route_terminal_messages_to_log(enabled: bool) {
+    TERMINAL_MESSAGES_TO_LOG.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn terminal_message(level: log::Level, message: std::fmt::Arguments<'_>) {
-    const TARGET: &str = "bonefish::terminal";
-    if log::log_enabled!(target: TARGET, log::Level::Trace) {
-        log::log!(target: TARGET, level, "{message}");
+    if TERMINAL_MESSAGES_TO_LOG.load(std::sync::atomic::Ordering::Relaxed) {
+        log::log!(target: "bonefish::terminal", level, "{message}");
     } else {
         eprintln!("{message}");
     }

@@ -538,6 +538,7 @@ fn main() -> anyhow::Result<()> {
                 Ok(())
             })
             .target(env_logger::Target::Pipe(Box::new(tui.clone())));
+        bonefish::route_terminal_messages_to_log(true);
         tui.start();
     }
     logger.init();

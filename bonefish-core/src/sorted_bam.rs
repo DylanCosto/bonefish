@@ -206,7 +206,7 @@ impl SortedBamWriter {
         progress(BamProgress::Writing { done: 0, total });
         last.sort();
         mem_batches.push(last);
-        let res = merge_and_write(&self.out_path, &self.header, &self.refs, &self.runs, mem_batches, &self.cfg, total, progress);
+        let res = merge_and_write(&self.out_path, &self.header, &self.refs, &self.runs, mem_batches, &self.cfg, Progress { total, report: progress });
         if std::env::var_os("BONEFISH_SORT_TIMING").is_some() {
             eprintln!("[sort] wait for last spill {:.2}s, merge+write {:.2}s, {} runs", (t1 - t0).as_secs_f64(), t1.elapsed().as_secs_f64(), self.runs.len());
         }
@@ -839,13 +839,15 @@ fn fill_linear(linear: &mut [u64], off_beg: u64) {
     for v in linear.iter_mut() { if *v == u64::MAX { *v = prev; } else { prev = *v; } }
 }
 
+/// Where `merge_and_write` reports progress, and the number of records it will write.
+struct Progress<F> { total: u64, report: F }
+
 /// A compression job: raw BGZF blocks (numbered from `first_block`) and the records they hold.
 struct Job { seq: u64, blocks: Vec<Vec<u8>>, metas: Vec<RecMeta> }
 
 fn merge_and_write(
     out_path: &str, header: &str, refs: &[(String, u32)], runs: &[PathBuf],
-    mem: Vec<Batch>, cfg: &SortConfig, total: u64,
-    progress: impl Fn(BamProgress) + Send + 'static,
+    mem: Vec<Batch>, cfg: &SortConfig, progress: Progress<impl Fn(BamProgress) + Send + 'static>,
 ) -> io::Result<u64> {
     let threads = cfg.threads.max(1);
     let level = cfg.level;
@@ -910,7 +912,7 @@ fn merge_and_write(
                     file_off += b.len() as u64;
                 }
                 written += metas.len() as u64;
-                progress(BamProgress::Writing { done: written, total });
+                (progress.report)(BamProgress::Writing { done: written, total: progress.total });
                 held.extend(metas);
                 let known = addr.len() as u64;
                 let mut keep = Vec::new();
@@ -930,7 +932,7 @@ fn merge_and_write(
         }
         w.write_all(&BGZF_EOF)?;
         w.flush()?;
-        progress(BamProgress::Indexing);
+        (progress.report)(BamProgress::Indexing);
         idx.write(&out_path_w)
     });
 

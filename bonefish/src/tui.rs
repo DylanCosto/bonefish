@@ -229,7 +229,17 @@ impl Tui {
 
     pub(crate) fn stage(&self, stage: Stage, part: usize) {
         let mut run = self.run.lock().unwrap();
-        if let Some(next) = run.rows.iter().position(|row| row.stage == stage) {
+        let next = run.rows.iter().position(|row| row.stage == stage).or_else(|| {
+            // A merge that starts without --split-prefix (multi-part SAM/BAM): add its row
+            // before the BAM stages.
+            (stage == Stage::Merge).then(|| {
+                let at = run.rows.iter().position(|row| matches!(row.stage, Stage::Bam | Stage::Index)).unwrap_or(run.rows.len());
+                run.rows.insert(at, Row { stage, elapsed: Duration::ZERO, visited: false });
+                if run.active >= at { run.active += 1; }
+                at
+            })
+        });
+        if let Some(next) = next {
             let previous = run.active;
             if previous != next {
                 let now = Instant::now();
