@@ -1,4 +1,7 @@
+mod tui;
+
 use clap::Parser;
+use std::fmt;
 use std::io::Write;
 use std::time::Instant;
 
@@ -18,6 +21,7 @@ use bonefish::align::map::{MapOptions, AlignFlags};
 use bonefish::align::pipeline::{OutputConfig, ReadInfo};
 use bonefish::align::stats::AlignmentStats;
 use bonefish::align::split;
+use tui::{RefWork, Stage, Tui};
 
 // ─── CLI definition ───
 
@@ -231,6 +235,10 @@ struct AlignArgs {
     /// Spliced presets: write the introns of primary alignments (MAPQ >= 10) as BED instead of SAM/PAF
     #[arg(long)]
     pub write_junc: bool,
+
+    /// Show live alignment stages on a terminal (stderr).
+    #[arg(long)]
+    pub tui: bool,
 
     /// Output to file instead of stdout (FILE.bam writes a coordinate-sorted BAM, as --sort)
     #[arg(short = 'o')]
@@ -508,21 +516,55 @@ fn main() -> anyhow::Result<()> {
     let args = Cli::parse();
     VERBOSE.store(args.verbose || std::env::var_os("BONEFISH_TIMERS").is_some(), std::sync::atomic::Ordering::Relaxed);
 
-    env_logger::Builder::new()
-        .filter_level(if args.verbose {
-            log::LevelFilter::Debug
-        } else {
-            log::LevelFilter::Warn
-        })
-        .init();
+    let align = args.align.dump_index.is_none() || !args.align.queries.is_empty();
+    let bam = args.align.output.as_deref().is_some_and(|path| path.ends_with(".bam"));
+    let tui = Tui::new(
+        args.align.tui && std::env::var_os("BONEFISH_SORT_TIMING").is_none(),
+        align && args.align.output.is_none(),
+        align,
+        align && args.align.split_prefix.is_some(),
+        bam,
+        // Query bytes for the progress estimate: only regular files have a known size.
+        args.align.queries.iter()
+            .map(|q| std::fs::metadata(q).ok().filter(|m| m.is_file()).map(|m| m.len()))
+            .sum::<Option<u64>>()
+            .filter(|_| !args.align.queries.is_empty()),
+    );
 
-    run(args.align)
+    let mut logger = env_logger::Builder::new();
+    logger.filter_level(if args.verbose { log::LevelFilter::Debug } else { log::LevelFilter::Warn });
+    if let Some(tui) = &tui {
+        logger
+            .filter_module("bonefish::terminal", log::LevelFilter::Trace)
+            .format(|buf, record| {
+                if record.target() != "bonefish::terminal" || record.level() != log::Level::Info {
+                    writeln!(buf, "{}", record.args())?;
+                }
+                Ok(())
+            })
+            .target(env_logger::Target::Pipe(Box::new(tui.clone())));
+        bonefish::route_terminal_messages_to_log(true);
+        tui.start();
+    }
+    logger.init();
+
+    let result = run(args.align, tui.as_ref());
+    if let Some(tui) = &tui { tui.finish(result.is_ok()); }
+    result
+}
+
+fn status(tui: Option<&Tui>, message: fmt::Arguments<'_>) {
+    if tui.is_none() { eprintln!("{message}"); }
+}
+
+fn notice(tui: Option<&Tui>, message: fmt::Arguments<'_>) {
+    if let Some(tui) = tui { tui.notice(message); } else { eprintln!("{message}"); }
 }
 
 // ─── Alignment logic ───
 
 /// Read ALT contig names from file and mark matching sequences in index.
-fn read_alt_list(mi: &mut Index, alt_path: &str) -> anyhow::Result<usize> {
+fn read_alt_list(mi: &mut Index, alt_path: &str, tui: Option<&Tui>) -> anyhow::Result<usize> {
     use std::io::BufRead;
     let file = std::fs::File::open(alt_path)
         .map_err(|e| anyhow::anyhow!("Cannot open alt file '{}': {}", alt_path, e))?;
@@ -542,7 +584,7 @@ fn read_alt_list(mi: &mut Index, alt_path: &str) -> anyhow::Result<usize> {
         }
     }
     if n_alt > 0 {
-        eprintln!("[*] Found {} ALT contigs", n_alt);
+        status(tui, format_args!("[*] Found {} ALT contigs", n_alt));
     }
     Ok(n_alt)
 }
@@ -582,7 +624,7 @@ fn apply_preset(opt: &mut MapOptions, k: &mut usize, w: &mut usize, preset: &str
     bonefish::api::apply_preset_str(opt, k, w, preset).map_err(|e| anyhow::anyhow!("{}", e))
 }
 
-fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
+fn run(mut cli: AlignArgs, tui: Option<&Tui>) -> anyhow::Result<()> {
     // BAM output is always the coordinate-sorted BAM; it implies SAM records.
     if cli.output.as_deref().is_some_and(|p| p.ends_with(".bam")) { cli.sort = true; }
     if cli.sort { cli.output_sam = true; }
@@ -597,7 +639,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
         }
     }
     if let Some(d) = &cli.dump_index && d.ends_with(".mmi") {
-        eprintln!("Warning: -d writes bonefish's own index format, which minimap2 cannot read; consider a .idx name");
+        notice(tui, format_args!("Warning: -d writes bonefish's own index format, which minimap2 cannot read; consider a .idx name"));
     }
     let do_ds = cli.ds;
     let cs_mode: Option<&str> = cli.cs.as_ref().map(|v| v.as_deref().unwrap_or("short"));
@@ -637,7 +679,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
 
     #[cfg(not(feature = "parallel"))]
     if cli.align_threads > 1 {
-        eprintln!("Warning: -t/--threads specified but executable was compiled without 'parallel' feature. Running in single-threaded mode.");
+        notice(tui, format_args!("Warning: -t/--threads specified but executable was compiled without 'parallel' feature. Running in single-threaded mode."));
     }
 
     #[cfg(feature = "parallel")]
@@ -900,6 +942,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
         }
     }
     let run_cfg = RunConfig {
+        tui,
         mid_occ_frac,
         input_rg,
         copy_comment,
@@ -931,7 +974,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
 
     if is_idx_file {
         // ─── Load from .mmi/.idx: iterate over parts ───
-        eprintln!("[*] Loading index from {}...", target_path);
+        status(tui, format_args!("[*] Loading index from {}...", target_path));
         let t_load = Instant::now();
         // Raw indexes are memory-mapped (all parts at once; pages fault in on use);
         // other formats are deserialized one part at a time.
@@ -944,8 +987,10 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
         };
         #[cfg(target_arch = "wasm32")]
         let mut mapped_parts: Option<std::collections::VecDeque<Index>> = None;
+        if let (Some(tui), Some(parts)) = (tui, &mapped_parts) { tui.parts(parts.len()); }
         let f = std::fs::File::open(target_path)
             .map_err(|e| anyhow::anyhow!("Error opening index '{}': {}", target_path, e))?;
+        let idx_size = f.metadata()?.len();
         let mut idx_reader = std::io::BufReader::new(f);
         // -d with a pre-built index: convert it (e.g. to the raw format with --idx-raw).
         let mut dump_writer: Option<std::io::BufWriter<std::fs::File>> = if let Some(dump_path) = &cli.dump_index {
@@ -956,6 +1001,7 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
         };
 
         loop {
+            if let Some(tui) = tui { tui.reference(n_parts + 1, RefWork::Load); }
             let next = match mapped_parts.as_mut() {
                 Some(parts) => parts.pop_front(),
                 None => Index::load_part(&mut idx_reader)
@@ -966,6 +1012,11 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                 None => break,
             };
             n_parts += 1;
+            if let (Some(tui), None) = (tui, &mapped_parts) {
+                use std::io::Seek;
+                let end = idx_reader.stream_position()?;
+                tui.reference_span(n_parts, end, idx_size, None);
+            }
             if n_parts == 1 {
                 let has_more = match &mapped_parts {
                     Some(parts) => !parts.is_empty(),
@@ -983,12 +1034,12 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                 }.map_err(|e| anyhow::anyhow!("Failed to save index part: {}", e))?;
             }
             let total_len: u64 = mi.seqs.iter().map(|s| s.len as u64).sum();
-            eprintln!("[*] Loaded part {} in {:.3}s — k: {}; w: {}; #seq: {}; total len: {}",
+            status(tui, format_args!("[*] Loaded part {} in {:.3}s — k: {}; w: {}; #seq: {}; total len: {}",
                 n_parts, t_load.elapsed().as_secs_f64(),
                 mi.kmer_size, mi.window_size,
-                mi.seqs.len(), total_len);
+                mi.seqs.len(), total_len));
             if n_parts == 1 && mapped_parts.is_none() && cli.dump_index.is_none() {
-                eprintln!("[*] Tip: `bonefish -d INDEX.raw --idx-raw {}` converts this index to the raw format, which loads near-instantly", target_path);
+                status(tui, format_args!("[*] Tip: `bonefish -d INDEX.raw --idx-raw {}` converts this index to the raw format, which loads near-instantly", target_path));
             }
             if n_parts == 1 && do_cigar && !mi.has_sequences() {
                 anyhow::bail!("The prebuilt index doesn't contain sequences. Cannot produce CIGAR/cs/MD output.");
@@ -997,10 +1048,10 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
             saved_w = mi.window_size;
             bonefish::api::finalize_options(&mut opt, mi.kmer_size);
             if n_parts == 1 && (cli.k.is_some_and(|v| v != mi.kmer_size) || cli.w.is_some_and(|v| v != mi.window_size)) {
-                eprintln!("Warning: -k/-w are ignored with a prebuilt index (it has k={}, w={})", mi.kmer_size, mi.window_size);
+                notice(tui, format_args!("Warning: -k/-w are ignored with a prebuilt index (it has k={}, w={})", mi.kmer_size, mi.window_size));
             }
             if let Some(ref alt_path) = cli.alt {
-                read_alt_list(&mut mi, alt_path)?;
+                read_alt_list(&mut mi, alt_path, tui)?;
             }
 
             if let Some(ref prefix) = split_output.prefix {
@@ -1031,7 +1082,8 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
         }
     } else {
         // ─── Build from FASTA/FASTQ: batch reading ───
-        eprintln!("[*] Reading target: {}", target_path);
+        status(tui, format_args!("[*] Reading target: {}", target_path));
+        if let Some(tui) = tui { tui.reference(1, RefWork::Read); }
 
         let is_fastq = target_path.ends_with(".fq") || target_path.ends_with(".fastq")
             || target_path.ends_with(".fq.gz") || target_path.ends_with(".fastq.gz");
@@ -1057,33 +1109,34 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                 if total_bases <= batch_size {
                     // ─── Single-part fast path (identical to previous behavior) ───
                     n_parts = 1;
+                    if let Some(tui) = tui { tui.reference(1, RefWork::Build); }
                     let t0 = Instant::now();
-                    eprintln!("[*] Building index for {} sequences...", all_seqs.len());
+                    status(tui, format_args!("[*] Building index for {} sequences...", all_seqs.len()));
                     let mut mi = Index::build(all_seqs, w, k, usize::MAX);
                     mi.index = 0;
-                    eprintln!("[*] Index built in {:.3}s", t0.elapsed().as_secs_f64());
+                    status(tui, format_args!("[*] Index built in {:.3}s", t0.elapsed().as_secs_f64()));
                     if let Some(ref alt_path) = cli.alt {
-                        read_alt_list(&mut mi, alt_path)?;
+                        read_alt_list(&mut mi, alt_path, tui)?;
                     }
 
                     // mid_occ per-part
                     if opt.seeding.mid_occ == 0 {
                         opt.seeding.mid_occ = mi.cal_mid_occ(mid_occ_frac, opt.seeding.min_mid_occ, opt.seeding.max_mid_occ);
-                        eprintln!("[*] Calculated mid_occ: {} (frac={})", opt.seeding.mid_occ, mid_occ_frac);
+                        status(tui, format_args!("[*] Calculated mid_occ: {} (frac={})", opt.seeding.mid_occ, mid_occ_frac));
                     } else {
-                        eprintln!("[*] Using mid_occ: {}", opt.seeding.mid_occ);
+                        status(tui, format_args!("[*] Using mid_occ: {}", opt.seeding.mid_occ));
                     }
 
                     if let Some(dump_path) = &cli.dump_index {
-                        eprintln!("[*] Saving index to {}...", dump_path);
+                        status(tui, format_args!("[*] Saving index to {}...", dump_path));
                         if cli.idx_no_seq {
                             let mut idx_copy = mi.clone();
                             idx_copy.strip_sequences();
                             if let Err(e) = idx_copy.save_as(dump_path, cli.idx_raw) {
-                                eprintln!("Warning: Failed to save index: {}", e);
+                                notice(tui, format_args!("Warning: Failed to save index: {}", e));
                             }
                         } else if let Err(e) = mi.save_as(dump_path, cli.idx_raw) {
-                            eprintln!("Warning: Failed to save index: {}", e);
+                            notice(tui, format_args!("Warning: Failed to save index: {}", e));
                         }
                     }
 
@@ -1106,6 +1159,16 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                     }
                 } else {
                     // ─── Multi-part from mmap: split all_seqs into batches ───
+                    if let Some(tui) = tui {
+                        // Same batching as below, to show "part i/n".
+                        let (mut parts, mut bases, mut pending) = (0usize, 0u64, false);
+                        for (_, seq) in &all_seqs {
+                            bases += seq.len() as u64;
+                            pending = true;
+                            if bases > batch_size { parts += 1; bases = 0; pending = false; }
+                        }
+                        tui.parts(parts + usize::from(pending));
+                    }
                     let mut batch_seqs: Vec<(String, Vec<u8>)> = Vec::new();
                     let mut batch_bases: u64 = 0;
                     let mut dump_writer: Option<std::io::BufWriter<std::fs::File>> = if let Some(dump_path) = &cli.dump_index {
@@ -1120,22 +1183,23 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
                         n_parts: &mut usize, opt: &mut MapOptions, dump_writer: &mut Option<std::io::BufWriter<std::fs::File>>,
                         sam_header_written: &mut bool, total_stats: &mut AlignmentStats| -> anyhow::Result<()>
                     {
+                        if let Some(tui) = tui { tui.reference(*n_parts + 1, RefWork::Build); }
                         split_output.prepare(cli.output_sam, &query_files)?;
                         let seqs = std::mem::take(batch_seqs);
                         *batch_bases = 0;
                         *n_parts += 1;
                         let t0 = Instant::now();
-                        eprintln!("[*] Building index part {} for {} sequences...", *n_parts, seqs.len());
+                        status(tui, format_args!("[*] Building index part {} for {} sequences...", *n_parts, seqs.len()));
                         let mut mi = Index::build(seqs, w, k, usize::MAX);
                         mi.index = *n_parts - 1;
-                        eprintln!("[*] Index part {} built in {:.3}s", *n_parts, t0.elapsed().as_secs_f64());
+                        status(tui, format_args!("[*] Index part {} built in {:.3}s", *n_parts, t0.elapsed().as_secs_f64()));
                         if let Some(ref alt_path) = cli.alt {
-                            read_alt_list(&mut mi, alt_path)?;
+                            read_alt_list(&mut mi, alt_path, tui)?;
                         }
 
                         if opt.seeding.mid_occ == 0 {
                             opt.seeding.mid_occ = mi.cal_mid_occ(mid_occ_frac, opt.seeding.min_mid_occ, opt.seeding.max_mid_occ);
-                            eprintln!("[*] Calculated mid_occ: {} (frac={}) [part {}]", opt.seeding.mid_occ, mid_occ_frac, *n_parts);
+                            status(tui, format_args!("[*] Calculated mid_occ: {} (frac={}) [part {}]", opt.seeding.mid_occ, mid_occ_frac, *n_parts));
                         }
 
                         if let Some(dw) = dump_writer.as_mut() {
@@ -1190,7 +1254,11 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
             }
         } else {
             // ─── Streaming FASTA/FASTQ: batch reading ───
-            let mut reader = bonefish::fasta::open(target_path)
+            // Bytes of the reference read so far, to weight each part in the progress estimate.
+            let ref_consumed = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let ref_size = std::fs::metadata(target_path).ok().filter(|m| m.is_file()).map(|m| m.len());
+            let mut ref_bases = 0u64;
+            let mut reader = bonefish::fasta::open_counted(target_path, tui.map(|_| std::sync::Arc::clone(&ref_consumed)))
                 .map_err(|e| anyhow::anyhow!("cannot read reference '{}': {}", target_path, e))?;
             let mut dump_writer: Option<std::io::BufWriter<std::fs::File>> = if let Some(dump_path) = &cli.dump_index {
                 Some(std::io::BufWriter::new(std::fs::File::create(dump_path)
@@ -1200,25 +1268,32 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
             };
 
             loop {
+                if let Some(tui) = tui { tui.reference(n_parts + 1, RefWork::Read); }
                 let (batch_seqs, is_eof) = reader.read_batch(batch_size)
                     .map_err(|e| anyhow::anyhow!("cannot read reference '{}': {}", target_path, e))?;
                 if batch_seqs.is_empty() { break; }
                 split_output.prepare(cli.output_sam && !is_eof, &query_files)?;
 
                 n_parts += 1;
+                if let Some(tui) = tui {
+                    tui.reference(n_parts, RefWork::Build);
+                    let end = if is_eof { ref_size.unwrap_or(0) } else { ref_consumed.load(std::sync::atomic::Ordering::Relaxed) };
+                    ref_bases += batch_seqs.iter().map(|(_, s)| s.len() as u64).sum::<u64>();
+                    if let Some(size) = ref_size { tui.reference_span(n_parts, end, size, Some((ref_bases, batch_size))); }
+                }
                 let t0 = Instant::now();
-                eprintln!("[*] Building index part {} for {} sequences...", n_parts, batch_seqs.len());
+                status(tui, format_args!("[*] Building index part {} for {} sequences...", n_parts, batch_seqs.len()));
                 let mut mi = Index::build(batch_seqs, w, k, usize::MAX);
                 mi.index = n_parts - 1;
-                eprintln!("[*] Index part {} built in {:.3}s", n_parts, t0.elapsed().as_secs_f64());
+                status(tui, format_args!("[*] Index part {} built in {:.3}s", n_parts, t0.elapsed().as_secs_f64()));
                 if let Some(ref alt_path) = cli.alt {
-                    read_alt_list(&mut mi, alt_path)?;
+                    read_alt_list(&mut mi, alt_path, tui)?;
                 }
 
                 // mid_occ per-part: only calculate once
                 if opt.seeding.mid_occ == 0 {
                     opt.seeding.mid_occ = mi.cal_mid_occ(mid_occ_frac, opt.seeding.min_mid_occ, opt.seeding.max_mid_occ);
-                    eprintln!("[*] Calculated mid_occ: {} (frac={}) [part {}]", opt.seeding.mid_occ, mid_occ_frac, n_parts);
+                    status(tui, format_args!("[*] Calculated mid_occ: {} (frac={}) [part {}]", opt.seeding.mid_occ, mid_occ_frac, n_parts));
                 }
 
                 if let Some(dw) = dump_writer.as_mut() {
@@ -1259,12 +1334,13 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
     }
 
     if n_parts > 1 && split_output.prefix.is_none() {
-        eprintln!("[WARNING] Index has {} parts. Without --split-prefix, MAPQ and secondary flags may be inaccurate.", n_parts);
+        notice(tui, format_args!("[WARNING] Index has {} parts. Without --split-prefix, MAPQ and secondary flags may be inaccurate.", n_parts));
     }
 
-    // Merge split results if --split-prefix was used
+    // Merge split results (--split-prefix, or multi-part SAM/BAM output)
     if let Some(ref prefix) = split_output.prefix && n_parts >= 1 {
-        eprintln!("[*] Merging {} split parts...", n_parts);
+        if let Some(tui) = tui { tui.stage(Stage::Merge); }
+        status(tui, format_args!("[*] Merging {} split parts...", n_parts));
         let merge_cfg = split::MergeConfig {
             prefix,
             n_parts,
@@ -1287,22 +1363,33 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
         let t_sort = Instant::now();
         let w = std::sync::Arc::try_unwrap(w).map_err(|_| anyhow::anyhow!("sorted output still in use"))?
             .into_inner().unwrap().unwrap();
-        let n = w.finish()?;
-        eprintln!("[*] Sorted BAM: {} records, merged and written in {:.3}s after mapping", n, t_sort.elapsed().as_secs_f64());
+        let n = if let Some(tui) = tui {
+            use bonefish::sorted_bam::BamProgress;
+            tui.stage(Stage::Bam);
+            let tui = tui.clone();
+            w.finish_with_progress(move |progress| match progress {
+                BamProgress::Writing { done, total } => tui.bam(done, total),
+                BamProgress::Indexing => tui.stage(Stage::Index),
+            })?
+        } else {
+            w.finish()?
+        };
+        status(tui, format_args!("[*] Sorted BAM: {} records, merged and written in {:.3}s after mapping", n, t_sort.elapsed().as_secs_f64()));
     }
 
     if no_query {
         let total_time = t_start.elapsed().as_secs_f64();
-        eprintln!("[*] Done in {:.3}s ({} index part{}). No query file provided; skipping mapping.",
-            total_time, n_parts, if n_parts != 1 { "s" } else { "" });
+        status(tui, format_args!("[*] Done in {:.3}s ({} index part{}). No query file provided; skipping mapping.",
+            total_time, n_parts, if n_parts != 1 { "s" } else { "" }));
     } else {
         #[cfg(feature = "census")]
         bonefish::align::dp::census::flush();
         let total_time = t_start.elapsed().as_secs_f64();
-        eprintln!("[*] Mapped {} reads in {:.3}s ({} index part{})", total_stats.n_reads, total_time, n_parts, if n_parts != 1 { "s" } else { "" });
+        status(tui, format_args!("[*] Mapped {} reads in {:.3}s ({} index part{})", total_stats.n_reads, total_time, n_parts, if n_parts != 1 { "s" } else { "" }));
 
         // Per-stage timers (thread-seconds) for profiling: -v or BONEFISH_TIMERS=1.
         if VERBOSE.load(std::sync::atomic::Ordering::Relaxed) {
+        let profile = || {
         eprintln!("--- Alignment Breakdown ---");
         eprintln!("  Sequence Sketching: {:.3}s", total_stats.t_sketch.as_secs_f64());
         eprintln!("  Seeding (Lookup):   {:.3}s", total_stats.t_seed.as_secs_f64());
@@ -1316,6 +1403,8 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
             total_stats.n_reads, total_stats.n_seeds, total_stats.n_anchors, total_stats.n_chains);
         eprintln!("---------------------------");
         bonefish::align::map::print_post_chain_breakdown();
+        };
+        if let Some(tui) = tui { tui.suspend(profile); } else { profile(); }
         }
     }
 
@@ -1356,6 +1445,7 @@ impl Drop for SplitOutput {
 
 /// Run-level configuration fields that stay constant across index parts.
 struct RunConfig<'a> {
+    tui: Option<&'a Tui>,
     mid_occ_frac: f32,
     /// `@RG` header lines of the BAM inputs (kept unless -R sets the read group).
     input_rg: Vec<String>,
@@ -1425,7 +1515,10 @@ fn map_one_part(
         return Ok(AlignmentStats::default());
     }
 
-    let mut reader = bonefish::fasta::open(query_path)
+    if let Some(tui) = run.tui { tui.align_file(); }
+    // Bytes of the query file read so far, for the progress estimate.
+    let consumed = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let mut reader = bonefish::fasta::open_counted(query_path, run.tui.map(|_| std::sync::Arc::clone(&consumed)))
         .map_err(|e| anyhow::anyhow!("{}", e))?;
     // Single-end reads only need the header comment for -y; skip copying it otherwise.
     if !copy_comment { reader.set_keep_description(false); }
@@ -1451,8 +1544,10 @@ fn map_one_part(
             // reads (~1.6 GB with qualities), 2 to 16 chunks; env BONEFISH_LOOKAHEAD overrides.
             let lookahead: usize = std::env::var("BONEFISH_LOOKAHEAD").ok().and_then(|v| v.parse().ok())
                 .unwrap_or_else(|| (800_000_000 / mini_batch_size.max(1)).clamp(2, 16) as usize);
-            let (tx, rx) = std::sync::mpsc::sync_channel::<Vec<SeData>>(lookahead);
-            let (tx_out, rx_out) = std::sync::mpsc::sync_channel::<Vec<(String, AlignmentStats)>>(2);
+            // Each chunk carries the query file offset at its end, for the progress estimate.
+            let (tx, rx) = std::sync::mpsc::sync_channel::<(Vec<SeData>, u64)>(lookahead);
+            let (tx_out, rx_out) = std::sync::mpsc::sync_channel::<(Vec<(String, AlignmentStats)>, u64)>(2);
+            let consumed = &consumed;
 
             // A read error stops reading; it is reported (non-zero exit) once the reads before it
             // are written.
@@ -1483,20 +1578,23 @@ fn map_one_part(
                             if chunk_bases >= mini_batch_size { break; }
                         }
                         let done = chunk_data.is_empty();
-                        if tx.send(chunk_data).is_err() { break; }
+                        let pos = consumed.load(std::sync::atomic::Ordering::Relaxed);
+                        if tx.send((chunk_data, pos)).is_err() { break; }
                         if done { break; }
                     }
                 });
 
                 let writer_handle = s.spawn(move || -> anyhow::Result<AlignmentStats> {
                     let mut acc = AlignmentStats::default();
-                    while let Ok(results) = rx_out.recv() {
+                    while let Ok((results, pos)) = rx_out.recv() {
+                        let before = acc.n_reads;
                         for (res, stats) in results {
                             if !res.is_empty() {
                                 write!(handle, "{}", res)?;
                             }
                             acc = acc + stats;
                         }
+                        if let Some(tui) = run.tui { tui.progress(acc.n_reads - before, pos); }
                     }
                     Ok(acc)
                 });
@@ -1518,6 +1616,7 @@ fn map_one_part(
                 use std::sync::atomic::{AtomicUsize, Ordering};
                 struct Chunk {
                     data: Vec<SeData>,
+                    pos: u64,
                     done: Vec<std::sync::OnceLock<(String, AlignmentStats)>>,
                     remaining: AtomicUsize,
                 }
@@ -1556,18 +1655,18 @@ fn map_one_part(
                                 }
                             };
                             let results: Vec<(String, AlignmentStats)> = c.done.into_iter().map(|r| r.into_inner().expect("every read aligned")).collect();
-                            if tx_out.send(results).is_err() { send_failed = true; abort.store(true, Ordering::Relaxed); break; }
+                            if tx_out.send((results, c.pos)).is_err() { send_failed = true; abort.store(true, Ordering::Relaxed); break; }
                         }
                         if send_failed { break; }
                         let admit = in_flight.len() < MIN_IN_FLIGHT
                             || (in_flight.len() < MAX_IN_FLIGHT && outstanding.load(Ordering::Acquire) < low_water);
                         if !input_done && admit {
                             match rx.recv() {
-                                Ok(chunk_data) if !chunk_data.is_empty() => {
+                                Ok((chunk_data, pos)) if !chunk_data.is_empty() => {
                                     let n = chunk_data.len();
                                     let id = next_id;
                                     next_id += 1;
-                                    let c = std::sync::Arc::new(Chunk { data: chunk_data, done: (0..n).map(|_| std::sync::OnceLock::new()).collect(),
+                                    let c = std::sync::Arc::new(Chunk { data: chunk_data, pos, done: (0..n).map(|_| std::sync::OnceLock::new()).collect(),
                                                                         remaining: AtomicUsize::new(n) });
                                     outstanding.fetch_add(n, Ordering::AcqRel);
                                     for ri in 0..n {
@@ -1582,7 +1681,7 @@ fn map_one_part(
                                                 align_one(ctx, map_ctx, read)
                                             }) };
                                             let r = r.unwrap_or_else(|_| {
-                                                eprintln!("[WARNING] alignment panicked for read: {}", read.0);
+                                                notice(run.tui, format_args!("[WARNING] alignment panicked for read: {}", read.0));
                                                 (String::new(), AlignmentStats::default())
                                             });
                                             let _ = c.done[ri].set(r);
@@ -1651,10 +1750,12 @@ fn map_one_part(
                     }).collect()
                 };
 
+                let before = total_stats.n_reads;
                 for (res, stats) in results {
                     write!(handle, "{}", res)?;
                     total_stats = total_stats + stats;
                 }
+                if let Some(tui) = run.tui { tui.progress(total_stats.n_reads - before, consumed.load(std::sync::atomic::Ordering::Relaxed)); }
             }
         }
     }
@@ -1688,7 +1789,9 @@ fn map_one_part_split(
         return Ok(AlignmentStats::default());
     }
 
-    let reader = bonefish::fasta::open(query_path)
+    if let Some(tui) = run.tui { tui.align_file(); }
+    let consumed = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let reader = bonefish::fasta::open_counted(query_path, run.tui.map(|_| std::sync::Arc::clone(&consumed)))
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let mut total_stats = AlignmentStats::default();
@@ -1743,6 +1846,7 @@ fn map_one_part_split(
                 .map_err(|e| anyhow::anyhow!("Error writing split temp: {}", e))?;
             total_stats = total_stats + pq.stats;
         }
+        if let Some(tui) = run.tui { tui.progress(batch.len(), consumed.load(std::sync::atomic::Ordering::Relaxed)); }
     }
 
     split_writer.flush()?;
