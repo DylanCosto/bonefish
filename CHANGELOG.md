@@ -4,7 +4,31 @@ Each release's binaries and full notes are on the
 [releases page](https://github.com/DylanCosto/bonefish/releases). "Output" means the alignment
 records. Each entry quotes the MD5 of the genome-wide HG001 sample's SAM output, `@PG` lines removed.
 
-## Unreleased
+## v0.5.0 (2026-11-18)
+
+**New: live progress display (`--tui`).** One panel on stderr follows the run through its
+stages (reference, alignment, index-part merge, sorted BAM, BAM index), each with its own clock:
+
+```
+bonefish  Running  00:29
+┌─ Alignment progress ──────────────────────────────────────────────────────────────────┐
+│  Prepare reference   done                                                       00:20 │
+│› Align reads         [██████░░░░]  63% · 5252 reads · part 3/~4 · ~12s left     00:08 │
+│  Sort and write BAM  queued                                                           │
+│  Write BAM index     queued                                                           │
+└───────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Alignment:** overall progress from how far into the read files bonefish is, reads aligned,
+  reads/s and the time left. With a reference split into index parts (`-I`), each part is one
+  pass over the reads: `part 3/4`, or `part 3/~4` while the reference is still being read. The
+  current row stays on alignment while later parts are indexed.
+- **Reference:** whether it is reading the FASTA, building the index or loading a prebuilt one.
+- **Sorted BAM:** a progress bar while the BAM is written, then the record count.
+- **Stays out of the way:** off unless asked for, and only when stderr is a terminal that
+  alignment records are not printed to; otherwise, and with `TERM=dumb`, the usual status
+  messages. Warnings print above the panel. Under 56 columns it is one line. Ctrl-C marks the
+  run `Interrupted`.
 
 **zflate replaces libdeflate.** BGZF input and output, the sorter's temporary runs and the BAI/CSI
 indexes go through [zflate](https://github.com/DylanCosto/zflate), a pure-Rust port of libdeflate,
@@ -18,26 +42,33 @@ compiler. zflate needs Rust 1.91 or newer.
 - **`--sort-level`** outside 0-12 is rejected with an error, instead of a panic in a compression
   thread.
 
-**A reference that fits in one `-I` batch is one index part.** When its last sequence pushed the
-batch past `-I` (e.g. chr20 with `-I20M`), the reference was taken as unfinished: SAM/BAM output
-went through the split-index merge for that one part, which took longer (7.2 s against 6.0 s on
-10,000 ONT reads), changed MAPQ on about 3% of records, and refused reads from stdin. The output
-now matches a run without `-I`.
+**Release check:** on 188,140 HG002 R10.4.1 reads (chr20) against GRCh38, SAM and sorted-BAM
+output are byte-identical to v0.4.0, at the same speed (81.7 s against 81.6 s, 16 threads).
+Clair3 and Sniffles2 calls on chr20 score the same against GIAB: SNP F1 0.9987, indel F1 0.9016,
+SV F1 0.8139.
 
+**Fixes**
+
+- **Multi-part SAM/BAM output** (a reference larger than `-I`, 8G by default): the header listed
+  only the first part's contigs, so alignments to the others pointed at missing contigs and BAM
+  output failed. It now goes through the split-index merge, as `--split-prefix` does, mapped on all
+  threads, with a complete header. Its temporary files go next to `--sort-tmp` or `-o`.
 - **Multi-part SAM/BAM output reads the queries twice**, so it needs them as files: reads from
   stdin or a pipe are refused with an error (they used to be accepted with a warning, and with
   `--split-prefix` and a prebuilt index gave no records). Use a larger `-I`, or PAF output.
-
-**Ctrl-C removes temporary files.** On SIGINT, SIGTERM or SIGHUP bonefish removes the split-index
-directory and the sorter's temporary runs (`<prefix>.NNNN.run`) before it exits (exit status 128 +
-the signal). Both used to be left behind, as large as the output; a sorted-BAM run interrupted
-mid-way left hundreds of run files. On a FUSE filesystem such as ntfs-3g an empty split directory
-can remain.
-
-**`--tui`** (terminal progress, opt-in): the Align row shows overall progress, reads, reads/s, a
-time-left estimate and the index part (`part 2/~4`; estimated while the reference is streamed),
-and stays current while later index parts are built. An interrupted run is marked
-`Interrupted`. In terminals under 56 columns the finished display is a one-line summary.
+- **A reference that fits in one `-I` batch is one index part.** When its last sequence pushed the
+  batch past `-I` (e.g. chr20 with `-I20M`), SAM/BAM output went through the split-index merge
+  for that one part: slower (7.2 s against 6.0 s on 10,000 ONT reads), with MAPQ changed on about
+  3% of records, and reads from stdin refused. The output now matches a run without `-I`.
+- **Prebuilt indexes with a non-default k** (e.g. built with `-k15 -w10`) supply k for chaining as
+  well as seeding, so they give the same output as mapping the FASTA with the same options.
+- **Output errors end the run.** When the output could not be written (a closed pipe, a full
+  disk), bonefish hung at 0% CPU if reads were left; it now exits with the error. SAM and PAF
+  output is flushed before success is reported.
+- **Ctrl-C removes temporary files.** On SIGINT, SIGTERM or SIGHUP bonefish removes the
+  split-index directory and the sorter's temporary runs (`<prefix>.NNNN.run`) before it exits
+  (exit status 128 + the signal); a sorted-BAM run interrupted mid-way used to leave hundreds of
+  run files. On a FUSE filesystem such as ntfs-3g an empty split directory can remain.
 
 ## v0.4.0 (2026-10-28)
 

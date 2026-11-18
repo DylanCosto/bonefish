@@ -46,8 +46,8 @@ bonefish -t 16 -x cdna -y -o cdna.bam ref.fa reads.bam
 bonefish -t 16 -a ref.fa reads.fq.gz > sample.sam
 ```
 
-Add `--tui` for a compact terminal view of reference preparation, reads processed, and
-BAM writing and indexing, with elapsed times:
+Add `--tui` for a live progress panel: reference preparation, alignment (progress, reads/s, time
+left and index part), and BAM writing and indexing, each with its elapsed time:
 
 ```bash
 bonefish --tui -t 16 -y -o sample.bam ref.fa reads.bam
