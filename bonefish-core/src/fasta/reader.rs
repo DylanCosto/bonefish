@@ -411,17 +411,41 @@ impl<R: BufRead> Reader<R> {
         Ok(Some(Record::new(name, desc, seq, None)))
     }
 
+    /// Whether no record follows: the last FASTA record ended at end of input, or only blank lines
+    /// are left before it (they are consumed, as the record readers would).
+    fn at_end(&mut self) -> io::Result<bool> {
+        if self.done {
+            return Ok(true);
+        }
+        if self.record_type == Some(RecordType::Fasta) {
+            // The FASTA reader holds the next header line in `buf`, and clears it at end of input.
+            return Ok(self.buf.is_empty() && self.reader.fill_buf()?.is_empty());
+        }
+        loop {
+            let peek = self.reader.fill_buf()?;
+            match peek.first() {
+                None => return Ok(true),
+                Some(b'\n') => { self.reader.consume(1); self.line_number += 1; }
+                Some(b'\r') => self.reader.consume(1),
+                Some(_) => return Ok(false),
+            }
+        }
+    }
+
     /// Read sequences until cumulative bases exceed batch_size.
     /// Returns (seqs, is_eof). Caller can call again for the next batch.
     /// Check before the next read,
     /// meaning the last sequence that pushes past the limit IS included.
+    /// `is_eof` is also true when that last sequence is the last of the input, so a reference
+    /// that fits in one batch is never split.
     #[allow(clippy::type_complexity)]
     pub fn read_batch(&mut self, batch_size: u64) -> Result<(Vec<(String, Vec<u8>)>, bool), FastxError> {
         let mut seqs = Vec::new();
         let mut sum_len: u64 = 0;
         loop {
             if sum_len > batch_size && !seqs.is_empty() {
-                return Ok((seqs, false));
+                let eof = self.at_end()?;
+                return Ok((seqs, eof));
             }
             match self.read_next()? {
                 Some(r) => {
@@ -735,6 +759,33 @@ pub fn parse_fasta_bytes(data: &[u8]) -> io::Result<Vec<(String, Vec<u8>)>> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn read_batch_reports_end_when_the_full_batch_ends_the_input() {
+        let cases: [(&[u8], usize); 6] = [
+            (b">a\nACGTACGT\n", 1),
+            (b">a\nACGTACGT", 1),
+            (b">a\nACGT\n>b\nACGTACGT\n", 2),
+            (b"@a\nACGTACGT\n+\nIIIIIIII\n", 1),
+            (b"@a\nACGTACGT\n+\nIIIIIIII\n\n\r\n", 1),
+            (b"@a\nACGT\n+\nIIII\n@b\nACGTACGT\n+\nIIIIIIII", 2),
+        ];
+        for (data, n) in cases {
+            let mut reader = Reader::new(Cursor::new(data));
+            let (seqs, eof) = reader.read_batch(4).unwrap();
+            let (seqs, eof) = if eof { (seqs, eof) } else { reader.read_batch(4).unwrap() };
+            assert!(eof, "{:?}", String::from_utf8_lossy(data));
+            assert_eq!(seqs.last().unwrap().0, if n == 1 { "a" } else { "b" });
+        }
+        // A record after the full batch: not the end, and it comes next.
+        for data in [&b">a\nACGTACGT\n>b\nAC\n"[..], b"@a\nACGTACGT\n+\nIIIIIIII\n\n@b\nAC\n+\nII\n"] {
+            let mut reader = Reader::new(Cursor::new(data));
+            let (seqs, eof) = reader.read_batch(4).unwrap();
+            assert!(!eof && seqs.len() == 1);
+            let (seqs, eof) = reader.read_batch(4).unwrap();
+            assert!(eof && seqs[0].0 == "b");
+        }
+    }
 
     #[test]
     fn test_detect_format_fasta() {
