@@ -33,7 +33,8 @@ bonefish's own format. minimap2 `.mmi` files can be read but not written.
 SAM/BAM output automatically merges results when a reference has multiple index parts
 (`-I` controls the number of reference bases per part). The merge rereads the queries, so
 use regular query files rather than stdin or pipes. `--split-prefix PATH` chooses where
-the intermediate files are written; otherwise the system temporary directory is used.
+the intermediate files are written; otherwise they go beside `--sort-tmp` or the `-o` file, or in
+the system temporary directory when the output is on stdout.
 
 ## Input
 

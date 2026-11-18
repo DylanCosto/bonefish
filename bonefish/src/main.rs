@@ -918,7 +918,13 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
         || Index::sniff_is_index_file(target_path);
     let mut n_parts = 0usize;
     let mut sam_header_written = false;
-    let mut split_output = SplitOutput { prefix: cli.split_prefix.clone(), temp_dir: None };
+    // Automatic split files go beside the sort's temporary runs or the output, as large runs can
+    // outgrow a small system /tmp; with output on stdout, the system temporary directory.
+    let split_base = cli.sort_tmp.as_deref().or(cli.output.as_deref())
+        .and_then(|p| std::path::Path::new(p).parent())
+        .map(|d| if d.as_os_str().is_empty() { std::path::PathBuf::from(".") } else { d.to_path_buf() })
+        .unwrap_or_else(std::env::temp_dir);
+    let mut split_output = SplitOutput { prefix: cli.split_prefix.clone(), base: split_base, temp_dir: None };
     split_output.prepare(false, &query_files)?;
     let mut saved_k = k;
     let mut saved_w = w;
@@ -1320,6 +1326,8 @@ fn run(mut cli: AlignArgs) -> anyhow::Result<()> {
 /// The user can still choose a temporary-file location with --split-prefix.
 struct SplitOutput {
     prefix: Option<String>,
+    /// Directory for the automatic temporary directory.
+    base: std::path::PathBuf,
     temp_dir: Option<std::path::PathBuf>,
 }
 
@@ -1327,12 +1335,12 @@ impl SplitOutput {
     fn prepare(&mut self, multi_part_sam: bool, queries: &[String]) -> anyhow::Result<()> {
         if self.prefix.is_none() && !multi_part_sam { return Ok(()); }
         if queries.iter().any(|q| q == "-" || std::fs::metadata(q).is_ok_and(|m| !m.is_file())) {
-            anyhow::bail!("Split-index merging requires regular query files, not stdin or pipes. Increase -I to map in one part.");
+            anyhow::bail!("Split-index merging (multi-part SAM/BAM output, or --split-prefix) rereads the queries, so they must be regular files, not stdin or pipes. Drop --split-prefix, increase -I to map in one part, or write PAF.");
         }
         if self.prefix.is_none() {
             let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos();
-            let dir = std::env::temp_dir().join(format!("bonefish-split-{}-{}", std::process::id(), stamp));
-            std::fs::create_dir(&dir)?;
+            let dir = self.base.join(format!("bonefish-split-{}-{}", std::process::id(), stamp));
+            std::fs::create_dir(&dir).map_err(|e| anyhow::anyhow!("cannot create split directory '{}': {}", dir.display(), e))?;
             self.prefix = Some(dir.join("part").to_string_lossy().into_owned());
             self.temp_dir = Some(dir);
         }
@@ -1685,27 +1693,54 @@ fn map_one_part_split(
 
     let mut total_stats = AlignmentStats::default();
     let mut record_iter = reader.records();
+    let mini_batch_size = opt.mini_batch_size as u64;
+    let opt: &MapOptions = opt;
 
-    {
-        // Single-end split write
-        let mut ctx = bonefish::align::extend::AlignmentContext::new();
-        let mut map_ctx = MapContext::new();
-
+    // Map in batches of ~mini_batch_size bases on all threads; write results in input order
+    // (the merge reads the parts' temp files in lockstep with the query file).
+    loop {
+        let mut batch: Vec<(String, Vec<u8>)> = Vec::new();
+        let mut batch_bases = 0u64;
         loop {
-            let rec = match record_iter.next() {
-                Some(Ok(r)) => r,
+            match record_iter.next() {
+                Some(Ok(r)) => {
+                    let (name, _, seq, _) = r.into_parts();
+                    batch_bases += seq.len() as u64;
+                    batch.push((name, seq));
+                }
                 Some(Err(e)) => anyhow::bail!("{}: {}", query_path, e),
                 None => break,
-            };
+            }
+            if batch_bases >= mini_batch_size { break; }
+        }
+        if batch.is_empty() { break; }
 
-            let qname = rec.name().to_string();
-            let qseq = rec.sequence().to_vec();
+        let align = |ctx: &mut bonefish::align::extend::AlignmentContext, map_ctx: &mut MapContext, (qname, qseq): &(String, Vec<u8>)| {
+            process_query(opt, mi, qname, qseq, ctx, map_ctx, out_cfg)
+        };
+        #[cfg(feature = "parallel")]
+        let processed: Vec<_> = {
+            use rayon::prelude::*;
+            thread_local! {
+                static SPLIT_CTX: std::cell::RefCell<Option<(bonefish::align::extend::AlignmentContext, MapContext)>> =
+                    const { std::cell::RefCell::new(None) };
+            }
+            batch.par_iter().map(|q| SPLIT_CTX.with(|cell| {
+                let mut g = cell.borrow_mut();
+                let (ctx, map_ctx) = g.get_or_insert_with(|| (bonefish::align::extend::AlignmentContext::new(), MapContext::new()));
+                align(ctx, map_ctx, q)
+            })).collect()
+        };
+        #[cfg(not(feature = "parallel"))]
+        let processed: Vec<_> = {
+            let mut ctx = bonefish::align::extend::AlignmentContext::new();
+            let mut map_ctx = MapContext::new();
+            batch.iter().map(|q| align(&mut ctx, &mut map_ctx, q)).collect()
+        };
 
-            let pq = process_query(opt, mi, &qname, &qseq, &mut ctx, &mut map_ctx, out_cfg);
-
+        for pq in processed {
             split::split_write_query(split_writer, &pq.results, pq.rep_len)
                 .map_err(|e| anyhow::anyhow!("Error writing split temp: {}", e))?;
-
             total_stats = total_stats + pq.stats;
         }
     }

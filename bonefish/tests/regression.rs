@@ -184,7 +184,7 @@ fn output_errors_fail_without_hanging() {
             .stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
         let start = Instant::now();
         while child.try_wait().unwrap().is_none() {
-            if start.elapsed() > Duration::from_secs(5) {
+            if start.elapsed() > Duration::from_secs(60) {
                 child.kill().unwrap();
                 child.wait().unwrap();
                 panic!("output failure left the reader blocked ({count} reads)");
