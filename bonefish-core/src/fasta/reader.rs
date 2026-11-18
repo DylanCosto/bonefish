@@ -453,6 +453,16 @@ fn open_raw(path: &Path) -> io::Result<Box<dyn io::Read + Send>> {
     })
 }
 
+/// Adds the number of bytes read from `inner` to `consumed`.
+struct Counting<R> { inner: R, consumed: std::sync::Arc<std::sync::atomic::AtomicU64> }
+impl<R: io::Read> io::Read for Counting<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.inner.read(buf)?;
+        self.consumed.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+        Ok(n)
+    }
+}
+
 /// Copies everything read from `inner` into `seen`.
 #[cfg(not(target_arch = "wasm32"))]
 struct Recording<'a, R> { inner: &'a mut R, seen: Vec<u8> }
@@ -483,7 +493,19 @@ pub fn input_read_groups<P: AsRef<Path>>(path: P) -> io::Result<Vec<String>> {
 }
 
 pub fn open<P: AsRef<Path>>(path: P) -> io::Result<Reader<Box<dyn BufRead + Send>>> {
-    let file = open_raw(path.as_ref())?;
+    open_counted(path, None)
+}
+
+/// [`open`], adding the number of bytes read from the file itself (before any decompression) to
+/// `consumed`, so callers can report progress through a file of known size.
+pub fn open_counted<P: AsRef<Path>>(
+    path: P,
+    consumed: Option<std::sync::Arc<std::sync::atomic::AtomicU64>>,
+) -> io::Result<Reader<Box<dyn BufRead + Send>>> {
+    let mut file = open_raw(path.as_ref())?;
+    if let Some(consumed) = consumed {
+        file = Box::new(Counting { inner: file, consumed });
+    }
 
     // Detect by content (gzip magic 0x1f 0x8b) rather than trusting the extension.
     // `fill_buf` peeks without consuming, so the magic bytes remain available to

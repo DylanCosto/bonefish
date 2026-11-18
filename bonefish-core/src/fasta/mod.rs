@@ -5,7 +5,7 @@ pub mod stream;
 pub mod bam;
 
 pub use record::Record;
-pub use reader::{Reader, open, FastxError, parse_fasta_bytes};
+pub use reader::{Reader, open, open_counted, FastxError, parse_fasta_bytes};
 pub use stream::{FastaStreamer, FastqStreamer};
 
 pub use reader::read_fasta;
