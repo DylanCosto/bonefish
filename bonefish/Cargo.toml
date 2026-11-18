@@ -4,6 +4,7 @@ description = "Fast aligner for Oxford Nanopore DNA, RNA and cDNA reads and PacB
 repository.workspace = true
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 readme.workspace = true
 

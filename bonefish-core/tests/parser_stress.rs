@@ -214,19 +214,19 @@ fn gen_bam(rng: &mut Rng) -> Vec<u8> {
 }
 
 /// One BGZF block holding `data`.
-fn bgzf_block(c: &mut libdeflater::Compressor, data: &[u8], o: &mut Vec<u8>) {
-    let mut def = vec![0u8; c.deflate_compress_bound(data.len())];
+fn bgzf_block(c: &mut zflate::Compressor, data: &[u8], o: &mut Vec<u8>) {
+    let mut def = vec![0u8; zflate::deflate_compress_bound(data.len())];
     let n = c.deflate_compress(data, &mut def).unwrap();
     let bsize = 18 + n + 8;
     o.extend_from_slice(&[0x1f, 0x8b, 8, 4, 0, 0, 0, 0, 0, 0xff, 6, 0, b'B', b'C', 2, 0]);
     o.extend_from_slice(&((bsize - 1) as u16).to_le_bytes());
     o.extend_from_slice(&def[..n]);
-    o.extend_from_slice(&libdeflater::crc32(data).to_le_bytes());
+    o.extend_from_slice(&zflate::crc32(0, data).to_le_bytes());
     o.extend_from_slice(&(data.len() as u32).to_le_bytes());
 }
 
 fn bgzf(rng: &mut Rng, raw: &[u8]) -> Vec<u8> {
-    let mut c = libdeflater::Compressor::default();
+    let mut c = zflate::Compressor::new(zflate::CompressionLevel::DEFAULT);
     let max_block = if rng.chance(1, 2) { 65280 } else { 1 + rng.below(512) };
     let mut o = Vec::new();
     for chunk in raw.chunks(max_block) { bgzf_block(&mut c, chunk, &mut o); }
@@ -236,8 +236,8 @@ fn bgzf(rng: &mut Rng, raw: &[u8]) -> Vec<u8> {
 
 /// Plain (non-BGZF) gzip, which `open` hands to the threaded MultiGzDecoder.
 fn gzip(raw: &[u8]) -> Vec<u8> {
-    let mut c = libdeflater::Compressor::default();
-    let mut o = vec![0u8; c.gzip_compress_bound(raw.len())];
+    let mut c = zflate::Compressor::new(zflate::CompressionLevel::DEFAULT);
+    let mut o = vec![0u8; zflate::gzip_compress_bound(raw.len())];
     let n = c.gzip_compress(raw, &mut o).unwrap();
     o.truncate(n);
     o
@@ -564,7 +564,7 @@ fn bam_bgzf(l_text: i32, records: &[(&[u8], Option<i32>)]) -> Vec<u8> {
         put_i32(&mut raw, size.unwrap_or(rec.len() as i32));
         raw.extend_from_slice(rec);
     }
-    let mut c = libdeflater::Compressor::default();
+    let mut c = zflate::Compressor::new(zflate::CompressionLevel::DEFAULT);
     let mut o = Vec::new();
     bgzf_block(&mut c, &raw, &mut o);
     bgzf_block(&mut c, b"", &mut o);

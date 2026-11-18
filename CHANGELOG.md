@@ -4,6 +4,20 @@ Each release's binaries and full notes are on the
 [releases page](https://github.com/DylanCosto/bonefish/releases). "Output" means the alignment
 records. Each entry quotes the MD5 of the genome-wide HG001 sample's SAM output, `@PG` lines removed.
 
+## Unreleased
+
+**zflate replaces libdeflate.** BGZF input and output, the sorter's temporary runs and the BAI/CSI
+indexes go through [zflate](https://github.com/DylanCosto/zflate), a pure-Rust port of libdeflate,
+instead of libdeflate's C library. A build without jemalloc or mimalloc no longer needs a C
+compiler. zflate needs Rust 1.91 or newer.
+
+- **Output:** unchanged (`9bc7ff3e…`). Sorted BAMs, from FASTQ and from dorado BAM input, hold the
+  same records, and their BAI and CSI indexes answer region queries as samtools' own do. At the
+  default level the genome-wide sample's BAM is 465 bytes smaller.
+- **Speed:** CPU time is unchanged.
+- **`--sort-level`** outside 0-12 is rejected with an error, instead of a panic in a compression
+  thread.
+
 ## v0.4.0 (2026-10-28)
 
 **New: `-x hifi`** (alias `map-hifi`), for PacBio HiFi genomic DNA. It is the `dna` preset, plus
