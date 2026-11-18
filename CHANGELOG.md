@@ -28,6 +28,17 @@ now matches a run without `-I`.
   stdin or a pipe are refused with an error (they used to be accepted with a warning, and with
   `--split-prefix` and a prebuilt index gave no records). Use a larger `-I`, or PAF output.
 
+**Ctrl-C removes temporary files.** On SIGINT, SIGTERM or SIGHUP bonefish removes the split-index
+directory and the sorter's temporary runs (`<prefix>.NNNN.run`) before it exits (exit status 128 +
+the signal). Both used to be left behind, as large as the output; a sorted-BAM run interrupted
+mid-way left hundreds of run files. On a FUSE filesystem such as ntfs-3g an empty split directory
+can remain.
+
+**`--tui`** (terminal progress, opt-in): the Align row shows overall progress, reads, reads/s, a
+time-left estimate and the index part (`part 2/~4`; estimated while the reference is streamed),
+and stays current while later index parts are built. An interrupted run is marked
+`Interrupted`. In terminals under 56 columns the finished display is a one-line summary.
+
 ## v0.4.0 (2026-10-28)
 
 **New: `-x hifi`** (alias `map-hifi`), for PacBio HiFi genomic DNA. It is the `dna` preset, plus
