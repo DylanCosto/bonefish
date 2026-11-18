@@ -1,6 +1,6 @@
 //! BAM input (e.g. unaligned ONT basecaller output) as a FASTQ text stream.
 //!
-//! `BamFastq` decodes BGZF blocks with libdeflate and turns each primary or unmapped record
+//! `BamFastq` decodes BGZF blocks with zflate and turns each primary or unmapped record
 //! (flags 0x100 and 0x800 skipped, like `samtools fastq -F 0x900`) into a FASTQ record. Reverse-
 //! strand records are reverse-complemented back to the read's original orientation. With `-y`
 //! the record's tags are written as the FASTQ comment in SAM text form, except alignment tags
@@ -65,7 +65,7 @@ pub fn filter_comment_tags(comment: &str) -> Option<String> {
 /// list if the input is not BAM.
 pub fn header_lines<R: Read>(input: R) -> io::Result<Vec<String>> {
     let mut f = io::BufReader::new(input);
-    let mut dec = libdeflater::Decompressor::new();
+    let mut dec = zflate::Decompressor::new();
     let mut block = Vec::with_capacity(1 << 16);
     let mut data = Vec::new();
     let mut need = 8usize;
@@ -102,7 +102,7 @@ pub fn looks_like_bam(head: &[u8]) -> bool {
         return false;
     }
     let mut out = vec![0u8; isize];
-    let mut dec = libdeflater::Decompressor::new();
+    let mut dec = zflate::Decompressor::new();
     matches!(dec.gzip_decompress(&head[..bsize], &mut out), Ok(n) if n >= 4 && &out[..4] == b"BAM\x01")
 }
 
@@ -151,7 +151,7 @@ impl BamFastq {
         let (tx, rx) = std::sync::mpsc::sync_channel::<io::Result<Vec<u8>>>(8);
         std::thread::spawn(move || {
             let mut inner = inner;
-            let mut dec = libdeflater::Decompressor::new();
+            let mut dec = zflate::Decompressor::new();
             let mut block = Vec::with_capacity(1 << 16);
             loop {
                 // ~1 MB of decompressed data per message
@@ -296,7 +296,7 @@ impl Read for BamFastq {
 }
 
 /// Decompress the next BGZF block from `inner`, appending to `out`; false at end of input.
-fn next_block<R: Read>(inner: &mut R, dec: &mut libdeflater::Decompressor, block: &mut Vec<u8>, out: &mut Vec<u8>) -> io::Result<bool> {
+fn next_block<R: Read>(inner: &mut R, dec: &mut zflate::Decompressor, block: &mut Vec<u8>, out: &mut Vec<u8>) -> io::Result<bool> {
     let mut head = [0u8; 18];
     match read_full(inner, &mut head)? {
         0 => return Ok(false),
@@ -490,7 +490,7 @@ fn append_tags(mut aux: &[u8], out: &mut Vec<u8>) -> Result<(), ()> {
 
 /// BGZF decompression on several threads, as a `BufRead` of the decompressed stream (for
 /// bgzipped FASTQ/FASTA). A splitter thread cuts the file into batches of whole blocks (~1 MiB
-/// compressed), `workers` threads decompress them with libdeflate, and the reader puts them
+/// compressed), `workers` threads decompress them with zflate, and the reader puts them
 /// back in file order.
 pub struct BgzfParallel {
     rx: std::sync::mpsc::Receiver<(u64, io::Result<Vec<u8>>)>,
@@ -556,7 +556,7 @@ impl BgzfParallel {
             let job_rx = std::sync::Arc::clone(&job_rx);
             let res_tx = res_tx.clone();
             std::thread::spawn(move || {
-                let mut dec = libdeflater::Decompressor::new();
+                let mut dec = zflate::Decompressor::new();
                 loop {
                     let job = { let rx = job_rx.lock().unwrap(); rx.recv() };
                     let Ok((seq, job)) = job else { return; };

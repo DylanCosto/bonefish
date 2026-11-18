@@ -249,7 +249,7 @@ struct AlignArgs {
     pub sort_tmp: Option<String>,
 
     /// --sort: BGZF compression level of the BAM
-    #[arg(long, value_name = "INT", default_value_t = 6)]
+    #[arg(long, value_name = "INT", default_value_t = 6, value_parser = clap::value_parser!(i32).range(0..=12))]
     pub sort_level: i32,
 
     /// Write CIGAR with >65535 ops at CG tag
