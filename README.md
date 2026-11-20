@@ -20,6 +20,12 @@ SAM, PAF or a sorted, indexed BAM in one step.
 They are available for Linux x86_64 and arm64 (glibc 2.28+: RHEL/Rocky 8+, Ubuntu 20.04+, Debian
 10+) and macOS on Apple silicon. Unpack and run `./bonefish`.
 
+**From crates.io**, with a recent stable Rust toolchain (installs the `bonefish` command):
+
+```bash
+cargo install bonefish-aligner --features jemalloc
+```
+
 **From source**, with a recent stable Rust toolchain:
 
 ```bash
