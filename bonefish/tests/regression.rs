@@ -487,11 +487,18 @@ fn bam_tags_and_read_groups_with_y() {
     assert!(sam.lines().any(|l| l == rg.trim_end()), "input @RG line missing from the header");
     let recs: Vec<&str> = sam.lines().filter(|l| !l.starts_with('@')).collect();
     assert!(!recs.is_empty());
+    let mut partial = 0;
     for l in &recs {
-        let tags: Vec<&str> = l.split('\t').skip(11).collect();
-        for t in ["RG:Z:run1_dna_r10.4.1_e8.2_400bps_sup@v5.0.0", "MM:Z:C+m?,0,1;", "ML:B:C,200,13"] {
-            assert!(tags.contains(&t), "tag {t} missing: {l}");
+        let f: Vec<&str> = l.split('\t').collect();
+        let tags = &f[11..];
+        assert!(tags.contains(&"RG:Z:run1_dna_r10.4.1_e8.2_400bps_sup@v5.0.0"), "RG missing: {l}");
+        // MM/ML count bases of the whole read: kept where SEQ is the whole read, dropped from a
+        // hard-clipped supplementary or a secondary without SEQ, where they would be invalid.
+        let whole = f[9] != "*" && !f[5].contains('H');
+        for t in ["MM:Z:C+m?,0,1;", "ML:B:C,200,13"] {
+            assert_eq!(tags.contains(&t), whole, "tag {t} on a record with whole read {whole}: {l}");
         }
+        partial += usize::from(!whole);
         assert!(tags.iter().any(|t| t.starts_with("qs:i:")), "qs missing: {l}");
         assert!(!tags.contains(&"NM:i:999"), "stale NM copied: {l}");
         let mut names: Vec<&str> = tags.iter().map(|t| &t[..2]).collect();
@@ -499,6 +506,13 @@ fn bam_tags_and_read_groups_with_y() {
         names.sort();
         names.dedup();
         assert_eq!(names.len(), n, "duplicate tags: {l}");
+    }
+    assert!(partial > 0, "the reads give a hard-clipped supplementary or secondary to check");
+    // With -Y supplementaries are soft-clipped: SEQ is the whole read and keeps the tags.
+    let soft = run(&["-a", "-y", "-Y", "-t", "2", reference, bam_s]);
+    for l in soft.lines().filter(|l| !l.starts_with('@')) {
+        let f: Vec<&str> = l.split('\t').collect();
+        if f[9] != "*" { assert!(l.contains("\tMM:Z:C+m?,0,1;"), "soft-clipped record lost MM: {l}"); }
     }
     let sam_r = run(&["-a", "-y", "-t", "2", "-R", "@RG\\tID:mine\\tSM:s1", reference, bam_s]);
     assert!(!sam_r.contains("run1_dna"), "-R must replace the input read group");
