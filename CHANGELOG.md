@@ -4,13 +4,18 @@ Each release's binaries and full notes are on the
 [releases page](https://github.com/DylanCosto/bonefish/releases). "Output" means the alignment
 records. Each entry quotes the MD5 of the genome-wide HG001 sample's SAM output, `@PG` lines removed.
 
-## Unreleased
+## v0.5.2 (2026-11-25)
 
 **Fixed: base-modification tags on partial records.** With `-y`, a read's `MM`/`ML`/`MN` tags
 were copied onto every record, including hard-clipped supplementaries and secondaries written
 with SEQ `*`, where their positions (counted over the whole read) point past or into the wrong
 bases. They are now kept only on records whose SEQ is the whole read (primaries, and
 supplementaries with `-Y`). Output without `-y` is unchanged.
+
+**Release check:** on 144,075 HG003 R10.4.1 reads (chr20) against GRCh38's chr20 (`-a -x map-ont`),
+SAM output is byte-identical to v0.5.1 without `-y` (219,080 records, 53.3 s against 53.4 s,
+16 threads). With `-y` it is identical to v0.5.1's once the 225,015 `MM`/`ML`/`MN` tags v0.5.1
+wrote on hard-clipped or SEQ-less records are removed from it.
 
 ## v0.5.1 (2026-11-24)
 
