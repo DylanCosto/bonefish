@@ -61,6 +61,21 @@ pub fn filter_comment_tags(comment: &str) -> Option<String> {
     (!out.is_empty()).then_some(out)
 }
 
+/// Base-modification tags: their positions count bases of the whole read in its original
+/// orientation, so they hold only for a record whose SEQ is the whole read.
+const MODIFICATION_TAGS: [[u8; 2]; 5] = [*b"MM", *b"ML", *b"MN", *b"Mm", *b"Ml"];
+
+/// `comment` (copied read tags, tab-separated) without its base-modification tags, for a
+/// record that stores part of the read (a hard-clipped supplementary) or none of it (a
+/// secondary written with SEQ `*`): there `MM`/`ML` would point past or into the wrong bases.
+/// `None` if nothing is left.
+pub fn without_modification_tags(comment: &str) -> Option<std::borrow::Cow<'_, str>> {
+    let is_mod = |t: &str| t.len() >= 2 && MODIFICATION_TAGS.contains(&[t.as_bytes()[0], t.as_bytes()[1]]);
+    if !comment.split('\t').any(is_mod) { return Some(std::borrow::Cow::Borrowed(comment)); }
+    let kept: Vec<&str> = comment.split('\t').filter(|t| !is_mod(t)).collect();
+    (!kept.is_empty()).then(|| std::borrow::Cow::Owned(kept.join("\t")))
+}
+
 /// The `@RG` lines of a BAM header (read from the first BGZF blocks of `input`), or an empty
 /// list if the input is not BAM.
 pub fn header_lines<R: Read>(input: R) -> io::Result<Vec<String>> {

@@ -4,6 +4,14 @@ Each release's binaries and full notes are on the
 [releases page](https://github.com/DylanCosto/bonefish/releases). "Output" means the alignment
 records. Each entry quotes the MD5 of the genome-wide HG001 sample's SAM output, `@PG` lines removed.
 
+## Unreleased
+
+**Fixed: base-modification tags on partial records.** With `-y`, a read's `MM`/`ML`/`MN` tags
+were copied onto every record, including hard-clipped supplementaries and secondaries written
+with SEQ `*`, where their positions (counted over the whole read) point past or into the wrong
+bases. They are now kept only on records whose SEQ is the whole read (primaries, and
+supplementaries with `-Y`). Output without `-y` is unchanged.
+
 ## v0.5.1 (2026-11-24)
 
 **New: `--progress FILE`.** The progress the `--tui` panel shows, written to a file for a

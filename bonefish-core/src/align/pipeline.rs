@@ -2442,6 +2442,9 @@ fn format_sam_record(
         }
     }
     write!(output_buffer, "\trl:i:{}", rep_len).ok();
+    // MM/ML count bases of the whole read: kept only where SEQ is the whole read.
+    let comment = if span == Some((0, qlen)) { comment.map(std::borrow::Cow::Borrowed) }
+        else { comment.and_then(crate::fasta::bam::without_modification_tags) };
     if let Some(c) = comment { write!(output_buffer, "\t{}", c).ok(); }
     writeln!(output_buffer).ok();
 }
