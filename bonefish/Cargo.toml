@@ -26,7 +26,7 @@ jemalloc = ["dep:tikv-jemallocator"]
 mimalloc = ["dep:mimalloc"]
 
 [dependencies]
-bonefish-core = { path = "../bonefish-core", version = "0.5.0", default-features = false }
+bonefish-core = { path = "../bonefish-core", version = "0.5.1", default-features = false }
 clap = { version = "4", features = ["derive"] }
 console = "0.16"
 indicatif = { version = "0.18", default-features = false, features = ["unicode-width"] }

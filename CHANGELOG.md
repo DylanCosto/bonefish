@@ -4,12 +4,18 @@ Each release's binaries and full notes are on the
 [releases page](https://github.com/DylanCosto/bonefish/releases). "Output" means the alignment
 records. Each entry quotes the MD5 of the genome-wide HG001 sample's SAM output, `@PG` lines removed.
 
-## Unreleased
+## v0.5.1 (2026-11-24)
 
 **New: `--progress FILE`.** The progress the `--tui` panel shows, written to a file for a
 pipeline's display (lrpipe's): one line, the fraction done and what is being done,
-tab-separated, replaced as the run goes, with or without `--tui` and a terminal. Output and
-logging are unchanged.
+tab-separated (`0.4130	aligning · 2.4M reads · part 2/~4 · ~5m left`), replaced by a rename
+as the run goes and ending at `1.0000	done · N reads`, with or without `--tui` and a terminal.
+Without `--progress`, bonefish writes to the file `$LRPIPE_PROGRESS` names, as `lrpipe run` sets
+it for its align stage. Output and logging are unchanged.
+
+**Release check:** on 144,075 HG003 R10.4.1 reads (chr20) against GRCh38's chr20, SAM output
+and sorted-BAM records are byte-identical to v0.5.0 (219,080 BAM records), with and without
+`--progress`, at the same speed (69.9 s against 69.9 s for the sorted BAM, 16 threads).
 
 ## v0.5.0 (2026-11-18)
 

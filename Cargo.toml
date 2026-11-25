@@ -3,7 +3,7 @@ resolver = "2"
 members = ["bonefish-core", "bonefish"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.5.1"
 edition = "2024"
 # zflate (BGZF) needs 1.91; the tests need a newer compiler.
 rust-version = "1.91"
