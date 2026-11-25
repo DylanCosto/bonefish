@@ -59,6 +59,13 @@ left and index part), and BAM writing and indexing, each with its elapsed time:
 bonefish --tui -t 16 -y -o sample.bam ref.fa reads.bam
 ```
 
+For a pipeline's own display, `--progress FILE` writes how far the run has got to FILE, with or
+without `--tui` or a terminal: one line, the fraction done and what is being done,
+tab-separated (`0.4130	aligning · 2.4M reads · part 2/~4 · ~5m left`), replaced by a rename
+as the run goes, so a reader never sees half a line. It ends at `1.0000	done · N reads`. Without
+`--progress`, bonefish writes to the file `$LRPIPE_PROGRESS` names, as `lrpipe run` sets it for its
+align stage.
+
 The display uses stderr. When stderr is redirected, or alignment records are going to the
 terminal on stdout, bonefish uses its regular status messages.
 

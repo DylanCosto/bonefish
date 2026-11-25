@@ -679,3 +679,31 @@ fn simd_paths_give_same_output() {
         }
     }
 }
+
+#[test]
+fn progress_file_ends_done_and_output_is_unchanged() {
+    // --progress writes one line, the fraction done and what is being done, without a terminal,
+    // and changes neither the output nor what is logged.
+    let dir = tmp_dir("progress");
+    let progress = dir.join("progress.txt");
+    let (reference, reads) = (data("ref.fa.gz"), data("reads.fq.gz"));
+    let (reference, reads) = (reference.to_str().unwrap(), reads.to_str().unwrap());
+    let plain = run(&["-a", "-t", "2", reference, reads]);
+    let with = run(&["-a", "-t", "2", "--progress", progress.to_str().unwrap(), reference, reads]);
+    assert_eq!(plain, with, "--progress changed the output");
+    let line = std::fs::read_to_string(&progress).expect("the progress file");
+    let (fraction, what) = line.trim_end().split_once('\t').expect("fraction and what, tab-separated");
+    assert_eq!(fraction, "1.0000", "{line}");
+    assert!(what.starts_with("done · "), "{line}");
+    assert!(!dir.join("progress.tmp").exists(), "the file is renamed into place");
+    // lrpipe names the file in the environment rather than with --progress.
+    let from_env = dir.join("from-env.txt");
+    let out = Command::new(env!("CARGO_BIN_EXE_bonefish"))
+        .args(["-a", "-t", "2", reference, reads])
+        .env("LRPIPE_PROGRESS", &from_env)
+        .output()
+        .expect("failed to run bonefish");
+    assert!(out.status.success());
+    assert!(std::fs::read_to_string(&from_env).expect("the file LRPIPE_PROGRESS names").starts_with("1.0000\tdone"));
+    std::fs::remove_dir_all(&dir).ok();
+}

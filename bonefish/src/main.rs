@@ -241,6 +241,13 @@ struct AlignArgs {
     #[arg(long)]
     pub tui: bool,
 
+    /// Write how far the run has got to FILE, replaced as it goes: one line, the fraction done
+    /// and what is being done, tab-separated (0.4130<TAB>aligning · 2.4M reads · part 2/~4),
+    /// for a pipeline's display. Works with or without --tui and a terminal. Without it, the
+    /// file $LRPIPE_PROGRESS names, as lrpipe sets it for the stages it runs.
+    #[arg(long, value_name = "FILE")]
+    pub progress: Option<std::path::PathBuf>,
+
     /// Output to file instead of stdout (FILE.bam writes a coordinate-sorted BAM, as --sort)
     #[arg(short = 'o')]
     pub output: Option<String>,
@@ -521,6 +528,8 @@ fn main() -> anyhow::Result<()> {
     let bam = args.align.output.as_deref().is_some_and(|path| path.ends_with(".bam"));
     let tui = Tui::new(
         args.align.tui && std::env::var_os("BONEFISH_SORT_TIMING").is_none(),
+        // lrpipe sets LRPIPE_PROGRESS for each stage it runs, bonefish's included.
+        args.align.progress.clone().or_else(|| std::env::var_os("LRPIPE_PROGRESS").filter(|p| !p.is_empty()).map(Into::into)),
         align && args.align.output.is_none(),
         align,
         align && args.align.split_prefix.is_some(),
@@ -534,7 +543,7 @@ fn main() -> anyhow::Result<()> {
 
     let mut logger = env_logger::Builder::new();
     logger.filter_level(if args.verbose { log::LevelFilter::Debug } else { log::LevelFilter::Warn });
-    if let Some(tui) = &tui {
+    if let Some(tui) = tui.as_ref().filter(|t| t.displayed()) {
         logger
             .filter_module("bonefish::terminal", log::LevelFilter::Trace)
             .format(|buf, record| {
@@ -556,7 +565,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn status(tui: Option<&Tui>, message: fmt::Arguments<'_>) {
-    if tui.is_none() { eprintln!("{message}"); }
+    if !tui.is_some_and(Tui::displayed) { eprintln!("{message}"); }
 }
 
 fn notice(tui: Option<&Tui>, message: fmt::Arguments<'_>) {

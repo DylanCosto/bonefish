@@ -1,5 +1,6 @@
 use std::fmt;
 use std::io::{self, IsTerminal};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -101,7 +102,69 @@ struct Run {
     align_start: Option<Instant>,
 }
 
+/// Where `--progress` writes how far the run has got, and when it last did.
+struct ProgressFile {
+    path: PathBuf,
+    last: Option<Instant>,
+    /// The largest fraction written: a revised estimate never moves it back.
+    shown: f64,
+}
+
+/// How often the progress file is written at most, but at a stage's start or end.
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(500);
+
+/// What preparing the reference is doing, for `--progress`.
+fn reference_work(work: Option<RefWork>) -> String {
+    match work {
+        Some(RefWork::Read) => "reading the reference",
+        Some(RefWork::Build) => "building the reference index",
+        Some(RefWork::Load) => "loading the reference index",
+        None => "preparing the reference",
+    }
+    .to_owned()
+}
+
 impl Run {
+    /// How far the whole run has got (0 to 1), and what it is doing, for `--progress`: preparing
+    /// the reference up to 2%, aligning to 85%, merging parts, writing the sorted BAM to 98% and
+    /// indexing it.
+    fn overall(&self, now: Instant) -> (f64, String) {
+        if let Some((_, outcome)) = self.finished {
+            return match outcome {
+                Outcome::Complete => (1.0, format!("done · {} reads", count(self.reads_total))),
+                Outcome::Failed => (0.0, format!("{} failed", self.rows[self.active].stage.name().to_lowercase())),
+                Outcome::Interrupted => (0.0, "interrupted".to_owned()),
+            };
+        }
+        match self.rows[self.focus].stage {
+            Stage::Reference => (0.0, reference_work(self.ref_work)),
+            Stage::Align => {
+                let fraction = self.align_fraction().unwrap_or(0.0);
+                let mut what = if self.active == self.focus {
+                    format!("aligning · {} reads", count(self.reads_total))
+                } else {
+                    reference_work(self.ref_work)
+                };
+                if let Some(part) = self.part_label() { what.push_str(&format!(" · {part}")); }
+                if let Some(started) = self.align_start {
+                    let t = (now - started).as_secs_f64();
+                    if (0.005..1.0).contains(&fraction) && t >= 5.0 {
+                        what.push_str(&format!(" · ~{} left", short_time(t * (1.0 - fraction) / fraction)));
+                    }
+                }
+                (0.02 + 0.83 * fraction, what)
+            }
+            Stage::Merge => (0.86, "merging the index parts' alignments".to_owned()),
+            Stage::Bam => match self.bam.filter(|&(_, total)| total > 0) {
+                Some((done, total)) => {
+                    (0.87 + 0.11 * done as f64 / total as f64, format!("writing the sorted BAM · {done} of {total}"))
+                }
+                None => (0.87, "sorting the alignments".to_owned()),
+            },
+            Stage::Index => (0.98, "indexing the BAM".to_owned()),
+        }
+    }
+
     /// Fraction of all alignment work done, over all parts when their number is known.
     fn align_fraction(&self) -> Option<f64> {
         let total = self.input_total.filter(|&t| t > 0)? as f64;
@@ -341,26 +404,31 @@ fn count(n: usize) -> String {
 #[derive(Clone)]
 pub(crate) struct Tui {
     run: Arc<Mutex<Run>>,
-    bar: ProgressBar,
+    /// The panel on stderr, with `--tui` on a terminal.
+    bar: Option<ProgressBar>,
+    /// `--progress`'s file.
+    progress: Option<Arc<Mutex<ProgressFile>>>,
 }
 
 impl Tui {
+    /// The run's progress: drawn as a panel on stderr when `requested` and stderr is a terminal
+    /// that alignment records are not printed to, and written to `progress` when given. None
+    /// when neither.
     pub(crate) fn new(
         requested: bool,
+        progress: Option<PathBuf>,
         stdout_data: bool,
         align: bool,
         merge: bool,
         bam: bool,
         input_total: Option<u64>,
     ) -> Option<Self> {
-        if !requested
-            || (stdout_data && io::stdout().is_terminal())
-            || std::env::var_os("TERM").is_some_and(|term| term == "dumb")
-        {
-            return None;
-        }
         let target = ProgressDrawTarget::stderr_with_hz(8);
-        if target.is_hidden() {
+        let display = requested
+            && !(stdout_data && io::stdout().is_terminal())
+            && !std::env::var_os("TERM").is_some_and(|term| term == "dumb")
+            && !target.is_hidden();
+        if !display && progress.is_none() {
             return None;
         }
         let mut stages = vec![Stage::Reference];
@@ -402,23 +470,61 @@ impl Tui {
             bam: None,
             align_start: None,
         }));
-        let snapshot = Arc::clone(&run);
-        let theme = ProgressStyle::with_template("{panel}")
-            .expect("valid panel template")
-            .with_key(
-                "panel",
-                move |_: &ProgressState, out: &mut dyn fmt::Write| {
-                    let (_, width) = Term::stderr().size();
-                    let _ = snapshot.lock().unwrap().draw(out, usize::from(width));
-                },
-            );
-        let bar = ProgressBar::with_draw_target(None, target).with_style(theme);
-        Some(Self { run, bar })
+        let bar = display.then(|| {
+            let snapshot = Arc::clone(&run);
+            let theme = ProgressStyle::with_template("{panel}")
+                .expect("valid panel template")
+                .with_key(
+                    "panel",
+                    move |_: &ProgressState, out: &mut dyn fmt::Write| {
+                        let (_, width) = Term::stderr().size();
+                        let _ = snapshot.lock().unwrap().draw(out, usize::from(width));
+                    },
+                );
+            ProgressBar::with_draw_target(None, target).with_style(theme)
+        });
+        let progress = progress.map(|path| Arc::new(Mutex::new(ProgressFile { path, last: None, shown: 0.0 })));
+        let tui = Self { run, bar, progress };
+        tui.report(true);
+        Some(tui)
+    }
+
+    /// Whether the panel is drawn: without it, status lines go to stderr as without `--tui`.
+    pub(crate) fn displayed(&self) -> bool {
+        self.bar.is_some()
+    }
+
+    /// Writes the progress file, at most every [`PROGRESS_INTERVAL`] unless `now` (a stage's
+    /// start or end). It is replaced by a rename, so a reader never sees half a line: one line,
+    /// the fraction done and what is being done, tab-separated (`0.4130\taligning · 2.4M
+    /// reads`). A file that cannot be written is left: progress is not worth failing a run for.
+    fn report(&self, now: bool) {
+        let Some(progress) = &self.progress else { return };
+        let mut file = progress.lock().unwrap_or_else(|e| e.into_inner());
+        if !now && file.last.is_some_and(|t| t.elapsed() < PROGRESS_INTERVAL) {
+            return;
+        }
+        file.last = Some(Instant::now());
+        let (fraction, what, complete) = {
+            let run = self.run.lock().unwrap_or_else(|e| e.into_inner());
+            let (fraction, what) = run.overall(Instant::now());
+            (fraction, what, matches!(run.finished, Some((_, Outcome::Complete))))
+        };
+        // A failed or interrupted run keeps the fraction it reached.
+        let fraction = if complete { 1.0 } else { fraction.max(file.shown) };
+        file.shown = fraction;
+        let line = format!("{:.4}\t{}\n", fraction.clamp(0.0, 1.0), what.replace(['\t', '\n'], " "));
+        let tmp = file.path.with_extension("tmp");
+        if std::fs::write(&tmp, line).is_ok() {
+            let _ = std::fs::rename(&tmp, &file.path);
+        }
     }
 
     pub(crate) fn start(&self) {
-        self.bar.tick();
-        self.bar.enable_steady_tick(Duration::from_millis(200));
+        if let Some(bar) = &self.bar {
+            bar.tick();
+            bar.enable_steady_tick(Duration::from_millis(200));
+        }
     }
 
     /// Starts preparing reference part `part` (1-based).
@@ -488,7 +594,8 @@ impl Tui {
             }
         }
         drop(run);
-        self.bar.tick();
+        if let Some(bar) = &self.bar { bar.tick(); }
+        self.report(true);
     }
 
     /// `reads` more reads aligned; `input_pos` bytes of the current query file consumed by them.
@@ -499,19 +606,27 @@ impl Tui {
             run.reads_total += reads;
             run.input_pos = run.input_pos.max(input_pos);
         }
-        self.bar.tick();
+        if let Some(bar) = &self.bar { bar.tick(); }
+        self.report(false);
     }
 
     pub(crate) fn bam(&self, done: u64, total: u64) {
         self.run.lock().unwrap().bam = Some((done.min(total), total));
+        self.report(false);
     }
 
     pub(crate) fn notice(&self, message: fmt::Arguments<'_>) {
-        self.bar.println(message.to_string());
+        match &self.bar {
+            Some(bar) => bar.println(message.to_string()),
+            None => eprintln!("{message}"),
+        }
     }
 
     pub(crate) fn suspend(&self, operation: impl FnOnce()) {
-        self.bar.suspend(operation);
+        match &self.bar {
+            Some(bar) => bar.suspend(operation),
+            None => operation(),
+        }
     }
 
     pub(crate) fn finish(&self, ok: bool) {
@@ -528,15 +643,18 @@ impl Tui {
         if run.finished.is_some() {
             return;
         }
-        self.bar.disable_steady_tick();
+        if let Some(bar) = &self.bar { bar.disable_steady_tick(); }
         let now = Instant::now();
         let elapsed = now - run.since;
         let active = run.active;
         run.rows[active].elapsed += elapsed;
         run.finished = Some((now, outcome));
         drop(run);
-        self.bar.finish();
-        let _ = io::Write::write_all(&mut io::stderr(), b"\n");
+        self.report(true);
+        if let Some(bar) = &self.bar {
+            bar.finish();
+            let _ = io::Write::write_all(&mut io::stderr(), b"\n");
+        }
     }
 }
 
@@ -544,7 +662,10 @@ impl Tui {
 impl io::Write for Tui {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if !buf.is_empty() {
-            self.bar.println(String::from_utf8_lossy(buf).trim_end());
+            match &self.bar {
+                Some(bar) => bar.println(String::from_utf8_lossy(buf).trim_end()),
+                None => io::Write::write_all(&mut io::stderr(), buf)?,
+            }
         }
         Ok(buf.len())
     }
