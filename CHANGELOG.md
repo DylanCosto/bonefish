@@ -4,6 +4,13 @@ Each release's binaries and full notes are on the
 [releases page](https://github.com/DylanCosto/bonefish/releases). "Output" means the alignment
 records. Each entry quotes the MD5 of the genome-wide HG001 sample's SAM output, `@PG` lines removed.
 
+## Unreleased
+
+**New: `--progress FILE`.** The progress the `--tui` panel shows, written to a file for a
+pipeline's display (lrpipe's): one line, the fraction done and what is being done,
+tab-separated, replaced as the run goes, with or without `--tui` and a terminal. Output and
+logging are unchanged.
+
 ## v0.5.0 (2026-11-18)
 
 **New: live progress display (`--tui`).** One panel on stderr follows the run through its
